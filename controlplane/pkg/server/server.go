@@ -29,6 +29,8 @@ import (
 	"github.com/tprm/scanner-appliance/controlplane/pkg/ca"
 	"github.com/tprm/scanner-appliance/controlplane/pkg/codes"
 	"github.com/tprm/scanner-appliance/controlplane/pkg/store"
+	"github.com/tprm/scanner-appliance/internal/guard"
+	"github.com/tprm/scanner-appliance/internal/seal"
 )
 
 const (
@@ -51,6 +53,10 @@ type Config struct {
 	PublicURL  string // what appliances are told to use for mTLS traffic
 	AdminToken string
 	Logger     *slog.Logger
+	// SpoolKey decrypts result chunks (PLAN §9). nil generates an ephemeral
+	// key with a warning: fine for tests and --dev, useless in production
+	// because a restart strands every appliance's spool.
+	SpoolKey *SpoolKey
 	// Now is overridable for tests.
 	Now func() time.Time
 }
@@ -71,6 +77,14 @@ func New(cfg Config) *Server {
 	if cfg.Objects == nil {
 		cfg.Objects = DiscardObjects{}
 	}
+	if cfg.SpoolKey == nil {
+		k, err := seal.GenerateKey()
+		if err != nil {
+			panic(err)
+		}
+		cfg.SpoolKey = &SpoolKey{Key: k}
+		cfg.Logger.Warn("no spool key configured; using an ephemeral one (results spooled against it are lost on restart)")
+	}
 	return &Server{cfg: cfg, log: cfg.Logger, limiter: newIPLimiter(10, time.Minute)}
 }
 
@@ -90,6 +104,8 @@ func (s *Server) MTLSHandler() http.Handler {
 	mux.HandleFunc("POST /v1/appliances/{id}/support", s.withAppliance(s.handleSupport))
 	mux.HandleFunc("POST /v1/appliances/{id}/wipe", s.withAppliance(s.handleWipe))
 	mux.HandleFunc("GET /v1/appliances/{id}/jobs", s.withAppliance(s.handleJobs))
+	mux.HandleFunc("POST /v1/jobs/{job}/status", s.withAppliance(s.handleJobStatus))
+	mux.HandleFunc("POST /v1/jobs/{job}/results", s.withAppliance(s.handleResults))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 
 	mux.HandleFunc("POST /admin/appliances", s.withAdmin(s.adminCreateAppliance))
@@ -99,6 +115,19 @@ func (s *Server) MTLSHandler() http.Handler {
 	mux.HandleFunc("POST /admin/appliances/{id}/revoke", s.withAdmin(s.adminRevoke))
 	mux.HandleFunc("POST /admin/appliances/{id}/directives", s.withAdmin(s.adminCreateDirective))
 	mux.HandleFunc("GET /admin/appliances/{id}/directives", s.withAdmin(s.adminListDirectives))
+
+	mux.HandleFunc("POST /admin/jobs", s.withAdmin(s.adminCreateJob))
+	mux.HandleFunc("GET /admin/jobs", s.withAdmin(s.adminListJobs))
+	mux.HandleFunc("GET /admin/jobs/{id}", s.withAdmin(s.adminGetJob))
+	mux.HandleFunc("POST /admin/jobs/{id}/cancel", s.withAdmin(s.adminCancelJob))
+	mux.HandleFunc("POST /admin/jobs/{id}/run-now", s.withAdmin(s.adminRunJobNow))
+	mux.HandleFunc("GET /admin/jobs/{id}/hosts", s.withAdmin(s.adminJobHosts))
+	mux.HandleFunc("GET /admin/sites", s.withAdmin(s.adminListSites))
+	mux.HandleFunc("GET /admin/sites/{id}", s.withAdmin(s.adminGetSite))
+	mux.HandleFunc("PATCH /admin/sites/{id}", s.withAdmin(s.adminUpdateSite))
+	mux.HandleFunc("GET /admin/sites/{id}/hosts", s.withAdmin(s.adminSiteHosts))
+	mux.HandleFunc("GET /admin/sites/{id}/findings", s.withAdmin(s.adminSiteFindings))
+	mux.HandleFunc("POST /admin/sites/{id}/agent-inventory", s.withAdmin(s.adminAgentInventory))
 	return logging(s.log, mux)
 }
 
@@ -278,11 +307,16 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logAttempt(apl.ID, true, "ok")
-	writeJSON(w, http.StatusOK, v1.EnrollResponse{
-		ApplianceID: apl.ID, CertPEM: issued.CertPEM, ChainPEM: s.cfg.CA.ChainPEM(), CPURL: s.cfg.PublicURL,
+	writeJSON(w, http.StatusOK, s.enrollResponse(apl.ID, issued.CertPEM, site))
+}
+
+func (s *Server) enrollResponse(applianceID, certPEM string, site *store.Site) v1.EnrollResponse {
+	return v1.EnrollResponse{
+		ApplianceID: applianceID, CertPEM: certPEM, ChainPEM: s.cfg.CA.ChainPEM(), CPURL: s.cfg.PublicURL,
 		PollIntervalS: int(DefaultPollInterval / time.Second),
-		Site:          v1.SiteConfig{AllowedCIDRs: site.AllowedCIDRs, TZ: site.TZ, MaxPPS: site.MaxPPS},
-	})
+		Site:          site.Config(),
+		SpoolPubKey:   s.cfg.SpoolKey.PublicString(), SpoolKID: s.cfg.SpoolKey.KID(),
+	}
 }
 
 // ---- /v1/renew ----
@@ -311,11 +345,7 @@ func (s *Server) handleRenew(w http.ResponseWriter, r *http.Request) {
 	// The old serial keeps working until its NotAfter; revoking it here would
 	// strand an appliance that crashes before persisting the new cert.
 	s.log.Info("cert renewed", "appliance", apl.ID, "old_serial", apl.CertSerial, "new_serial", issued.Serial)
-	writeJSON(w, http.StatusOK, v1.EnrollResponse{
-		ApplianceID: apl.ID, CertPEM: issued.CertPEM, ChainPEM: s.cfg.CA.ChainPEM(), CPURL: s.cfg.PublicURL,
-		PollIntervalS: int(DefaultPollInterval / time.Second),
-		Site:          v1.SiteConfig{AllowedCIDRs: site.AllowedCIDRs, TZ: site.TZ, MaxPPS: site.MaxPPS},
-	})
+	writeJSON(w, http.StatusOK, s.enrollResponse(apl.ID, issued.CertPEM, site))
 }
 
 // ---- /v1/appliances/{id}/heartbeat ----
@@ -389,12 +419,6 @@ func (s *Server) handleWipe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---- /v1/appliances/{id}/jobs (Phase 2 stub) ----
-
-func (s *Server) handleJobs(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // ---- admin ----
 
 func (s *Server) adminCreateAppliance(w http.ResponseWriter, r *http.Request) {
@@ -407,11 +431,9 @@ func (s *Server) adminCreateAppliance(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "vendor and site are required", "missing")
 		return
 	}
-	for _, c := range req.AllowedCIDRs {
-		if _, _, err := net.ParseCIDR(c); err != nil {
-			writeErr(w, http.StatusBadRequest, "bad cidr "+c, "bad_cidr")
-			return
-		}
+	if err := guard.ValidCIDRs(req.AllowedCIDRs); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error(), "bad_cidr")
+		return
 	}
 	ctx := r.Context()
 	vendor, err := s.cfg.Store.EnsureVendor(ctx, req.Vendor)
@@ -423,6 +445,13 @@ func (s *Server) adminCreateAppliance(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error(), "store")
 		return
+	}
+	if req.MaxConcurrency > 0 && req.MaxConcurrency != site.MaxConcurrency {
+		site.MaxConcurrency = req.MaxConcurrency
+		if err := s.cfg.Store.UpdateSite(ctx, site); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error(), "store")
+			return
+		}
 	}
 	apl, err := s.cfg.Store.CreateAppliance(ctx, site.ID)
 	if err != nil {
@@ -517,8 +546,12 @@ func (s *Server) adminGetAppliance(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) view(a *store.Appliance) v1.AdminApplianceView {
 	online := a.LastHeartbeatAt != nil && s.cfg.Now().Sub(*a.LastHeartbeatAt) <= OnlineWindow
+	feed := ""
+	if a.LastHeartbeat != nil {
+		feed = a.LastHeartbeat.FeedVersion
+	}
 	return v1.AdminApplianceView{
-		ApplianceID: a.ID, SiteID: a.SiteID, Status: a.Status, Online: online, Version: a.Version, BundleVersion: a.BundleVersion,
+		ApplianceID: a.ID, SiteID: a.SiteID, Status: a.Status, Online: online, Version: a.Version, BundleVersion: a.BundleVersion, FeedVersion: feed,
 		CertSerial: a.CertSerial, CertNotAfter: a.CertNotAfter, LastHeartbeatAt: a.LastHeartbeatAt, LastHeartbeat: a.LastHeartbeat,
 		SkewS: a.SkewS, Ifaces: a.Ifaces, Fingerprint: a.Fingerprint,
 	}

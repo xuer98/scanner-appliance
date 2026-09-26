@@ -121,6 +121,9 @@ func persist(st *state.Store, resp *v1.EnrollResponse, enrollURL string, first b
 	}
 	s.PollIntervalS = resp.PollIntervalS
 	s.Site = resp.Site
+	if resp.SpoolPubKey != "" {
+		s.SpoolPubKey, s.SpoolKID = resp.SpoolPubKey, resp.SpoolKID
+	}
 	na := cert.Leaf.NotAfter
 	s.CertNotAfter = &na
 	if first {

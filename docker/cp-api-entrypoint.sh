@@ -8,7 +8,9 @@
 #   CP_ENROLL_ADDR   default :8443
 #   CP_MTLS_ADDR     default :9443
 #   CP_PUBLIC_URL    what appliances are told to use after enrollment (default https://cp-api:9443)
-#   CP_SERVER_CERT / CP_SERVER_KEY  optional server TLS cert/key
+#   CP_SERVER_CERT / CP_SERVER_KEY  optional server TLS cert/key; when absent
+#                    the server certificate (and the spool key) are issued
+#                    from the CA in CP_PKI_DIR (--self-issue)
 #   CP_ADMIN_TOKEN   bearer token for /admin/* (read by cp-api itself)
 #   CP_EXTRA_ARGS    extra flags appended verbatim
 set -euo pipefail
@@ -30,8 +32,11 @@ if [[ -n "${CP_DB_URL:-}" ]]; then
 else
   args+=(--dev)
 fi
-[[ -n "${CP_SERVER_CERT:-}" ]] && args+=(--server-cert "$CP_SERVER_CERT")
-[[ -n "${CP_SERVER_KEY:-}" ]] && args+=(--server-key "$CP_SERVER_KEY")
+if [[ -n "${CP_SERVER_CERT:-}" && -n "${CP_SERVER_KEY:-}" ]]; then
+  args+=(--server-cert "$CP_SERVER_CERT" --server-key "$CP_SERVER_KEY")
+else
+  args+=(--self-issue)
+fi
 [[ -n "${CP_ADMIN_TOKEN:-}" ]] && args+=(--admin-token "$CP_ADMIN_TOKEN")
 if [[ -n "${CP_EXTRA_ARGS:-}" ]]; then
   # shellcheck disable=SC2206

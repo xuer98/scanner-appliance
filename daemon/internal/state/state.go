@@ -68,6 +68,11 @@ type State struct {
 	StopAll           bool   `json:"stop_all"`
 	SeedConsumed      bool   `json:"seed_consumed"`
 	BundleVersion     string `json:"bundle_version,omitempty"`
+
+	// Spool key: results are sealed to this control-plane key before they
+	// touch disk (PLAN §9). Refreshed at enrollment and renewal.
+	SpoolPubKey string `json:"spool_pubkey,omitempty"`
+	SpoolKID    string `json:"spool_kid,omitempty"`
 }
 
 // Store reads and writes state files with atomic replace.
@@ -254,21 +259,25 @@ func shred(path string) error {
 
 // Status is the live view published for the TTY (never contains secrets).
 type Status struct {
-	UpdatedAt     time.Time  `json:"updated_at"`
-	Version       string     `json:"version"`
-	BundleVersion string     `json:"bundle_version"`
-	State         string     `json:"state"`
-	ApplianceID   string     `json:"appliance_id"`
-	CPURL         string     `json:"cp_url"`
-	Reachable     bool       `json:"reachable"`
-	LastError     string     `json:"last_error,omitempty"`
-	LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
-	SkewS         int64      `json:"skew_s"`
-	IntervalS     int        `json:"interval_s"`
-	Ifaces        []v1.Iface `json:"ifaces"`
-	CurrentJobID  string     `json:"current_job_id,omitempty"`
-	StopAll       bool       `json:"stop_all"`
-	CertNotAfter  *time.Time `json:"cert_not_after,omitempty"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	Version       string          `json:"version"`
+	BundleVersion string          `json:"bundle_version"`
+	State         string          `json:"state"`
+	ApplianceID   string          `json:"appliance_id"`
+	CPURL         string          `json:"cp_url"`
+	Reachable     bool            `json:"reachable"`
+	LastError     string          `json:"last_error,omitempty"`
+	LastHeartbeat *time.Time      `json:"last_heartbeat,omitempty"`
+	SkewS         int64           `json:"skew_s"`
+	IntervalS     int             `json:"interval_s"`
+	Ifaces        []v1.Iface      `json:"ifaces"`
+	CurrentJob    *v1.JobProgress `json:"current_job,omitempty"`
+	StopAll       bool            `json:"stop_all"`
+	CertNotAfter  *time.Time      `json:"cert_not_after,omitempty"`
+	// Phase 2: engine health, feed version and spool backlog for the console.
+	Engine         v1.EngineHealth `json:"engine"`
+	FeedVersion    string          `json:"feed_version,omitempty"`
+	PendingResults int             `json:"pending_results"`
 }
 
 func (s *Store) WriteStatus(st *Status) error {

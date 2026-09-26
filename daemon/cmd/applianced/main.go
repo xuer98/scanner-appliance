@@ -1,6 +1,6 @@
 // applianced is the scanner appliance daemon (PLAN §3, §9).
 //
-//	applianced run                         daemon: seed → enroll → heartbeat loop
+//	applianced run                         daemon: seed → enroll → heartbeat + job loop
 //	applianced tty                         console on tty1 (getty@tty1 override)
 //	applianced enroll --code CODE [--cp-url URL]
 //	applianced status                      print /run/appliance/status.json
@@ -10,6 +10,12 @@
 //
 //	version       release version
 //	defaultCPURL  the single egress FQDN (PLAN G3)
+//
+// Runtime environment (all optional):
+//
+//	APPLIANCE_OSPD_SOCKET       ospd-openvas socket (default /run/ospd/ospd.sock)
+//	APPLIANCE_NAABU             naabu binary (default /opt/engine/naabu, then $PATH)
+//	APPLIANCE_SUPERVISE_ENGINE  "1": start redis + ospd-openvas as children (container)
 package main
 
 import (
@@ -19,16 +25,24 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // scan windows are evaluated in the site's timezone
 
+	"github.com/tprm/scanner-appliance/daemon/internal/engine"
 	"github.com/tprm/scanner-appliance/daemon/internal/enroll"
 	"github.com/tprm/scanner-appliance/daemon/internal/heartbeat"
+	"github.com/tprm/scanner-appliance/daemon/internal/jobs"
 	"github.com/tprm/scanner-appliance/daemon/internal/netcfg"
+	"github.com/tprm/scanner-appliance/daemon/internal/nvt"
+	"github.com/tprm/scanner-appliance/daemon/internal/osp"
 	"github.com/tprm/scanner-appliance/daemon/internal/pki"
 	"github.com/tprm/scanner-appliance/daemon/internal/seed"
+	"github.com/tprm/scanner-appliance/daemon/internal/spool"
 	"github.com/tprm/scanner-appliance/daemon/internal/state"
 	"github.com/tprm/scanner-appliance/daemon/internal/tty"
 )
@@ -80,6 +94,9 @@ func run(args []string) error {
 	dir, runDir := commonFlags(fs)
 	seedFile := fs.String("seed-file", os.Getenv("APPLIANCE_SEED_FILE"), "read seed from this YAML instead of OVF/volume/env")
 	logLevel := fs.String("log-level", envOr("APPLIANCE_LOG_LEVEL", "info"), "debug|info|warn")
+	ospSock := fs.String("ospd-socket", envOr("APPLIANCE_OSPD_SOCKET", osp.DefaultSocket), "ospd-openvas Unix socket")
+	naabuPath := fs.String("naabu", os.Getenv("APPLIANCE_NAABU"), "naabu binary (default /opt/engine/naabu or $PATH)")
+	supervise := fs.Bool("supervise-engine", os.Getenv("APPLIANCE_SUPERVISE_ENGINE") == "1", "start redis + ospd-openvas as child processes (no systemd)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -88,6 +105,17 @@ func run(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if *supervise {
+		sup := osp.DefaultSupervisor(log)
+		sup.OSPDSock = *ospSock
+		if sup.Available() {
+			log.Info("supervising redis-openvas and ospd-openvas")
+			go sup.Run(ctx)
+		} else {
+			log.Warn("engine supervision requested but redis/ospd-openvas are not installed")
+		}
+	}
 
 	roots, err := pki.Pool()
 	if err != nil {
@@ -119,10 +147,33 @@ func run(args []string) error {
 	if err := st.Save(s); err != nil {
 		return err
 	}
-	loop := &heartbeat.Loop{Store: st, Roots: roots, Version: version, Log: log}
+	if *naabuPath == "" {
+		*naabuPath = findNaabu()
+	}
+	if *naabuPath == "" {
+		log.Warn("naabu not found; discovery/portscan jobs will fail until it is installed")
+	}
+	eng := &engine.Engine{NaabuPath: *naabuPath, OSP: osp.New(*ospSock), Log: log,
+		NVT: nvt.New(filepath.Join(st.Dir, "nvt-cache"), osp.New(*ospSock), log)}
+	runner := &jobs.Runner{Store: st, Engine: eng, Spool: &spool.Spool{Dir: filepath.Join(st.Dir, "spool")}, Roots: roots, Log: log}
+	loop := &heartbeat.Loop{Store: st, Roots: roots, Version: version, Log: log, OSPSocket: *ospSock, Jobs: runner}
 	loop.Run(ctx)
+	runner.StopAll("daemon shutting down")
+	runner.Wait()
 	log.Info("applianced stopped")
 	return nil
+}
+
+// findNaabu prefers the image's engine directory, then $PATH.
+func findNaabu() string {
+	p := filepath.Join(heartbeat.EngineDir, "naabu")
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	if p, err := exec.LookPath("naabu"); err == nil {
+		return p
+	}
+	return ""
 }
 
 func applySeed(ctx context.Context, log *slog.Logger, s *state.State, sd *seed.Seed) {

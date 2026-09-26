@@ -1,11 +1,13 @@
 // Package heartbeat runs the appliance's only control channel (PLAN §8, §9).
 //
-// The loop owns the daemon state machine for Phase 1:
+// The loop owns the daemon state machine:
 //
-//	Unenrolled → Enrolling → Idle ⇄ (directives) → Wiped
+//	Unenrolled → Enrolling → Idle ⇄ Scanning ⇄ (directives) → Wiped
 //
 // Nothing is inbound. Directives arrive in heartbeat responses and are
-// acknowledged by ID in the next heartbeat.
+// acknowledged by ID in the next heartbeat. After every successful
+// heartbeat the loop flushes spooled results and, when idle, polls for the
+// next job (Phase 2, PLAN §11).
 package heartbeat
 
 import (
@@ -22,6 +24,7 @@ import (
 	v1 "github.com/tprm/scanner-appliance/api/v1"
 	"github.com/tprm/scanner-appliance/daemon/internal/cpclient"
 	"github.com/tprm/scanner-appliance/daemon/internal/enroll"
+	"github.com/tprm/scanner-appliance/daemon/internal/jobs"
 	"github.com/tprm/scanner-appliance/daemon/internal/netcfg"
 	"github.com/tprm/scanner-appliance/daemon/internal/osp"
 	"github.com/tprm/scanner-appliance/daemon/internal/state"
@@ -31,6 +34,7 @@ const (
 	StateUnenrolled = "unenrolled"
 	StateEnrolling  = "enrolling"
 	StateIdle       = "idle"
+	StateScanning   = "scanning"
 	StateRevoked    = "revoked"
 	StateWiped      = "wiped"
 
@@ -56,6 +60,8 @@ type Loop struct {
 	Now func() time.Time
 	// OSPSocket is the ospd-openvas socket probed for engine health.
 	OSPSocket string
+	// Jobs runs scans; nil disables job polling (Phase 1 behaviour).
+	Jobs *jobs.Runner
 
 	client    *cpclient.Client
 	clientKey string // proxy + cert mtime; rebuild when it changes
@@ -66,6 +72,8 @@ type Loop struct {
 	lastErr   string
 	reachable bool
 	stateName string
+	engine    v1.EngineHealth
+	pollNow   bool
 }
 
 func (l *Loop) init() {
@@ -102,6 +110,9 @@ func (l *Loop) Run(ctx context.Context) {
 			continue
 		}
 		l.stateName = StateIdle
+		if l.Jobs != nil && !l.Jobs.Idle() {
+			l.stateName = StateScanning
+		}
 		wait := l.tick(ctx, st)
 		if !sleep(ctx, wait) {
 			return
@@ -206,10 +217,23 @@ func (l *Loop) tick(ctx context.Context, st *state.State) time.Duration {
 	if fresh, err := l.Store.Load(); err == nil {
 		st = fresh
 	}
-	l.publish(st)
 	if l.stateName == StateWiped {
+		l.publish(st)
 		return time.Hour
 	}
+	if l.Jobs != nil {
+		l.Jobs.Flush(ctx)
+		if !st.StopAll && (l.Jobs.Idle() || l.pollNow) {
+			l.pollNow = false
+			l.Jobs.Poll(ctx, l.client, st, hb.Engine)
+		}
+		if l.Jobs.Idle() {
+			l.stateName = StateIdle
+		} else {
+			l.stateName = StateScanning
+		}
+	}
+	l.publish(st)
 	return jitter(l.interval(st))
 }
 
@@ -251,12 +275,20 @@ func (l *Loop) build(st *state.State) v1.Heartbeat {
 	pctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	engine := osp.New(l.OSPSocket).Health(pctx)
 	cancel()
+	l.engine = engine
 	hb := v1.Heartbeat{
 		Engine:  engine,
-		Version: l.Version, BundleVersion: st.BundleVersion,
-		UptimeS: uptimeSeconds(), Load1: load1(), DiskFreeMB: diskFreeMB(l.Store.Dir),
+		Version: l.Version, BundleVersion: st.BundleVersion, FeedVersion: engine.FeedVersion,
+		UptimeS: uptimeSeconds(), Load1: load1(), DiskFreeMB: diskFreeMB(l.Store.Dir), MemFreeMB: memFreeMB(),
 		Ifaces: netcfg.Interfaces(), BinarySHA256: binaryHashes(),
-		ClockEpoch: l.Now().Unix(), AckedDirectiveIDs: l.acks, State: l.stateName, SkewS: l.skew,
+		ClockEpoch: l.Now().Unix(), AckedDirectiveIDs: l.acks, State: l.stateName, SkewS: l.skew, StopAll: st.StopAll,
+	}
+	if l.Jobs != nil {
+		hb.CurrentJob = l.Jobs.Progress()
+		hb.PendingResults = l.Jobs.Pending()
+		if hb.CurrentJob != nil {
+			hb.State = StateScanning
+		}
 	}
 	if hb.AckedDirectiveIDs == nil {
 		hb.AckedDirectiveIDs = []string{}
@@ -298,7 +330,19 @@ func (l *Loop) apply(ctx context.Context, st *state.State, d v1.Directive) bool 
 			log.Info("stop_all cleared")
 		} else {
 			log.Warn("stop_all active: no jobs will run until cleared")
+			if l.Jobs != nil {
+				l.Jobs.StopAll("stop_all directive " + d.ID)
+			}
 		}
+		return true
+	case v1.DirectiveRunJobNow:
+		if l.Jobs == nil {
+			log.Warn("run_job_now: no job runner in this build")
+			return true
+		}
+		jobID, _ := d.Payload["job_id"].(string)
+		log.Info("run_job_now: polling immediately", "job_id", jobID)
+		l.pollNow = true
 		return true
 	case v1.DirectiveRenewCert:
 		if err := enroll.Renew(ctx, l.Store, l.Roots, l.Version); err != nil {
@@ -316,7 +360,7 @@ func (l *Loop) apply(ctx context.Context, st *state.State, d v1.Directive) bool 
 		}
 		l.wipe(ctx, st, "directive "+d.ID)
 		return true
-	case v1.DirectiveUpdateDaemon, v1.DirectiveUpdateBundle, v1.DirectiveRunJobNow:
+	case v1.DirectiveUpdateDaemon, v1.DirectiveUpdateBundle:
 		log.Warn("directive not supported by this version; acknowledging without effect")
 		l.lastErr = "unsupported directive " + d.Type
 		return true
@@ -329,6 +373,10 @@ func (l *Loop) apply(ctx context.Context, st *state.State, d v1.Directive) bool 
 // wipe implements PLAN §6/§9: tell the control plane, shred state, power off.
 func (l *Loop) wipe(ctx context.Context, st *state.State, reason string) {
 	l.Log.Warn("WIPE", "reason", reason)
+	if l.Jobs != nil {
+		l.Jobs.StopAll("wipe")
+		l.Jobs.Wait()
+	}
 	if l.client != nil && st.ApplianceID != "" {
 		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		if err := l.client.Wipe(cctx, st.CPURL, st.ApplianceID, reason); err != nil {
@@ -367,6 +415,11 @@ func (l *Loop) publish(st *state.State) {
 		Version: l.Version, BundleVersion: st.BundleVersion, State: l.stateName, ApplianceID: st.ApplianceID,
 		CPURL: st.CPURL, Reachable: l.reachable, LastError: l.lastErr, LastHeartbeat: l.lastHB, SkewS: l.skew,
 		IntervalS: int(l.interval(st) / time.Second), Ifaces: netcfg.Interfaces(), StopAll: st.StopAll, CertNotAfter: st.CertNotAfter,
+		Engine: l.engine, FeedVersion: l.engine.FeedVersion,
+	}
+	if l.Jobs != nil {
+		s.CurrentJob = l.Jobs.Progress()
+		s.PendingResults = l.Jobs.Pending()
 	}
 	if s.CPURL == "" {
 		s.CPURL = st.EnrollURL

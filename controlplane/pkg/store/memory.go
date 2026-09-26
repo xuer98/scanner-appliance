@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -21,6 +22,13 @@ type Memory struct {
 	attempts    []EnrollAttempt
 	heartbeats  map[string][]v1.Heartbeat
 	supportLogs []string
+
+	jobs     map[string]*Job
+	batches  map[string]*ResultBatchRec
+	hosts    map[string]*Host
+	findings map[string]*Finding
+	jobHosts map[string]map[string]bool
+	nvts     map[string]*NVT
 }
 
 func NewMemory() *Memory {
@@ -72,7 +80,7 @@ func (m *Memory) EnsureSite(_ context.Context, vendorID, name string, cidrs []st
 	if maxPPS == 0 {
 		maxPPS = 300
 	}
-	s := &Site{ID: NewID("site"), VendorID: vendorID, Name: name, AllowedCIDRs: cidrs, TZ: tz, MaxPPS: maxPPS,
+	s := &Site{ID: NewID("site"), VendorID: vendorID, Name: name, AllowedCIDRs: cidrs, TZ: tz, MaxPPS: maxPPS, MaxConcurrency: 16,
 		FragilePorts: []int{9100, 515, 631, 161, 502, 44818}}
 	m.sites[s.ID] = s
 	return s, nil
@@ -337,4 +345,335 @@ func (m *Memory) RecordSupportBundle(_ context.Context, applianceID, objectKey s
 	}
 	m.supportLogs = append(m.supportLogs, objectKey)
 	return nil
+}
+
+// ---- Phase 2: sites, jobs, results ----
+
+func (m *Memory) ensurePhase2() {
+	if m.jobs == nil {
+		m.jobs = map[string]*Job{}
+		m.batches = map[string]*ResultBatchRec{}
+		m.hosts = map[string]*Host{}
+		m.findings = map[string]*Finding{}
+		m.jobHosts = map[string]map[string]bool{}
+		m.nvts = map[string]*NVT{}
+	}
+}
+
+func (m *Memory) GetVendor(_ context.Context, id string) (*Vendor, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	v, ok := m.vendors[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	c := *v
+	return &c, nil
+}
+
+func (m *Memory) ListSites(_ context.Context) ([]*Site, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*Site, 0, len(m.sites))
+	for _, s := range m.sites {
+		c := *s
+		out = append(out, &c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+func (m *Memory) UpdateSite(_ context.Context, s *Site) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.sites[s.ID]; !ok {
+		return ErrNotFound
+	}
+	c := *s
+	m.sites[s.ID] = &c
+	return nil
+}
+
+func copyJob(j *Job) *Job {
+	c := *j
+	if j.Stats != nil {
+		st := *j.Stats
+		c.Stats = &st
+	}
+	return &c
+}
+
+func (m *Memory) CreateJob(_ context.Context, j *Job) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	if _, ok := m.appliances[j.ApplianceID]; !ok {
+		return ErrNotFound
+	}
+	if j.ID == "" {
+		j.ID = NewID("job")
+	}
+	if j.CreatedAt.IsZero() {
+		j.CreatedAt = time.Now()
+	}
+	if j.Status == "" {
+		j.Status = v1.JobQueued
+	}
+	m.jobs[j.ID] = copyJob(j)
+	return nil
+}
+
+func (m *Memory) GetJob(_ context.Context, id string) (*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	j, ok := m.jobs[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return copyJob(j), nil
+}
+
+func (m *Memory) ListJobs(_ context.Context, siteID, applianceID string) ([]*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	var out []*Job
+	for _, j := range m.jobs {
+		if (siteID == "" || j.SiteID == siteID) && (applianceID == "" || j.ApplianceID == applianceID) {
+			out = append(out, copyJob(j))
+		}
+	}
+	sort.Slice(out, func(i, k int) bool { return out[i].CreatedAt.Before(out[k].CreatedAt) })
+	return out, nil
+}
+
+func (m *Memory) DispatchableJobs(_ context.Context, applianceID string, now time.Time, lease time.Duration) ([]*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	var out []*Job
+	for _, j := range m.jobs {
+		if j.ApplianceID != applianceID {
+			continue
+		}
+		switch j.Status {
+		case v1.JobQueued:
+			if j.ScheduledFor == nil || !j.ScheduledFor.After(now) {
+				out = append(out, copyJob(j))
+			}
+		case v1.JobDispatched:
+			if j.DispatchedAt != nil && now.Sub(*j.DispatchedAt) > lease {
+				out = append(out, copyJob(j))
+			}
+		}
+	}
+	sort.Slice(out, func(i, k int) bool {
+		a, b := out[i], out[k]
+		at, bt := a.CreatedAt, b.CreatedAt
+		if a.ScheduledFor != nil {
+			at = *a.ScheduledFor
+		}
+		if b.ScheduledFor != nil {
+			bt = *b.ScheduledFor
+		}
+		if !at.Equal(bt) {
+			return at.Before(bt)
+		}
+		return a.CreatedAt.Before(b.CreatedAt)
+	})
+	return out, nil
+}
+
+func (m *Memory) UpdateJob(_ context.Context, j *Job) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	old, ok := m.jobs[j.ID]
+	if !ok {
+		return ErrNotFound
+	}
+	c := copyJob(j)
+	// Batches is owned by RecordResultBatch (as in Postgres, where UpdateJob
+	// never writes that column).
+	c.Batches, c.CreatedAt = old.Batches, old.CreatedAt
+	m.jobs[j.ID] = c
+	return nil
+}
+
+func (m *Memory) RecordResultBatch(_ context.Context, rec ResultBatchRec) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	j, ok := m.jobs[rec.JobID]
+	if !ok {
+		return false, ErrNotFound
+	}
+	key := rec.JobID + "/" + fmt.Sprint(rec.Seq)
+	if old, ok := m.batches[key]; ok {
+		if old.SHA256 == rec.SHA256 {
+			return true, nil
+		}
+		return false, ErrConflict
+	}
+	r := rec
+	m.batches[key] = &r
+	j.Batches++
+	return false, nil
+}
+
+func (m *Memory) siteIndex(siteID string) *siteIndex {
+	var hosts []*Host
+	var findings []*Finding
+	for _, h := range m.hosts {
+		if h.SiteID == siteID {
+			hosts = append(hosts, h)
+		}
+	}
+	for _, f := range m.findings {
+		if h, ok := m.hosts[f.HostID]; ok && h.SiteID == siteID {
+			findings = append(findings, f)
+		}
+	}
+	sortHosts(hosts)
+	return newSiteIndex(siteID, hosts, findings)
+}
+
+func (m *Memory) commit(ix *siteIndex) {
+	for id, h := range ix.changed {
+		m.hosts[id] = h
+	}
+	for id, f := range ix.changedF {
+		m.findings[id] = f
+	}
+}
+
+func (m *Memory) IngestHosts(_ context.Context, siteID, jobID string, hosts []v1.Host, feedVersion string, at time.Time) (IngestSummary, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	if _, ok := m.sites[siteID]; !ok {
+		return IngestSummary{}, ErrNotFound
+	}
+	ix := m.siteIndex(siteID)
+	sum, touched := ix.ingestAppliance(jobID, hosts, feedVersion, at)
+	m.commit(ix)
+	if jobID != "" {
+		if m.jobHosts[jobID] == nil {
+			m.jobHosts[jobID] = map[string]bool{}
+		}
+		for _, id := range touched {
+			m.jobHosts[jobID][id] = true
+		}
+	}
+	return sum, nil
+}
+
+func (m *Memory) IngestAgentHosts(_ context.Context, siteID string, hosts []v1.AgentHost, at time.Time) (IngestSummary, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	if _, ok := m.sites[siteID]; !ok {
+		return IngestSummary{}, ErrNotFound
+	}
+	ix := m.siteIndex(siteID)
+	sum := ix.ingestAgent(hosts, at)
+	m.commit(ix)
+	return sum, nil
+}
+
+func copyHost(h *Host) *Host {
+	c := *h
+	if h.OSGuess != nil {
+		g := *h.OSGuess
+		c.OSGuess = &g
+	}
+	c.Ports = append([]v1.Port{}, h.Ports...)
+	c.Notes = append([]string{}, h.Notes...)
+	c.Packages = append([]v1.AgentPackage{}, h.Packages...)
+	return &c
+}
+
+func copyFinding(f *Finding) *Finding {
+	c := *f
+	c.CVE = append([]string{}, f.CVE...)
+	c.Evidence = append([]v1.Evidence{}, f.Evidence...)
+	return &c
+}
+
+func (m *Memory) ListHosts(_ context.Context, siteID string) ([]*Host, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	var out []*Host
+	for _, h := range m.hosts {
+		if h.SiteID == siteID {
+			out = append(out, copyHost(h))
+		}
+	}
+	sortHosts(out)
+	return out, nil
+}
+
+func (m *Memory) ListJobHosts(_ context.Context, jobID string) ([]*Host, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	var out []*Host
+	for id := range m.jobHosts[jobID] {
+		if h, ok := m.hosts[id]; ok {
+			out = append(out, copyHost(h))
+		}
+	}
+	sortHosts(out)
+	return out, nil
+}
+
+func (m *Memory) GetHost(_ context.Context, id string) (*Host, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	h, ok := m.hosts[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return copyHost(h), nil
+}
+
+func (m *Memory) ListFindings(_ context.Context, siteID, hostID string) ([]*Finding, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	var out []*Finding
+	for _, f := range m.findings {
+		h, ok := m.hosts[f.HostID]
+		if !ok || (siteID != "" && h.SiteID != siteID) || (hostID != "" && f.HostID != hostID) {
+			continue
+		}
+		out = append(out, copyFinding(f))
+	}
+	sortFindings(out)
+	return out, nil
+}
+
+func (m *Memory) UpsertNVTs(_ context.Context, nvts []NVT) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	for _, n := range nvts {
+		if n.OID == "" {
+			continue
+		}
+		c := n
+		m.nvts[n.OID] = &c
+	}
+	return nil
+}
+
+// NVT returns a mirrored VT (tests).
+func (m *Memory) NVT(oid string) *NVT {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	return m.nvts[oid]
 }

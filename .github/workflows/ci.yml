@@ -42,6 +42,12 @@ jobs:
       - name: Build both binaries for amd64 + arm64
         run: ci/build.sh --dev --version ci-${GITHUB_SHA::8}
 
+      - name: Build scan engine (naabu, amd64)
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libpcap-dev
+          ci/build-engine.sh --arch amd64
+          bin/engine/naabu -version
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist

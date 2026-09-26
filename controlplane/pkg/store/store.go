@@ -25,14 +25,17 @@ type Vendor struct {
 }
 
 type Site struct {
-	ID           string
-	VendorID     string
-	Name         string
-	AllowedCIDRs []string
-	Excludes     []string
-	FragilePorts []int
-	MaxPPS       int
-	TZ           string
+	ID             string
+	VendorID       string
+	Name           string
+	AllowedCIDRs   []string
+	Excludes       []string
+	FragilePorts   []int
+	MaxPPS         int
+	MaxConcurrency int
+	TZ             string
+	UnsafeOK       bool
+	AllowPublic    bool
 }
 
 type Appliance struct {
@@ -124,6 +127,32 @@ type Store interface {
 
 	// Support bundles
 	RecordSupportBundle(ctx context.Context, applianceID, objectKey string, bytes int64) error
+
+	// Sites and vendors (scope editor, PLAN §17.4)
+	GetVendor(ctx context.Context, id string) (*Vendor, error)
+	ListSites(ctx context.Context) ([]*Site, error)
+	UpdateSite(ctx context.Context, s *Site) error
+
+	// Jobs (PLAN §11, §17.2)
+	CreateJob(ctx context.Context, j *Job) error
+	GetJob(ctx context.Context, id string) (*Job, error)
+	ListJobs(ctx context.Context, siteID, applianceID string) ([]*Job, error)
+	// DispatchableJobs returns queued jobs due at now and dispatched jobs
+	// whose lease expired, oldest first.
+	DispatchableJobs(ctx context.Context, applianceID string, now time.Time, lease time.Duration) ([]*Job, error)
+	UpdateJob(ctx context.Context, j *Job) error
+
+	// Results (PLAN §12)
+	// RecordResultBatch is idempotent per (job, seq): the same sha256 again
+	// reports duplicate=true; a different sha256 for a seen seq is ErrConflict.
+	RecordResultBatch(ctx context.Context, rec ResultBatchRec) (duplicate bool, err error)
+	IngestHosts(ctx context.Context, siteID, jobID string, hosts []v1.Host, feedVersion string, at time.Time) (IngestSummary, error)
+	IngestAgentHosts(ctx context.Context, siteID string, hosts []v1.AgentHost, at time.Time) (IngestSummary, error)
+	ListHosts(ctx context.Context, siteID string) ([]*Host, error)
+	ListJobHosts(ctx context.Context, jobID string) ([]*Host, error)
+	GetHost(ctx context.Context, id string) (*Host, error)
+	ListFindings(ctx context.Context, siteID, hostID string) ([]*Finding, error)
+	UpsertNVTs(ctx context.Context, nvts []NVT) error
 
 	Close() error
 }

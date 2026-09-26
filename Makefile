@@ -1,10 +1,10 @@
-# Scanner appliance — Phase 1 build targets.
+# Scanner appliance — build targets (Phase 1 + 2).
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)
 CP_URL  ?= https://appliance.tprm.example.com
 LDFLAGS  = -s -w -X main.version=$(VERSION) -X main.defaultCPURL=$(CP_URL)
 GOFLAGS  = -trimpath
 
-.PHONY: all build build-linux test vet lint dev-ca dev-cp dev-appliance clean ova docker
+.PHONY: all build build-linux build-engine test vet lint dev-ca dev-cp dev-appliance dev-job dev-tty clean ova docker
 
 all: vet test build
 
@@ -14,6 +14,9 @@ build:            ## native binaries into bin/
 
 build-linux:      ## static linux/amd64 + arm64 (what the image and container use)
 	./ci/build.sh --dev --version $(VERSION)
+
+build-engine:     ## naabu → bin/engine/naabu (Linux host with libpcap-dev; the Dockerfile builds its own)
+	./ci/build-engine.sh --arch amd64
 
 test:
 	go test ./...
@@ -31,16 +34,23 @@ dev-ca:           ## dev PKI under dev/pki (root, intermediate, keys)
 dev-cp: dev-ca    ## run cp-api in-memory on :8443 (enroll) / :9443 (mTLS + admin), admin token "dev"
 	go run ./controlplane/cmd/cp-api serve --dev --pki-dir dev/pki --object-dir dev/objects --public-url https://localhost:9443
 
+# NAABU=/path/to/naabu enables discovery/portscan jobs on a dev box; OSPD=/run/ospd/ospd.sock for openvas.
+NAABU ?=
+OSPD  ?= /run/ospd/ospd.sock
 dev-appliance: dev-ca  ## run the daemon locally against dev-cp; set CODE=... from `cp-api admin create-appliance`
 	APPLIANCE_ROOT_CA=dev/pki/root.pem APPLIANCE_STATE_DIR=dev/state APPLIANCE_RUN_DIR=dev/run \
-	APPLIANCE_CP_URL=https://localhost:8443 APPLIANCE_CODE=$(CODE) \
+	APPLIANCE_CP_URL=https://localhost:8443 APPLIANCE_CODE=$(CODE) APPLIANCE_NAABU=$(NAABU) APPLIANCE_OSPD_SOCKET=$(OSPD) \
 	go run ./daemon/cmd/applianced run --log-level debug
+
+dev-job: dev-ca   ## create + run a job now: make dev-job APL=apl_… MODE=discovery|inventory|full TARGETS=10.30.5.0/24
+	CP_URL=https://localhost:9443 CP_ADMIN_TOKEN=dev CP_ROOT_CA=dev/pki/root.pem \
+	go run ./controlplane/cmd/cp-api admin create-job --appliance $(APL) --mode $(MODE) --targets $(TARGETS) --now
 
 dev-tty: dev-ca   ## the console against the local daemon state
 	APPLIANCE_ROOT_CA=dev/pki/root.pem APPLIANCE_STATE_DIR=dev/state APPLIANCE_RUN_DIR=dev/run \
 	go run ./daemon/cmd/applianced tty
 
-ova: build-linux  ## qcow2 via packer, then OVA + VHDX (needs packer, qemu, kvm)
+ova: build-linux  ## qcow2 via packer, then OVA + VHDX (needs packer, qemu, kvm; run build-engine first for naabu)
 	cd packer && packer init base.pkr.hcl && packer build -var version=$(VERSION) base.pkr.hcl
 	./packer/build-ova.sh packer/output-appliance/appliance-$(VERSION).qcow2 $(VERSION)
 	./packer/build-vhdx.sh packer/output-appliance/appliance-$(VERSION).qcow2 $(VERSION)

@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,17 +105,27 @@ func New(o Options) (*Client, error) {
 }
 
 func (c *Client) do(ctx context.Context, method, rawURL string, body io.Reader, contentType string, out any) error {
+	_, err := c.doHeaders(ctx, method, rawURL, body, contentType, nil, out)
+	return err
+}
+
+// doHeaders is do with extra request headers; it returns the status code
+// so callers can tell 204 from 200.
+func (c *Client) doHeaders(ctx context.Context, method, rawURL string, body io.Reader, contentType string, headers map[string]string, out any) (int, error) {
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	req.Header.Set("User-Agent", c.UserAgent)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
@@ -124,12 +135,12 @@ func (c *Client) do(ctx context.Context, method, rawURL string, body io.Reader, 
 		if er.Error == "" {
 			er.Error = strings.TrimSpace(string(b))
 		}
-		return &Error{Status: resp.StatusCode, Code: er.Code, Msg: er.Error}
+		return resp.StatusCode, &Error{Status: resp.StatusCode, Code: er.Code, Msg: er.Error}
 	}
 	if out != nil && resp.StatusCode != http.StatusNoContent {
-		return json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(out)
+		return resp.StatusCode, json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(out)
 	}
-	return nil
+	return resp.StatusCode, nil
 }
 
 func (c *Client) postJSON(ctx context.Context, rawURL string, in, out any) error {
@@ -179,6 +190,41 @@ func (c *Client) Support(ctx context.Context, cpURL, id string, r io.Reader) (*v
 // Wipe tells the control plane the appliance is destroying itself.
 func (c *Client) Wipe(ctx context.Context, cpURL, id, reason string) error {
 	return c.postJSON(ctx, join(cpURL, "/v1/appliances/"+id+"/wipe"), v1.WipeRequest{Reason: reason}, nil)
+}
+
+// Jobs polls for the next dispatched job; (nil, nil) when there is none.
+func (c *Client) Jobs(ctx context.Context, cpURL, id string) (*v1.JobsResponse, error) {
+	var out v1.JobsResponse
+	status, err := c.doHeaders(ctx, http.MethodGet, join(cpURL, "/v1/appliances/"+id+"/jobs"), nil, "", nil, &out)
+	if err != nil {
+		return nil, err
+	}
+	if status == http.StatusNoContent {
+		return nil, nil
+	}
+	return &out, nil
+}
+
+// JobStatus reports running/rejected/failed/done for a job.
+func (c *Client) JobStatus(ctx context.Context, cpURL, jobID string, st v1.JobStatusRequest) error {
+	return c.postJSON(ctx, join(cpURL, "/v1/jobs/"+jobID+"/status"), st, nil)
+}
+
+// UploadResults sends one sealed result chunk.
+func (c *Client) UploadResults(ctx context.Context, cpURL, jobID string, seq int, final bool, sha256Hex string, body []byte) (*v1.ResultAck, error) {
+	var out v1.ResultAck
+	h := map[string]string{v1.HeaderResultSeq: strconv.Itoa(seq), v1.HeaderResultSHA256: sha256Hex, v1.HeaderResultFinal: strconv.FormatBool(final)}
+	if _, err := c.doHeaders(ctx, http.MethodPost, join(cpURL, "/v1/jobs/"+jobID+"/results"), bytes.NewReader(body), v1.ContentTypeSealed, h, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// IsPermanent reports a 4xx other than 429: retrying the same request
+// cannot succeed.
+func IsPermanent(err error) bool {
+	var e *Error
+	return errors.As(err, &e) && e.Status >= 400 && e.Status < 500 && e.Status != http.StatusTooManyRequests
 }
 
 // Ping checks reachability of a base URL (used by the console's "test connection").

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ci/smoke/lib.sh - helpers shared by run-qemu.sh and run-container.sh.
-# Source it; do not execute. Needs bash >= 4 (mapfile), curl and jq.
+# Source it; do not execute. Needs bash >= 3.2 (macOS's works), curl and jq.
 #
 # Environment:
 #   CP_ADMIN_URL     base URL of the cp-api /admin API (default https://127.0.0.1:9443).
@@ -19,6 +19,10 @@
 #                    engine.vt_cache_loaded in the heartbeat (300)
 #   SMOKE_SKIP_ENGINE=1  do not require the engine checks (image built
 #                    without a feed, or engine not yet wired)
+#   SMOKE_JOB_TARGETS  targets for the smoke scan job (default 127.0.0.1/32:
+#                    the appliance scans itself, which needs no lab network)
+#   SMOKE_JOB_TIMEOUT  seconds to wait for the smoke job to finish (300)
+#   SMOKE_SKIP_JOBS=1  do not run the job round-trip (image without naabu)
 
 CP_ADMIN_URL="${CP_ADMIN_URL:-https://127.0.0.1:9443}"
 SMOKE_TIMEOUT="${SMOKE_TIMEOUT:-180}"
@@ -26,9 +30,14 @@ SMOKE_ACK_TIMEOUT="${SMOKE_ACK_TIMEOUT:-150}"
 SMOKE_ENGINE_TIMEOUT="${SMOKE_ENGINE_TIMEOUT:-300}"
 SMOKE_VENDOR="${SMOKE_VENDOR:-smoke-vendor}"
 SMOKE_SITE="${SMOKE_SITE:-smoke-site}"
-SMOKE_CIDRS="${SMOKE_CIDRS:-10.0.0.0/8}"
+# Loopback is included so the default smoke job (scan yourself) is in scope.
+SMOKE_CIDRS="${SMOKE_CIDRS:-10.0.0.0/8,172.16.0.0/12,127.0.0.0/8}"
+SMOKE_JOB_TARGETS="${SMOKE_JOB_TARGETS:-127.0.0.1/32}"
+SMOKE_JOB_TIMEOUT="${SMOKE_JOB_TIMEOUT:-300}"
 
-smoke_log() { printf '[smoke] %s\n' "$*"; }
+# Progress goes to stderr so helpers whose result is captured with $(...)
+# (cp_create_appliance, cp_queue_directive, cp_create_job) return only the value.
+smoke_log() { printf '[smoke] %s\n' "$*" >&2; }
 smoke_die() { printf '[smoke] FAIL: %s\n' "$*" >&2; exit 1; }
 
 smoke_require_tools() {
@@ -60,8 +69,9 @@ smoke_curl_args() {
 # cp_api <METHOD> <path> [json body]  -> body on stdout; non-2xx fails.
 cp_api() {
   local method="$1" path="$2" body="${3:-}"
-  local -a args
-  mapfile -t args < <(smoke_curl_args)
+  local -a args=()
+  local a
+  while IFS= read -r a; do args+=("$a"); done < <(smoke_curl_args)
   local out code
   if [[ -n "$body" ]]; then
     out="$(curl "${args[@]}" -X "$method" --data "$body" -w '\n%{http_code}' "${CP_ADMIN_URL}${path}")" || return 1
@@ -80,8 +90,9 @@ cp_api() {
 # cp_wait_ready [timeout]: wait until the admin API answers at all.
 cp_wait_ready() {
   local timeout="${1:-90}" deadline=$((SECONDS + ${1:-90}))
-  local -a args
-  mapfile -t args < <(smoke_curl_args)
+  local -a args=()
+  local a
+  while IFS= read -r a; do args+=("$a"); done < <(smoke_curl_args)
   smoke_log "waiting up to ${timeout}s for ${CP_ADMIN_URL}"
   while (( SECONDS < deadline )); do
     local code
@@ -195,10 +206,73 @@ cp_wait_acked() {
   smoke_die "directives not acked within ${timeout}s:${pending:-}"
 }
 
-# cp_directive_roundtrip <appliance_id>: set_interval + stop_all, wait for acks.
+# cp_directive_roundtrip <appliance_id>: set_interval + stop_all, wait for
+# acks, then clear stop_all again so the appliance is not left halted.
 cp_directive_roundtrip() {
-  local id="$1" d1 d2
+  local id="$1" d1 d2 d3
   d1="$(cp_queue_directive "$id" set_interval '{"s":30}')"
   d2="$(cp_queue_directive "$id" stop_all '{}')"
   cp_wait_acked "$id" "$SMOKE_ACK_TIMEOUT" "$d1" "$d2"
+  d3="$(cp_queue_directive "$id" stop_all '{"clear":true}')"
+  cp_wait_acked "$id" "$SMOKE_ACK_TIMEOUT" "$d3"
+}
+
+# cp_create_job <appliance_id> <mode> <targets-csv> -> job id (run-now)
+cp_create_job() {
+  local id="$1" mode="$2" targets="$3" body resp jid
+  body="$(jq -cn --arg a "$id" --arg m "$mode" --arg t "$targets" \
+    '{appliance_id: $a, mode: $m, targets: ($t | split(",") | map(select(length > 0)))}')"
+  resp="$(cp_api POST /admin/jobs "$body")" || smoke_die "POST /admin/jobs ($mode) failed"
+  jid="$(jq -er '.id' <<<"$resp")" || smoke_die "no job id in: $resp"
+  cp_api POST "/admin/jobs/${jid}/run-now" >/dev/null || smoke_die "run-now failed for $jid"
+  smoke_log "created $mode job $jid (targets $targets)"
+  printf '%s\n' "$jid"
+}
+
+# cp_wait_job <job_id> [timeout]: wait for a terminal status; done passes.
+cp_wait_job() {
+  local jid="$1" timeout="${2:-$SMOKE_JOB_TIMEOUT}"
+  local deadline=$((SECONDS + timeout)) resp status last="" reason
+  while (( SECONDS < deadline )); do
+    if resp="$(cp_api GET "/admin/jobs/${jid}" 2>/dev/null)"; then
+      status="$(jq -r '"\(.status) \(.phase // "") \(.progress_pct // 0)%"' <<<"$resp")"
+      if [[ "$status" != "$last" ]]; then
+        smoke_log "  job $jid: $status"
+        last="$status"
+      fi
+      case "$(jq -r '.status' <<<"$resp")" in
+        done)
+          smoke_log "job $jid done: $(jq -c '.stats // {}' <<<"$resp")"
+          return 0 ;;
+        failed|rejected|cancelled)
+          reason="$(jq -r '.reject_reason // ""' <<<"$resp")"
+          smoke_die "job $jid ended $(jq -r '.status' <<<"$resp"): $reason" ;;
+      esac
+    fi
+    sleep 5
+  done
+  smoke_die "job $jid not finished within ${timeout}s (last: ${last:-unknown})"
+}
+
+# cp_job_roundtrip <appliance_id>: PLAN §18.2 - a discovery job, then an
+# inventory job when the engine is healthy. Results must land on the
+# control plane (hosts for the job).
+cp_job_roundtrip() {
+  local id="$1" jid hosts
+  if [[ "${SMOKE_SKIP_JOBS:-0}" == "1" ]]; then
+    smoke_log "SMOKE_SKIP_JOBS=1: not running scan jobs"
+    return 0
+  fi
+  jid="$(cp_create_job "$id" discovery "$SMOKE_JOB_TARGETS")"
+  cp_wait_job "$jid"
+  hosts="$(cp_api GET "/admin/jobs/${jid}/hosts" | jq 'length')"
+  smoke_log "discovery job reported $hosts host(s)"
+  if [[ "${SMOKE_SKIP_ENGINE:-0}" == "1" ]]; then
+    smoke_log "SMOKE_SKIP_ENGINE=1: skipping the inventory job"
+    return 0
+  fi
+  jid="$(cp_create_job "$id" inventory "$SMOKE_JOB_TARGETS")"
+  cp_wait_job "$jid"
+  hosts="$(cp_api GET "/admin/jobs/${jid}/hosts" | jq 'length')"
+  smoke_log "inventory job reported $hosts host(s)"
 }

@@ -122,15 +122,7 @@ func (p *Postgres) EnsureSite(ctx context.Context, vendorID, name string, cidrs 
 }
 
 func (p *Postgres) GetSite(ctx context.Context, id string) (*Site, error) {
-	s := &Site{}
-	var cidrs, excludes []string
-	err := p.pool.QueryRow(ctx, `SELECT id, vendor_id, name, allowed_cidrs::text[], excludes::text[], fragile_ports, max_pps, tz FROM site WHERE id=$1`, id).
-		Scan(&s.ID, &s.VendorID, &s.Name, &cidrs, &excludes, &s.FragilePorts, &s.MaxPPS, &s.TZ)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	s.AllowedCIDRs, s.Excludes = cidrs, excludes
-	return s, err
+	return scanSite(p.pool.QueryRow(ctx, `SELECT `+siteCols+` FROM site WHERE id=$1`, id))
 }
 
 func (p *Postgres) CreateAppliance(ctx context.Context, siteID string) (*Appliance, error) {

@@ -151,8 +151,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Directives
+# 6. Scan jobs (PLAN §18.2), then directives
 # ---------------------------------------------------------------------------
+cp_job_roundtrip "$APPLIANCE_ID"
 cp_directive_roundtrip "$APPLIANCE_ID"
 
-smoke_log "PASS: appliance $APPLIANCE_ID enrolled, console OK, directives acked"
+smoke_log "PASS: appliance $APPLIANCE_ID enrolled, console OK, scan jobs done, directives acked"

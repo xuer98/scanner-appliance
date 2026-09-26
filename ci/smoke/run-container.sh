@@ -103,10 +103,11 @@ smoke_log "starting the appliance container"
 "${COMPOSE[@]}" up -d ${build_flag[@]+"${build_flag[@]}"} appliance
 
 # ---------------------------------------------------------------------------
-# 4. Enrollment, heartbeat, directives
+# 4. Enrollment, heartbeat, scan jobs, directives
 # ---------------------------------------------------------------------------
 cp_wait_enrolled "$APPLIANCE_ID" "$SMOKE_TIMEOUT"
+cp_job_roundtrip "$APPLIANCE_ID"
 cp_directive_roundtrip "$APPLIANCE_ID"
 
 # The container path has no console; the TTY test lives in run-qemu.sh.
-smoke_log "PASS: container appliance $APPLIANCE_ID enrolled and directives acked"
+smoke_log "PASS: container appliance $APPLIANCE_ID enrolled, scan jobs done, directives acked"

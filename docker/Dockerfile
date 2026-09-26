@@ -196,8 +196,9 @@ ENV PATH=/opt/engine:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bi
 VOLUME /var/lib/appliance
 # Feed + redis dump; avoids re-seeding on restart.
 VOLUME /var/lib/openvas
-# Phase 1: the entrypoint starts redis-openvas and ospd-openvas in the
-# background and then execs `applianced run`; in Phase 2 applianced
-# supervises them itself and the ENTRYPOINT returns to ["applianced", "run"].
+# applianced (PID 1) supervises redis-openvas and ospd-openvas itself
+# (APPLIANCE_SUPERVISE_ENGINE=1, set by the entrypoint) and runs the job
+# loop; the entrypoint only prepares runtime directories on the volumes.
+ENV APPLIANCE_SUPERVISE_ENGINE=1
 ENTRYPOINT ["/usr/local/sbin/appliance-entrypoint.sh"]
 CMD []

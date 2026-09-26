@@ -18,6 +18,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
@@ -287,4 +288,17 @@ func readKey(path string) (*ecdsa.PrivateKey, error) {
 		return nil, fmt.Errorf("%s: no PEM block", path)
 	}
 	return x509.ParseECPrivateKey(block.Bytes)
+}
+
+// SignJob signs a job spec's canonical bytes with the issuing key. The
+// appliance verifies against the intermediate certificate it received as
+// the chain at enrollment (PLAN §11, §16). The intermediate already carries
+// KeyUsageDigitalSignature.
+func (c *CA) SignJob(signingBytes []byte) (string, error) {
+	digest := sha256.Sum256(signingBytes)
+	sig, err := ecdsa.SignASN1(rand.Reader, c.key, digest[:])
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(sig), nil
 }

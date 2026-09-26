@@ -7,10 +7,11 @@ results to our control plane over an outbound, mutually authenticated TLS
 connection. It has no SSH, no local accounts, and no inbound ports.
 
 The vulnerability-detection engine (Greenbone OpenVAS scanner with a
-snapshot of the community vulnerability-test feed) is embedded in the image.
-It sits idle after deployment: no scan runs until a job is scheduled for this
-appliance in the portal, within the agreed scope and scan window. The status
-screen and our portal show whether the engine is healthy (*engine ready*).
+snapshot of the community vulnerability-test feed) and the naabu port
+scanner are embedded in the image. They sit idle after deployment: no scan
+runs until a job is scheduled for this appliance in the portal, within the
+agreed scope and scan window. The status screen and our portal show whether
+the engine is healthy (*engine ready*) and which job, if any, is running.
 
 Three things are needed before you start:
 
@@ -210,7 +211,9 @@ The VM console (screen, or serial port on KVM) shows a text menu:
 ```
 
 - **Status** shows enrollment state, control-plane reachability, adapter
-  roles and addresses, version and last heartbeat.
+  roles and addresses, version, last heartbeat, engine readiness, the
+  current scan job with its phase and progress, and how many result chunks
+  are still waiting to upload.
 - **Network** and **Proxy** let you change addressing and proxy settings if
   the seed values were wrong; Proxy has a *test connection* option.
 - **Enroll** is where you type the code if none was supplied at deploy time.
@@ -231,6 +234,37 @@ There is no shell and no login; the menu is the whole interface.
 | Clock warning in Status | Outbound HTTPS to the FQDN is also used to set the time; check the proxy |
 | Portal shows *stale* | The appliance has not sent a heartbeat for three intervals; check power state and egress |
 | Status shows *engine not ready* for more than 15 minutes after boot | The engine is loading its vulnerability-test cache (normal for a few minutes on first boot). If it persists: the VM has less than 8 GB RAM, or the `/var/lib/openvas` volume (Docker) is not writable |
+| Portal shows a job *rejected* with `window` | The appliance clock and the site timezone disagree with the window; check the clock warning in Status and the timezone we have on file |
+| Portal shows a job *rejected* with `scope` | The target ranges are outside the ranges attested for the site; ask us to update the scope |
+| Status shows *Results queued* for a long time | Results are waiting for egress to the control plane; check the WAN adapter and proxy |
+
+## What a scan looks like
+
+A job is created in the portal for one appliance with the target ranges,
+exclusions, a scan window (for example Saturdays 22:00 local time for up to
+six hours) and a mode:
+
+| Mode | Phases | Typical use |
+|------|--------|-------------|
+| `discovery` | host discovery only (ICMP/ARP/TCP-SYN probes) | first scan of a new site; builds the exclusion list |
+| `inventory` | discovery, port scan, then detection checks limited to service/product/OS detection and a small set of high-value families | weekly |
+| `full` | discovery, port scan, then every unauthenticated remote check family | monthly or on request |
+
+The appliance only accepts a job that is signed by our control plane, is
+inside the ranges attested for your site, is within its window, and is
+under the agreed packet-rate and concurrency caps; anything else is
+rejected and shown in the portal with the reason. Denial-of-service and
+brute-force checks are never run. Devices that answer on printer or
+industrial-controller ports (9100, 515, 631, 161, 502, 44818 by default)
+are discovered and port-scanned but kept out of the vulnerability checks
+until a human clears them. A job stops by itself at its maximum duration,
+and our operators can halt a running scan at any time (the *stop_all*
+control), which ends the probes within seconds.
+
+Results (open ports, detected services, operating-system guess, findings
+with their detection confidence) are encrypted on the appliance before they
+are written to disk and uploaded over the same mutually authenticated
+channel; the appliance itself cannot read its own result queue.
 
 ## What the appliance does not do
 

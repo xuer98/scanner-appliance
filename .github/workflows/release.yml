@@ -67,6 +67,11 @@ jobs:
         env:
           APPLIANCE_ROOT_CA: ${{ runner.temp }}/root.pem
         run: ci/build.sh --version "${{ steps.ver.outputs.version }}"
+      - name: Build scan engine (naabu) for the VM image
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libpcap-dev
+          ci/build-engine.sh --arch amd64
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist-bin
@@ -86,11 +91,14 @@ jobs:
         with:
           name: dist-bin
           path: dist
-      - name: Stage daemon binary for Packer
+      - name: Stage daemon and engine binaries for Packer
         run: |
           mkdir -p bin/engine
           cp dist/applianced-linux-amd64 bin/applianced-linux-amd64
           chmod +x bin/applianced-linux-amd64
+          # naabu (Phase 2 discovery/portscan) goes to /opt/engine in the image.
+          cp dist/engine/naabu-linux-amd64 bin/engine/naabu
+          chmod +x bin/engine/naabu
       - name: Fetch the VT feed snapshot
         id: feed
         env:

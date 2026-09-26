@@ -1,6 +1,7 @@
 // Package osp is a minimal Open Scanner Protocol client (XML over a Unix
-// socket) for ospd-openvas. Phase 1 uses it only for the health probe that
-// feeds the heartbeat; Phase 2 adds start_scan/get_scans/stop_scan.
+// socket) for ospd-openvas: the health probe that feeds the heartbeat
+// (osp.go), the scan lifecycle and VT metadata calls (scan.go), and the
+// redis + ospd supervisor used where there is no systemd (supervise.go).
 package osp
 
 import (
@@ -144,6 +145,7 @@ func (c *Client) Health(ctx context.Context) v1.EngineHealth {
 	h.OpenVASVersion = vr.Scanner.Version
 	// ospd-openvas leaves <vts><version/></vts> empty until the redis VT cache is loaded.
 	h.VTCacheLoaded = strings.TrimSpace(vr.VTs.Version) != ""
+	h.FeedVersion = strings.TrimSpace(vr.VTs.Version)
 	if h.VTCacheLoaded {
 		if n, err := c.VTCount(ctx); err == nil {
 			h.VTCount = n

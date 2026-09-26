@@ -169,8 +169,21 @@ func (c *Console) status() {
 		if live.StopAll {
 			c.printf("  STOP_ALL:        active — no scans will run\n")
 		}
-		if live.CurrentJobID != "" {
-			c.printf("  Current job:     %s\n", live.CurrentJobID)
+		if live.CurrentJob != nil {
+			c.printf("  Current job:     %s (%s %d%%)\n", live.CurrentJob.ID, live.CurrentJob.Phase, live.CurrentJob.ProgressPct)
+		}
+		if live.PendingResults > 0 {
+			c.printf("  Results queued:  %d chunk(s) awaiting upload\n", live.PendingResults)
+		}
+		switch {
+		case live.Engine.Error != "":
+			c.printf("  Engine:          not ready (%s)\n", live.Engine.Error)
+		case live.Engine.Ready():
+			c.printf("  Engine:          ready (%s, %d VTs, feed %s)\n", live.Engine.OpenVASVersion, live.Engine.VTCount, orDash(live.Engine.FeedVersion))
+		case live.Engine.OSPDUp:
+			c.printf("  Engine:          loading VT cache\n")
+		default:
+			c.printf("  Engine:          not running\n")
 		}
 		if live.CertNotAfter != nil {
 			c.printf("  Cert expires:    %s\n", live.CertNotAfter.Format("2006-01-02"))
