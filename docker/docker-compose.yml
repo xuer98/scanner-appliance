@@ -1,0 +1,103 @@
+# Local development stack: Postgres + control plane + one appliance container.
+#
+#   ci/build.sh --dev                      # creates dev/pki and daemon/internal/pki/roots.pem
+#   cp docker/.env.example docker/.env     # set CP_ADMIN_TOKEN, later APPLIANCE_CODE
+#   docker compose -f docker/docker-compose.yml up -d db cp-api
+#   # create an appliance and copy the code into docker/.env, then:
+#   docker compose -f docker/docker-compose.yml up -d appliance
+#
+# Docker Desktop has no host networking, so everything sits on the compose
+# network; the appliance reaches the control plane as https://cp-api:8443
+# (enroll) and https://cp-api:9443 (mTLS, the --public-url). The /admin API
+# is served on the mTLS listener (bearer token, no client cert needed).
+#
+# The appliance image embeds openvas + redis and is capped at 8 GB (PLAN 4.7);
+# give Docker Desktop at least that much memory. Drop a VT feed tarball into
+# docker/feed/ before building to get engine.vt_cache_loaded=true.
+
+name: scanner-appliance
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: cp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cp}
+      POSTGRES_DB: cp
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cp -d cp"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  cp-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.cp-api
+      args:
+        VERSION: ${VERSION:-dev}
+    image: cp-api:${VERSION:-dev}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      CP_DB_URL: postgres://cp:${POSTGRES_PASSWORD:-cp}@db:5432/cp?sslmode=disable
+      CP_PKI_DIR: /pki
+      CP_ENROLL_ADDR: ":8443"
+      CP_MTLS_ADDR: ":9443"
+      CP_PUBLIC_URL: https://cp-api:9443
+      CP_ADMIN_TOKEN: ${CP_ADMIN_TOKEN:-dev-admin-token}
+    volumes:
+      # Bind-mounted so the same dev CA is used by ci/build.sh (embedded root)
+      # and by the running control plane. Created by `ci/build.sh --dev` or by
+      # the entrypoint on first start.
+      - ${PKI_DIR:-../dev/pki}:/pki
+    ports:
+      - "${CP_ENROLL_PORT:-8443}:8443"
+      - "${CP_MTLS_PORT:-9443}:9443"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -ksf -o /dev/null -w '%{http_code}' https://127.0.0.1:8443/healthz || curl -ks -o /dev/null https://127.0.0.1:8443/"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  appliance:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+    image: ghcr.io/tprm/scanner-appliance:${VERSION:-dev}
+    depends_on:
+      cp-api:
+        condition: service_healthy
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APPLIANCE_CP_URL: ${APPLIANCE_CP_URL:-https://cp-api:8443}
+      APPLIANCE_CODE: ${APPLIANCE_CODE:-}
+      APPLIANCE_PROXY: ${APPLIANCE_PROXY:-}
+      # Trust the dev CA that cp-api generated instead of the embedded root.
+      APPLIANCE_ROOT_CA: /pki/root.pem
+    volumes:
+      - appliance-state:/var/lib/appliance
+      # VT feed + redis dump; persists so restarts do not re-seed the cache.
+      - openvas-state:/var/lib/openvas
+      - ${PKI_DIR:-../dev/pki}:/pki:ro
+    # Same limit vendors are told to apply (docs/DEPLOY.md).
+    mem_limit: 8g
+    restart: unless-stopped
+    profiles: ["appliance"]
+
+volumes:
+  db-data:
+  appliance-state:
+  openvas-state:

@@ -1,0 +1,324 @@
+name: release
+
+# Tag v1.2.3 -> binaries, qcow2/OVA/VHDX, multi-arch container, signatures,
+# SBOMs, manifest.json and a GitHub release. Publishing is gated on the QEMU
+# and container smoke tests (PLAN 18).
+#
+# Required secrets:
+#   APPLIANCE_ROOT_CA_PEM      root CA certificate embedded in applianced
+#   STAGING_CP_ADMIN_URL       /admin API of the staging control plane (the
+#                              mTLS listener, :9443; bearer token, no client cert)
+#   STAGING_CP_ADMIN_TOKEN     bearer token for it
+#   STAGING_CP_URL_FOR_GUEST   enrollment URL (:8443) reachable from the smoke VM
+#   STAGING_CP_CA_PEM          (optional) CA to verify the staging TLS cert
+#   FEED_TARBALL_URL           URL of the VT feed snapshot tarball on the
+#                              control-plane feed mirror (packer/scripts/
+#                              seed-feed.sh). Without it the images ship
+#                              without VTs and the engine smoke checks are
+#                              skipped -- acceptable for a dev tag only.
+#   FEED_TARBALL_SHA256        (optional) sha256 of that tarball
+#   COSIGN_KEY / COSIGN_PASSWORD  (optional) key-based signing; keyless otherwise
+# Runner labels: a self-hosted Linux runner labelled "kvm" with /dev/kvm,
+# qemu-system-x86_64, qemu-img, genisoimage, expect, jq and packer. The Packer
+# VM and the smoke VM each take 8 GB RAM / 4 vCPU (appliance minimum).
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+env:
+  IMAGE: ghcr.io/tprm/scanner-appliance
+  PACKER_VERSION: "1.14.0"
+
+jobs:
+  # -------------------------------------------------------------------------
+  build:
+    name: binaries
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Root CA to embed
+        run: |
+          printf '%s\n' "${{ secrets.APPLIANCE_ROOT_CA_PEM }}" > "$RUNNER_TEMP/root.pem"
+          test -s "$RUNNER_TEMP/root.pem"
+      - name: go vet + test
+        env:
+          APPLIANCE_ROOT_CA: ${{ runner.temp }}/root.pem
+        run: |
+          cp "$APPLIANCE_ROOT_CA" daemon/internal/pki/roots.pem
+          go vet ./...
+          go test -count=1 ./...
+      - name: ci/build.sh
+        env:
+          APPLIANCE_ROOT_CA: ${{ runner.temp }}/root.pem
+        run: ci/build.sh --version "${{ steps.ver.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-bin
+          path: dist/
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------
+  image:
+    name: packer qcow2 + OVA + VHDX
+    needs: [build]
+    runs-on: [self-hosted, linux, x64, kvm]
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-bin
+          path: dist
+      - name: Stage daemon binary for Packer
+        run: |
+          mkdir -p bin/engine
+          cp dist/applianced-linux-amd64 bin/applianced-linux-amd64
+          chmod +x bin/applianced-linux-amd64
+      - name: Fetch the VT feed snapshot
+        id: feed
+        env:
+          FEED_TARBALL_URL: ${{ secrets.FEED_TARBALL_URL }}
+          FEED_TARBALL_SHA256: ${{ secrets.FEED_TARBALL_SHA256 }}
+        run: |
+          if [ -z "$FEED_TARBALL_URL" ]; then
+            echo "::warning::FEED_TARBALL_URL is not set; building images WITHOUT vulnerability tests"
+            echo "path=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          out="$RUNNER_TEMP/vt-feed.tar.gz"
+          curl -fsSL --retry 3 --retry-delay 10 -o "$out" "$FEED_TARBALL_URL"
+          if [ -n "$FEED_TARBALL_SHA256" ]; then
+            echo "$FEED_TARBALL_SHA256  $out" | sha256sum -c -
+          fi
+          ls -l "$out"
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: ${{ env.PACKER_VERSION }}
+      - name: Pin the Debian ISO checksum
+        id: iso
+        run: |
+          base=https://cdimage.debian.org/cdimage/release/current/amd64/iso-cd
+          line="$(curl -fsSL "$base/SHA256SUMS" | grep 'netinst.iso' | head -n1)"
+          echo "checksum=sha256:${line%% *}" >> "$GITHUB_OUTPUT"
+          echo "url=$base/${line##* }" >> "$GITHUB_OUTPUT"
+      - name: packer build
+        working-directory: packer
+        env:
+          PACKER_LOG: "0"
+        run: |
+          packer init base.pkr.hcl
+          packer build -color=false \
+            -var "version=${VERSION}" \
+            -var "iso_url=${{ steps.iso.outputs.url }}" \
+            -var "iso_checksum=${{ steps.iso.outputs.checksum }}" \
+            -var accelerator=kvm \
+            -var headless=true \
+            -var "feed_tarball=${{ steps.feed.outputs.path }}" \
+            -var "feed_sha256=${{ secrets.FEED_TARBALL_SHA256 }}" \
+            -var "output_dir=${GITHUB_WORKSPACE}/dist-image" \
+            base.pkr.hcl
+      - name: OVA + VHDX
+        run: |
+          packer/build-ova.sh "dist-image/appliance-${VERSION}.qcow2" "$VERSION" dist-image
+          packer/build-vhdx.sh "dist-image/appliance-${VERSION}.qcow2" "$VERSION" dist-image
+          ls -l dist-image
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-image
+          path: |
+            dist-image/*.qcow2
+            dist-image/*.ova
+            dist-image/*.vhdx
+          if-no-files-found: error
+          compression-level: 0
+
+  # -------------------------------------------------------------------------
+  container:
+    name: container (multi-arch)
+    needs: [build]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Root CA to embed
+        run: printf '%s\n' "${{ secrets.APPLIANCE_ROOT_CA_PEM }}" > daemon/internal/pki/roots.pem
+      - name: Fetch the VT feed snapshot into docker/feed/
+        env:
+          FEED_TARBALL_URL: ${{ secrets.FEED_TARBALL_URL }}
+          FEED_TARBALL_SHA256: ${{ secrets.FEED_TARBALL_SHA256 }}
+        run: |
+          if [ -z "$FEED_TARBALL_URL" ]; then
+            echo "::warning::FEED_TARBALL_URL is not set; the container ships WITHOUT vulnerability tests"
+            exit 0
+          fi
+          curl -fsSL --retry 3 --retry-delay 10 -o docker/feed/vt-feed.tar.gz "$FEED_TARBALL_URL"
+          if [ -n "$FEED_TARBALL_SHA256" ]; then
+            echo "$FEED_TARBALL_SHA256  docker/feed/vt-feed.tar.gz" | sha256sum -c -
+          fi
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ env.VERSION }}
+            ${{ env.IMAGE }}:latest
+          build-args: VERSION=${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+      - uses: sigstore/cosign-installer@v3
+      - name: cosign sign image
+        env:
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          if [ -n "$COSIGN_KEY" ]; then
+            printf '%s\n' "$COSIGN_KEY" > "$RUNNER_TEMP/cosign.key"
+            cosign sign --yes --key "$RUNNER_TEMP/cosign.key" "${IMAGE}@${{ steps.push.outputs.digest }}"
+          else
+            cosign sign --yes "${IMAGE}@${{ steps.push.outputs.digest }}"
+          fi
+
+  # -------------------------------------------------------------------------
+  smoke-qemu:
+    name: smoke test (qcow2 in QEMU)
+    needs: [build, image]
+    runs-on: [self-hosted, linux, x64, kvm]
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      CP_ADMIN_URL: ${{ secrets.STAGING_CP_ADMIN_URL }}
+      CP_ADMIN_TOKEN: ${{ secrets.STAGING_CP_ADMIN_TOKEN }}
+      CP_URL_FOR_GUEST: ${{ secrets.STAGING_CP_URL_FOR_GUEST }}
+      SMOKE_TIMEOUT: "180"
+      SMOKE_ENGINE_TIMEOUT: "600"
+      # Engine health (ospd_up + vt_cache_loaded) is only required when the
+      # image was built with a feed.
+      SMOKE_SKIP_ENGINE: ${{ secrets.FEED_TARBALL_URL == '' && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-image
+          path: dist-image
+      - name: Staging CA
+        run: |
+          if [ -n "${{ secrets.STAGING_CP_CA_PEM }}" ]; then
+            printf '%s\n' "${{ secrets.STAGING_CP_CA_PEM }}" > "$RUNNER_TEMP/staging-ca.pem"
+            echo "CP_CA_FILE=$RUNNER_TEMP/staging-ca.pem" >> "$GITHUB_ENV"
+          fi
+      - name: run-qemu.sh
+        run: SMOKE_KEEP=1 ci/smoke/run-qemu.sh "dist-image/appliance-${VERSION}.qcow2"
+
+  smoke-container:
+    name: smoke test (container via compose)
+    needs: [build, container]
+    # The appliance service runs with mem_limit 8g (docker/docker-compose.yml):
+    # GitHub-hosted ubuntu-latest runners have 16 GB, which is enough for
+    # db + cp-api + the 8 GB appliance cap. A smaller self-hosted runner needs
+    # SMOKE_SKIP_ENGINE=1 or a larger box.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Fetch the VT feed snapshot into docker/feed/
+        env:
+          FEED_TARBALL_URL: ${{ secrets.FEED_TARBALL_URL }}
+        run: |
+          if [ -n "$FEED_TARBALL_URL" ]; then
+            curl -fsSL --retry 3 --retry-delay 10 -o docker/feed/vt-feed.tar.gz "$FEED_TARBALL_URL"
+          fi
+      - name: run-container.sh
+        env:
+          CP_ADMIN_TOKEN: smoke-${{ github.run_id }}
+          SMOKE_TIMEOUT: "180"
+          SMOKE_ENGINE_TIMEOUT: "600"
+          SMOKE_SKIP_ENGINE: ${{ secrets.FEED_TARBALL_URL == '' && '1' || '0' }}
+        run: ci/smoke/run-container.sh
+
+  # -------------------------------------------------------------------------
+  publish:
+    name: sign, SBOM, manifest, GitHub release
+    needs: [build, image, container, smoke-qemu, smoke-container]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-bin
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-image
+          path: dist
+      - uses: sigstore/cosign-installer@v3
+      - uses: anchore/sbom-action/download-syft@v0
+      - name: ci/sign.sh
+        env:
+          COSIGN_KEY_PEM: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          SIGN_SKIP_MISSING: "0"
+        run: |
+          if [ -n "$COSIGN_KEY_PEM" ]; then
+            printf '%s\n' "$COSIGN_KEY_PEM" > "$RUNNER_TEMP/cosign.key"
+            export COSIGN_KEY="$RUNNER_TEMP/cosign.key"
+          fi
+          ci/sign.sh dist
+      - name: ci/manifest.sh
+        run: ci/manifest.sh dist "$VERSION"
+      - name: Record container digest in the manifest
+        run: |
+          jq --arg img "${IMAGE}:${VERSION}" --arg digest "${{ needs.container.outputs.digest }}" \
+            '. + {container: {image: $img, digest: $digest}}' dist/manifest.json > dist/manifest.json.tmp
+          mv dist/manifest.json.tmp dist/manifest.json
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            dist/applianced-linux-*
+            dist/cp-api-linux-*
+            dist/*.qcow2
+            dist/*.ova
+            dist/*.vhdx
+            dist/*.sig
+            dist/*.pem
+            dist/*.sbom.spdx.json
+            dist/manifest.json

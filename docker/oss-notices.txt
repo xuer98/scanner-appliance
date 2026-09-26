@@ -1,0 +1,37 @@
+Open source notices - Scanner Appliance (container)
+===================================================
+
+This image is built on Debian GNU/Linux 12 (https://www.debian.org) and
+ships the following third-party components. Full licence texts are
+available at the URLs below and on the transparency page in the portal.
+
+Detection engine (Greenbone Community Edition)
+  openvas-scanner  GPL-2.0-or-later  https://github.com/greenbone/openvas-scanner
+  gvm-libs         GPL-2.0-or-later  https://github.com/greenbone/gvm-libs
+  ospd-openvas     AGPL-3.0-or-later https://github.com/greenbone/ospd-openvas
+  Greenbone Community Feed (vulnerability tests in /var/lib/openvas/plugins)
+                   ODbL 1.0          https://www.greenbone.net/en/community-feed/
+                   Copyright Greenbone AG. Redistributed with attribution; any
+                   database derived from it is shared under the same terms.
+  redis            BSD-3-Clause      https://github.com/redis/redis
+                   (Debian 12 ships redis 7.0, the last BSD-licensed line;
+                   redis 7.4+ moved to RSALv2/SSPL and is not used)
+
+Written offer for source code: the exact source archives (pinned release tags
+listed in /etc/appliance/openvas-build-info.txt) and our build scripts are
+available from the transparency page or on request from the programme owner
+for three years from distribution of this image (GPL-2.0 section 3 / AGPL-3.0
+section 6).
+
+Discovery and port scanning
+  naabu            MIT               https://github.com/projectdiscovery/naabu
+
+Web add-on (Phase 3; only present when built with WITH_WEB_ADDON=1)
+  httpx            MIT               https://github.com/projectdiscovery/httpx
+  nuclei           MIT               https://github.com/projectdiscovery/nuclei
+  nuclei-templates MIT               https://github.com/projectdiscovery/nuclei-templates
+  fingerprintx     Apache-2.0        https://github.com/praetorian-inc/fingerprintx
+  zgrab2           Apache-2.0        https://github.com/zmap/zgrab2
+
+Debian package licences: /usr/share/doc/<package>/copyright.
+The complete SBOM for this image is published alongside the release.

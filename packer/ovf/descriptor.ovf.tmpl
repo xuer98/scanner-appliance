@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Scanner appliance OVF descriptor template (PLAN 4.5).
+  Filled by packer/build-ova.sh. Placeholders:
+    {{VERSION}}        appliance version
+    {{DISK_FILE}}      vmdk file name inside the OVA
+    {{DISK_SIZE}}      vmdk file size in bytes
+    {{DISK_CAPACITY}}  virtual disk capacity in bytes (60 GB = 64424509440 by default,
+                       taken from the qcow2 virtual size)
+    {{DISK_POPULATED}} populated size in bytes (== vmdk size for streamOptimized)
+-->
+<Envelope xmlns="http://schemas.dmtf.org/ovf/envelope/1"
+          xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1"
+          xmlns:rasd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData"
+          xmlns:vssd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_VirtualSystemSettingData"
+          xmlns:vmw="http://www.vmware.com/schema/ovf"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+  <References>
+    <File ovf:id="file1" ovf:href="{{DISK_FILE}}" ovf:size="{{DISK_SIZE}}"/>
+  </References>
+
+  <DiskSection>
+    <Info>Virtual disk information</Info>
+    <Disk ovf:diskId="vmdisk1"
+          ovf:fileRef="file1"
+          ovf:capacity="{{DISK_CAPACITY}}"
+          ovf:capacityAllocationUnits="byte"
+          ovf:populatedSize="{{DISK_POPULATED}}"
+          ovf:format="http://www.vmware.com/interfaces/specifications/vmdk.html#streamOptimized"/>
+  </DiskSection>
+
+  <NetworkSection>
+    <Info>Logical networks used by the appliance</Info>
+    <Network ovf:name="WAN">
+      <Description>Management leg: egress to the control plane on TCP 443 (direct or via HTTP proxy). Receives the default route.</Description>
+    </Network>
+    <Network ovf:name="LAN">
+      <Description>Scanning leg: the segment to be scanned. Never receives a default route. Map to the same port group as WAN for single-network deployments.</Description>
+    </Network>
+  </NetworkSection>
+
+  <VirtualSystem ovf:id="scanner-appliance">
+    <Info>Scanner appliance virtual machine</Info>
+    <Name>scanner-appliance-{{VERSION}}</Name>
+
+    <!-- 96 = Debian GNU/Linux 64-bit (CIM OSType); vmw:osType selects the
+         closest vSphere guest profile. -->
+    <OperatingSystemSection ovf:id="96" vmw:osType="debian10_64Guest">
+      <Info>Guest operating system</Info>
+      <Description>Debian GNU/Linux 12 (64-bit)</Description>
+    </OperatingSystemSection>
+
+    <!-- ovf:transport="com.vmware.guestInfo" makes vSphere expose the
+         ProductSection properties to the guest through VMware Tools
+         (vmtoolsd &#45;&#45;cmd "info-get guestinfo.ovfEnv"). -->
+    <VirtualHardwareSection ovf:transport="com.vmware.guestInfo">
+      <Info>Virtual hardware requirements: 4 vCPU, 8 GB RAM, 60 GB disk, two NICs</Info>
+      <System>
+        <vssd:ElementName>Virtual Hardware Family</vssd:ElementName>
+        <vssd:InstanceID>0</vssd:InstanceID>
+        <vssd:VirtualSystemIdentifier>scanner-appliance</vssd:VirtualSystemIdentifier>
+        <vssd:VirtualSystemType>vmx-19</vssd:VirtualSystemType>
+      </System>
+
+      <Item>
+        <rasd:AllocationUnits>hertz * 10^6</rasd:AllocationUnits>
+        <rasd:Description>Number of Virtual CPUs</rasd:Description>
+        <rasd:ElementName>4 virtual CPU(s)</rasd:ElementName>
+        <rasd:InstanceID>1</rasd:InstanceID>
+        <rasd:ResourceType>3</rasd:ResourceType>
+        <rasd:VirtualQuantity>4</rasd:VirtualQuantity>
+      </Item>
+
+      <Item>
+        <rasd:AllocationUnits>byte * 2^20</rasd:AllocationUnits>
+        <rasd:Description>Memory Size</rasd:Description>
+        <rasd:ElementName>8192MB of memory</rasd:ElementName>
+        <rasd:InstanceID>2</rasd:InstanceID>
+        <rasd:ResourceType>4</rasd:ResourceType>
+        <rasd:VirtualQuantity>8192</rasd:VirtualQuantity>
+      </Item>
+
+      <Item>
+        <rasd:Address>0</rasd:Address>
+        <rasd:Description>SCSI Controller</rasd:Description>
+        <rasd:ElementName>SCSI Controller 0</rasd:ElementName>
+        <rasd:InstanceID>3</rasd:InstanceID>
+        <rasd:ResourceSubType>lsilogic</rasd:ResourceSubType>
+        <rasd:ResourceType>6</rasd:ResourceType>
+      </Item>
+
+      <Item>
+        <rasd:AddressOnParent>0</rasd:AddressOnParent>
+        <rasd:ElementName>Hard Disk 1</rasd:ElementName>
+        <rasd:HostResource>ovf:/disk/vmdisk1</rasd:HostResource>
+        <rasd:InstanceID>4</rasd:InstanceID>
+        <rasd:Parent>3</rasd:Parent>
+        <rasd:ResourceType>17</rasd:ResourceType>
+      </Item>
+
+      <Item>
+        <rasd:AddressOnParent>7</rasd:AddressOnParent>
+        <rasd:AutomaticAllocation>true</rasd:AutomaticAllocation>
+        <rasd:Connection>WAN</rasd:Connection>
+        <rasd:Description>VmxNet3 ethernet adapter on "WAN" (wan0)</rasd:Description>
+        <rasd:ElementName>Network adapter 1</rasd:ElementName>
+        <rasd:InstanceID>5</rasd:InstanceID>
+        <rasd:ResourceSubType>VmxNet3</rasd:ResourceSubType>
+        <rasd:ResourceType>10</rasd:ResourceType>
+      </Item>
+
+      <Item>
+        <rasd:AddressOnParent>8</rasd:AddressOnParent>
+        <rasd:AutomaticAllocation>true</rasd:AutomaticAllocation>
+        <rasd:Connection>LAN</rasd:Connection>
+        <rasd:Description>VmxNet3 ethernet adapter on "LAN" (lan0)</rasd:Description>
+        <rasd:ElementName>Network adapter 2</rasd:ElementName>
+        <rasd:InstanceID>6</rasd:InstanceID>
+        <rasd:ResourceSubType>VmxNet3</rasd:ResourceSubType>
+        <rasd:ResourceType>10</rasd:ResourceType>
+      </Item>
+
+      <!-- VMware Tools behaviour. Time is handled by htpdate, not the host. -->
+      <vmw:Config ovf:required="false" vmw:key="tools.syncTimeWithHost" vmw:value="false"/>
+      <vmw:Config ovf:required="false" vmw:key="tools.afterPowerOn" vmw:value="true"/>
+      <vmw:Config ovf:required="false" vmw:key="tools.afterResume" vmw:value="true"/>
+      <vmw:Config ovf:required="false" vmw:key="tools.beforeGuestShutdown" vmw:value="true"/>
+      <vmw:Config ovf:required="false" vmw:key="tools.beforeGuestStandby" vmw:value="true"/>
+      <vmw:Config ovf:required="false" vmw:key="tools.toolsUpgradePolicy" vmw:value="manual"/>
+      <vmw:Config ovf:required="false" vmw:key="powerOpInfo.powerOffType" vmw:value="soft"/>
+      <vmw:Config ovf:required="false" vmw:key="powerOpInfo.resetType" vmw:value="soft"/>
+      <vmw:Config ovf:required="false" vmw:key="powerOpInfo.suspendType" vmw:value="soft"/>
+      <vmw:Config ovf:required="false" vmw:key="firmware" vmw:value="bios"/>
+    </VirtualHardwareSection>
+
+    <ProductSection ovf:required="false">
+      <Info>Appliance configuration (read once on first boot; ignored after enrollment)</Info>
+      <Product>Scanner Appliance</Product>
+      <Vendor>TPRM</Vendor>
+      <Version>{{VERSION}}</Version>
+      <FullVersion>{{VERSION}}</FullVersion>
+      <Category>Enrollment</Category>
+
+      <Property ovf:key="appliance.code" ovf:type="string" ovf:userConfigurable="true">
+        <Label>Enrollment code</Label>
+        <Description>One-time enrollment code issued by the portal for this appliance (format ABCD-EFGH-IJKL-MNOP-QRST). Required unless the code is entered on the console.</Description>
+      </Property>
+
+      <Property ovf:key="appliance.proxy" ovf:type="string" ovf:userConfigurable="true">
+        <Label>HTTP proxy</Label>
+        <Description>Optional outbound HTTP proxy for reaching the control plane, as host:port or user:pass@host:port. The control-plane FQDN must be exempt from SSL inspection.</Description>
+      </Property>
+
+      <Category>Network (WAN adapter)</Category>
+
+      <Property ovf:key="appliance.ip.mode" ovf:type="string" ovf:value="dhcp" ovf:userConfigurable="true" ovf:qualifiers="ValueMap{&quot;dhcp&quot;,&quot;static&quot;}">
+        <Label>WAN IP mode</Label>
+        <Description>"dhcp" (default) or "static". With "static", fill in the CIDR, gateway and DNS fields below.</Description>
+      </Property>
+
+      <Property ovf:key="appliance.ip.cidr" ovf:type="string" ovf:userConfigurable="true">
+        <Label>WAN IP address (CIDR)</Label>
+        <Description>Static IPv4 address for the WAN adapter in CIDR notation, e.g. 10.20.0.50/24. Ignored in DHCP mode.</Description>
+      </Property>
+
+      <Property ovf:key="appliance.gw" ovf:type="string" ovf:userConfigurable="true">
+        <Label>WAN default gateway</Label>
+        <Description>IPv4 default gateway for the WAN adapter, e.g. 10.20.0.1. Ignored in DHCP mode.</Description>
+      </Property>
+
+      <Property ovf:key="appliance.dns" ovf:type="string" ovf:userConfigurable="true">
+        <Label>DNS servers</Label>
+        <Description>Comma-separated DNS server addresses, e.g. 10.20.0.10,10.20.0.11. Ignored in DHCP mode.</Description>
+      </Property>
+
+      <Category>Topology</Category>
+
+      <Property ovf:key="appliance.split" ovf:type="boolean" ovf:value="false" ovf:userConfigurable="true">
+        <Label>Split-network mode</Label>
+        <Description>Enable when WAN and LAN are connected to different networks: the LAN adapter is used only for scanning and never receives a default route. Leave off when both adapters are on the same port group.</Description>
+      </Property>
+    </ProductSection>
+
+    <AnnotationSection ovf:required="false">
+      <Info>Notes</Info>
+      <Annotation>Scanner appliance {{VERSION}}. No SSH, no local accounts; the console on the VM's screen shows status and lets you set network, proxy and enrollment code. Support: contact your TPRM programme owner.</Annotation>
+    </AnnotationSection>
+  </VirtualSystem>
+</Envelope>

@@ -1,0 +1,182 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOFLAGS: -mod=mod
+
+jobs:
+  go:
+    name: go vet / test / build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Development CA (the daemon embeds daemon/internal/pki/roots.pem)
+        run: |
+          go run ./controlplane/cmd/cp-api ca init --dir dev/pki
+          cp dev/pki/root.pem daemon/internal/pki/roots.pem
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -race -count=1 ./...
+
+      - name: Build both binaries for amd64 + arm64
+        run: ci/build.sh --dev --version ci-${GITHUB_SHA::8}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update -q && sudo apt-get install -y -q shellcheck
+      - name: bash -n
+        run: |
+          set -e
+          find packer ci docker -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+      - name: Executable bits
+        run: |
+          set -e
+          bad=0
+          while IFS= read -r -d '' f; do
+            if [ ! -x "$f" ]; then echo "not executable: $f"; bad=1; fi
+          done < <(find packer ci docker -type f \( -name '*.sh' -o -name '*.expect' \) -print0)
+          exit $bad
+      - name: shellcheck
+        run: |
+          set -e
+          find packer ci docker -type f -name '*.sh' -print0 | xargs -0 shellcheck -x -S style
+      - name: shellcheck (engine scripts, explicit)
+        # The find above already covers these; listed explicitly so a rename
+        # or move cannot silently drop them from the check.
+        run: |
+          set -e
+          for f in packer/scripts/install-openvas.sh packer/scripts/seed-feed.sh docker/entrypoint.sh; do
+            test -x "$f"
+            bash -n "$f"
+            shellcheck -x -S style "$f"
+          done
+
+  packer:
+    name: packer validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: "1.14.0"
+      - name: packer init
+        working-directory: packer
+        run: packer init base.pkr.hcl
+      - name: packer fmt -check
+        working-directory: packer
+        run: packer fmt -check -diff base.pkr.hcl
+      - name: packer validate
+        working-directory: packer
+        run: |
+          packer validate -syntax-only base.pkr.hcl
+          packer validate -var version=ci -var iso_checksum=sha256:0000000000000000000000000000000000000000000000000000000000000000 base.pkr.hcl
+          # With a feed tarball and explicit engine tags (the way release.yml calls it).
+          packer validate -var version=ci -var iso_checksum=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            -var feed_tarball=/tmp/vt-feed.tar.gz -var openvas_require_checksums=true \
+            -var gvm_libs_tag=v23.11.0 -var openvas_scanner_tag=v23.50.24 -var ospd_openvas_tag=v22.10.5 base.pkr.hcl
+      - name: preseed sanity
+        run: |
+          set -e
+          grep -q '^d-i partman-auto/method string lvm' packer/http/preseed.cfg
+          grep -q 'mountpoint{ /var }' packer/http/preseed.cfg
+          grep -q 'openssh-server' packer/http/preseed.cfg
+          grep -q 'redis-server' packer/http/preseed.cfg
+          ! grep -qw 'chrony' <(sed 's/#.*//' packer/http/preseed.cfg)
+      - name: OVF template well-formed
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libxml2-utils
+          sed -e 's/{{[A-Z_]*}}/0/g' packer/ovf/descriptor.ovf.tmpl | xmllint --noout -
+
+  hadolint:
+    name: hadolint (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: docker/Dockerfile
+          ignore: DL3008
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: docker/Dockerfile.cp-api
+          ignore: DL3008
+
+  docker:
+    name: docker build (amd64, no push)
+    runs-on: ubuntu-latest
+    needs: [go]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Development CA
+        run: |
+          go run ./controlplane/cmd/cp-api ca init --dir dev/pki
+          cp dev/pki/root.pem daemon/internal/pki/roots.pem
+      - uses: docker/setup-buildx-action@v3
+      - name: Build cp-api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.cp-api
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: cp-api:ci
+          build-args: VERSION=ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build appliance image
+        # Builds openvas from source (openvas stage); no feed tarball in CI, so
+        # the feed stage yields an empty plugins dir and seed-feed.sh warns.
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: scanner-appliance:ci
+          build-args: VERSION=ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: applianced version
+        run: docker run --rm --entrypoint applianced scanner-appliance:ci version
+      - name: engine present
+        run: |
+          docker run --rm --entrypoint /usr/local/sbin/openvas scanner-appliance:ci --version
+          docker run --rm --entrypoint /opt/ospd/bin/ospd-openvas scanner-appliance:ci --version
+          docker run --rm --entrypoint cat scanner-appliance:ci /etc/appliance/openvas-settings.txt /var/lib/openvas/feed-info

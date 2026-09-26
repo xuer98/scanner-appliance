@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1.7
+# Control plane API (cp-api) for local development and the CI smoke tests.
+# Build from the repo root:
+#
+#   docker build -f docker/Dockerfile.cp-api -t cp-api:dev .
+
+ARG GO_IMAGE=golang:1.26
+ARG BASE_IMAGE=debian:12-slim
+
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
+ARG VERSION=dev
+ARG TARGETARCH
+WORKDIR /src
+
+COPY go.mod go.sum* ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    mkdir -p bin && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+      -o bin/cp-api ./controlplane/cmd/cp-api
+
+FROM ${BASE_IMAGE}
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="cp-api" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/tprm/scanner-appliance"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /pki
+
+COPY --from=build /src/bin/cp-api /usr/local/bin/cp-api
+COPY docker/cp-api-entrypoint.sh /usr/local/bin/cp-api-entrypoint
+RUN chmod 0755 /usr/local/bin/cp-api-entrypoint
+
+ENV CP_PKI_DIR=/pki \
+    CP_ENROLL_ADDR=:8443 \
+    CP_MTLS_ADDR=:9443 \
+    CP_PUBLIC_URL=https://cp-api:9443
+
+EXPOSE 8443 9443
+VOLUME /pki
+ENTRYPOINT ["cp-api-entrypoint"]

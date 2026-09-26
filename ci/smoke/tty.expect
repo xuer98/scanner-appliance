@@ -1,0 +1,75 @@
+#!/usr/bin/expect -f
+# ci/smoke/tty.expect - drive the applianced console menu over the serial port.
+#
+#   expect -f ci/smoke/tty.expect <host> <port>
+#
+# Connects to the TCP socket QEMU exposes for the serial console, waits for
+# the Status screen, opens Network (2) and Proxy (3), returning with 0 each
+# time, and asserts that every screen renders. Menu numbering:
+#   1 Status  2 Network  3 Proxy  4 Enroll  5 Support bundle  6 Wipe  0 Back
+#
+# Exit status 0 on success, 1 on a timeout or an unexpected screen.
+
+if {[llength $argv] != 2} {
+    puts stderr "usage: tty.expect <host> <port>"
+    exit 2
+}
+set host [lindex $argv 0]
+set port [lindex $argv 1]
+
+set timeout 120
+log_user 1
+match_max 100000
+
+proc fail {msg} {
+    puts stderr "\n\[tty.expect\] FAIL: $msg"
+    exit 1
+}
+
+# Wait for a pattern; any timeout or EOF is fatal.
+proc await {pattern what} {
+    expect {
+        -re $pattern {}
+        timeout { fail "timed out waiting for $what" }
+        eof     { fail "connection closed while waiting for $what" }
+    }
+}
+
+if {[catch {set sock [socket $host $port]} err]} {
+    fail "cannot connect to $host:$port: $err"
+}
+fconfigure $sock -translation binary -buffering none
+spawn -open $sock
+
+# Nudge the console: the menu redraws on input.
+send "\r"
+puts "\n\[tty.expect\] waiting for the Status screen"
+await {Status} "Status screen"
+
+# 2 -> Network, 0 -> back
+puts "\n\[tty.expect\] opening Network"
+send "2\r"
+await {(?i)network} "Network screen"
+await {(?i)(wan0|lan0|dhcp|static|0\)?\s*Back)} "Network screen contents"
+send "0\r"
+await {Status} "Status screen after Network"
+
+# 3 -> Proxy, 0 -> back
+puts "\n\[tty.expect\] opening Proxy"
+send "3\r"
+await {(?i)proxy} "Proxy screen"
+await {(?i)(host:port|none|test|0\)?\s*Back)} "Proxy screen contents"
+send "0\r"
+await {Status} "Status screen after Proxy"
+
+# An invalid choice must be rejected, not crash the menu.
+puts "\n\[tty.expect\] sending an invalid choice"
+send "9\r"
+await {(?i)(invalid|unknown|not a valid|choose|Status)} "input validation"
+
+# Back on Status with the menu intact.
+send "1\r"
+await {Status} "Status screen"
+
+puts "\n\[tty.expect\] PASS"
+exit 0

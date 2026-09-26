@@ -1,0 +1,3 @@
+# Drop the VT feed tarball here before `docker build` to ship it in the image
+# (any *.tar, *.tar.gz, *.tgz, *.tar.xz, *.tar.zst). Empty = image without VTs.
+# See packer/scripts/seed-feed.sh.
