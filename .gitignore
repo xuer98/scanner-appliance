@@ -1,0 +1,12 @@
+/bin/
+/dist/
+/packer/output-*/
+/packer/packer_cache/
+*.qcow2
+*.vmdk
+*.ova
+*.vhdx
+/.env
+/dev/
+/objects/
+/pki/
