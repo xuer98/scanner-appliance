@@ -6,8 +6,12 @@ package osptest
 import (
 	"encoding/xml"
 	"fmt"
+	"github.com/tprm/scanner-appliance/internal/bundle"
 	"io"
+	"io/fs"
 	"net"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -37,6 +41,11 @@ type Fake struct {
 	VTsVersion string
 	VTCount    int
 	VTs        map[string]VT
+	// PluginsDir makes the fake behave like ospd-openvas after a feed
+	// update: the reported VT version is PLUGIN_SET from
+	// <PluginsDir>/plugin_feed_info.inc (empty = cache not loaded) and the
+	// VT count is the number of .nasl files below it.
+	PluginsDir string
 	// Script drives every scan started against this fake. After the last
 	// step the scan reports finished (or keeps running when Hang is set,
 	// until stop_scan).
@@ -69,7 +78,13 @@ func Start(t *testing.T, f *Fake) *Fake {
 		f.VTCount = 98765
 	}
 	f.scans = map[string]*scanState{}
-	dir := t.TempDir()
+	// A short path: Unix socket names are capped at ~104 bytes on macOS and
+	// t.TempDir() embeds the (long) test name.
+	dir, err := os.MkdirTemp("", "osp-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
 	f.Socket = dir + "/ospd.sock"
 	l, err := net.Listen("unix", f.Socket)
 	if err != nil {
@@ -101,7 +116,7 @@ func (f *Fake) serve(c net.Conn) {
 	var resp string
 	switch {
 	case strings.HasPrefix(req, "<get_version"):
-		resp = `<get_version_response status="200" status_text="OK"><protocol><name>OSP</name><version>22.4</version></protocol><daemon><name>OSPd OpenVAS</name><version>22.10.5</version></daemon><scanner><name>openvas</name><version>OpenVAS 23.50.24</version></scanner><vts><version>` + f.VTsVersion + `</version></vts></get_version_response>`
+		resp = `<get_version_response status="200" status_text="OK"><protocol><name>OSP</name><version>22.4</version></protocol><daemon><name>OSPd OpenVAS</name><version>22.10.5</version></daemon><scanner><name>openvas</name><version>OpenVAS 23.50.24</version></scanner><vts><version>` + f.version() + `</version></vts></get_version_response>`
 	case strings.HasPrefix(req, "<get_vts"):
 		resp = f.getVTs(req)
 	case strings.HasPrefix(req, "<start_scan"):
@@ -145,7 +160,7 @@ func (f *Fake) getVTs(req string) string {
 			return `<get_vts_response status="404" status_text="Not found"/>`
 		}
 		var sb strings.Builder
-		fmt.Fprintf(&sb, `<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total="1" sent="1"><vt id="%s"><name>%s</name><refs>`, f.VTsVersion, oid, x(vt.Name))
+		fmt.Fprintf(&sb, `<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total="1" sent="1"><vt id="%s"><name>%s</name><refs>`, f.version(), oid, x(vt.Name))
 		for _, c := range vt.CVEs {
 			fmt.Fprintf(&sb, `<ref type="cve" id="%s"/>`, c)
 		}
@@ -159,7 +174,7 @@ func (f *Fake) getVTs(req string) string {
 		fmt.Fprintf(&sb, `</severities><custom><category>3</category><family>%s</family><filename>x.nasl</filename><cvss_base>%s</cvss_base></custom></vt></vts></get_vts_response>`, x(vt.Family), vt.CVSSBase)
 		return sb.String()
 	}
-	return fmt.Sprintf(`<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total="%d" sent="0"/></get_vts_response>`, f.VTsVersion, f.VTCount)
+	return fmt.Sprintf(`<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total="%d" sent="0"/></get_vts_response>`, f.version(), f.vtCount())
 }
 
 func (f *Fake) startScan(req string) string {
@@ -235,4 +250,31 @@ func (f *Fake) Starts() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.StartXML...)
+}
+
+// version reports the loaded feed version (see PluginsDir).
+func (f *Fake) version() string {
+	if f.PluginsDir == "" {
+		return f.VTsVersion
+	}
+	fh, err := os.Open(filepath.Join(f.PluginsDir, "plugin_feed_info.inc"))
+	if err != nil {
+		return ""
+	}
+	defer fh.Close()
+	return bundle.ParseFeedVersion(fh)
+}
+
+func (f *Fake) vtCount() int {
+	if f.PluginsDir == "" {
+		return f.VTCount
+	}
+	n := 0
+	_ = filepath.WalkDir(f.PluginsDir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".nasl") {
+			n++
+		}
+		return nil
+	})
+	return n
 }

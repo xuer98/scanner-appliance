@@ -239,6 +239,7 @@ func (h *hostAgg) finalize(meta map[string]*nvt.Meta) v1.Host {
 		}
 		out.Findings = append(out.Findings, f)
 	}
+	out.Findings = append(out.Findings, h.findings...)
 	if h.osCPE != "" || h.osTxt != "" {
 		out.OSGuess = &v1.OSGuess{Family: osFamily(h.osCPE, h.osTxt), Name: h.osTxt, CPE: h.osCPE, Source: "openvas:os_detection", Confidence: 0.5}
 		if h.osCPE != "" {

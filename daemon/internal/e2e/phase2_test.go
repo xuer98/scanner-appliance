@@ -3,14 +3,18 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"github.com/tprm/scanner-appliance/internal/bundle"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +39,9 @@ const bluekeep = "1.3.6.1.4.1.25623.1.0.108587"
 // labNaabu answers like naabu against the "fake warehouse" segment of PLAN §18.3.
 func labNaabu(t *testing.T) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake naabu is a POSIX shell script")
+	}
 	script := `#!/bin/sh
 case " $* " in
   *" -sn "*) printf '%s\n' 10.30.5.20 10.30.5.21 10.30.5.99 10.30.5.1 ;;
@@ -70,11 +77,14 @@ func labOSPD(t *testing.T) *osptest.Fake {
 }
 
 type cp struct {
-	mem     *store.Memory
-	mtls    *httptest.Server
-	enroll  *httptest.Server
-	roots   *x509.CertPool
-	adminFn func(method, path string, body, out any) int
+	mem        *store.Memory
+	mtls       *httptest.Server
+	enroll     *httptest.Server
+	roots      *x509.CertPool
+	srv        *server.Server
+	releaseKey *ecdsa.PrivateKey
+	adminFn    func(method, path string, body, out any) int
+	rawAdminFn func(method, path string, body []byte, headers map[string]string) (int, []byte)
 }
 
 func newCP(t *testing.T) *cp {
@@ -97,13 +107,33 @@ func newCP(t *testing.T) *cp {
 	mtls.TLS = server.TLSConfigMTLS(serverCert, issuer)
 	mtls.Config.Handler = http.NotFoundHandler()
 	mtls.StartTLS()
-	srv := server.New(server.Config{Store: mem, CA: issuer, PublicURL: mtls.URL, AdminToken: "tok", Logger: slog.Default()})
+	relKey, err := bundle.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Phase 3: a release key, a real object store and a short canary period.
+	srv := server.New(server.Config{Store: mem, CA: issuer, PublicURL: mtls.URL, AdminToken: "tok", Logger: slog.Default(),
+		Objects: server.DirObjects{Root: t.TempDir()}, ReleaseKeys: []*ecdsa.PublicKey{&relKey.PublicKey}, CanaryPeriod: time.Millisecond})
 	mtls.Config.Handler = srv.MTLSHandler()
 	enrollSrv := httptest.NewUnstartedServer(srv.EnrollHandler())
 	enrollSrv.TLS = server.TLSConfigEnroll(serverCert)
 	enrollSrv.StartTLS()
 	t.Cleanup(func() { mtls.Close(); enrollSrv.Close() })
-	c := &cp{mem: mem, mtls: mtls, enroll: enrollSrv, roots: roots}
+	c := &cp{mem: mem, mtls: mtls, enroll: enrollSrv, roots: roots, srv: srv, releaseKey: relKey}
+	c.rawAdminFn = func(method, path string, body []byte, headers map[string]string) (int, []byte) {
+		req, _ := http.NewRequest(method, mtls.URL+path, bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer tok")
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := (&http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}}}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, b
+	}
 	c.adminFn = func(method, path string, body, out any) int {
 		var buf bytes.Buffer
 		if body != nil {

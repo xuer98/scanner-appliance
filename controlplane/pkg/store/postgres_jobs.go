@@ -25,16 +25,20 @@ func (p *Postgres) GetVendor(ctx context.Context, id string) (*Vendor, error) {
 	return v, err
 }
 
-const siteCols = `id, vendor_id, name, allowed_cidrs::text[], excludes::text[], fragile_ports, max_pps, max_concurrency, tz, unsafe_ok, allow_public`
+const siteCols = `id, vendor_id, name, allowed_cidrs::text[], excludes::text[], fragile_ports, max_pps, max_concurrency, tz, unsafe_ok, allow_public, lan_routes`
 
 func scanSite(row pgx.Row) (*Site, error) {
 	s := &Site{}
 	var cidrs, excludes []string
-	err := row.Scan(&s.ID, &s.VendorID, &s.Name, &cidrs, &excludes, &s.FragilePorts, &s.MaxPPS, &s.MaxConcurrency, &s.TZ, &s.UnsafeOK, &s.AllowPublic)
+	var routes []byte
+	err := row.Scan(&s.ID, &s.VendorID, &s.Name, &cidrs, &excludes, &s.FragilePorts, &s.MaxPPS, &s.MaxConcurrency, &s.TZ, &s.UnsafeOK, &s.AllowPublic, &routes)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	s.AllowedCIDRs, s.Excludes = cidrs, excludes
+	if len(routes) > 0 {
+		_ = json.Unmarshal(routes, &s.LANRoutes)
+	}
 	return s, err
 }
 
@@ -67,8 +71,13 @@ func (p *Postgres) UpdateSite(ctx context.Context, s *Site) error {
 	if fr == nil {
 		fr = []int{}
 	}
-	return execOne(p.pool.Exec(ctx, `UPDATE site SET allowed_cidrs=$2::cidr[], excludes=$3::cidr[], fragile_ports=$4, max_pps=$5, max_concurrency=$6, tz=$7, unsafe_ok=$8, allow_public=$9 WHERE id=$1`,
-		s.ID, cidrs, excl, fr, s.MaxPPS, s.MaxConcurrency, s.TZ, s.UnsafeOK, s.AllowPublic))
+	routes := s.LANRoutes
+	if routes == nil {
+		routes = []v1.LANRoute{}
+	}
+	rj, _ := json.Marshal(routes)
+	return execOne(p.pool.Exec(ctx, `UPDATE site SET allowed_cidrs=$2::cidr[], excludes=$3::cidr[], fragile_ports=$4, max_pps=$5, max_concurrency=$6, tz=$7, unsafe_ok=$8, allow_public=$9, lan_routes=$10 WHERE id=$1`,
+		s.ID, cidrs, excl, fr, s.MaxPPS, s.MaxConcurrency, s.TZ, s.UnsafeOK, s.AllowPublic, rj))
 }
 
 const jobCols = `id, site_id, appliance_id, status, spec, scheduled_for, dispatched_at, started_at, finished_at, progress_pct, phase, reject_reason, batches, stats, created_at`
@@ -209,13 +218,13 @@ func scanHost(row pgx.Row) (*Host, error) {
 	return h, nil
 }
 
-const findingCols = `id, host_id, source, state, nvt_oid, name, family, severity, cvss, cve, qod, port, proto, solution, evidence, feed_version, first_seen, last_seen`
+const findingCols = `id, host_id, source, state, nvt_oid, name, family, severity, cvss, cve, qod, port, proto, solution, evidence, feed_version, first_seen, last_seen, template_id`
 
 func scanFinding(row pgx.Row) (*Finding, error) {
 	f := &Finding{}
 	var ev []byte
 	var cvss float32
-	err := row.Scan(&f.ID, &f.HostID, &f.Source, &f.State, &f.NVTOID, &f.Name, &f.Family, &f.Severity, &cvss, &f.CVE, &f.QoD, &f.Port, &f.Proto, &f.Solution, &ev, &f.FeedVersion, &f.FirstSeen, &f.LastSeen)
+	err := row.Scan(&f.ID, &f.HostID, &f.Source, &f.State, &f.NVTOID, &f.Name, &f.Family, &f.Severity, &cvss, &f.CVE, &f.QoD, &f.Port, &f.Proto, &f.Solution, &ev, &f.FeedVersion, &f.FirstSeen, &f.LastSeen, &f.TemplateID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -345,11 +354,11 @@ func (p *Postgres) commitIndex(ctx context.Context, tx pgx.Tx, ix *siteIndex) er
 		if cve == nil {
 			cve = []string{}
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO finding(`+findingCols+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+		if _, err := tx.Exec(ctx, `INSERT INTO finding(`+findingCols+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 			ON CONFLICT (id) DO UPDATE SET source=EXCLUDED.source, state=EXCLUDED.state, nvt_oid=EXCLUDED.nvt_oid, name=EXCLUDED.name, family=EXCLUDED.family,
 			severity=EXCLUDED.severity, cvss=EXCLUDED.cvss, cve=EXCLUDED.cve, qod=EXCLUDED.qod, port=EXCLUDED.port, proto=EXCLUDED.proto, solution=EXCLUDED.solution,
-			evidence=EXCLUDED.evidence, feed_version=EXCLUDED.feed_version, last_seen=EXCLUDED.last_seen`,
-			f.ID, f.HostID, f.Source, f.State, f.NVTOID, f.Name, f.Family, f.Severity, float32(f.CVSS), cve, f.QoD, f.Port, f.Proto, f.Solution, ev, f.FeedVersion, f.FirstSeen, f.LastSeen); err != nil {
+			evidence=EXCLUDED.evidence, feed_version=EXCLUDED.feed_version, last_seen=EXCLUDED.last_seen, template_id=EXCLUDED.template_id`,
+			f.ID, f.HostID, f.Source, f.State, f.NVTOID, f.Name, f.Family, f.Severity, float32(f.CVSS), cve, f.QoD, f.Port, f.Proto, f.Solution, ev, f.FeedVersion, f.FirstSeen, f.LastSeen, f.TemplateID); err != nil {
 			return err
 		}
 	}

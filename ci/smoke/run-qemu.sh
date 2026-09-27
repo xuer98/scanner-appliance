@@ -86,7 +86,7 @@ cp_url: "${CP_URL_FOR_GUEST}"
 network:
   wan0: { mode: dhcp }
   lan0: { mode: dhcp }
-split: false
+split: ${SMOKE_SPLIT:-true}
 EOF
 
 if command -v genisoimage >/dev/null; then
@@ -154,6 +154,10 @@ fi
 # 6. Scan jobs (PLAN §18.2), then directives
 # ---------------------------------------------------------------------------
 cp_job_roundtrip "$APPLIANCE_ID"
+# Split-network mode (PLAN §15): lan0 sits on the restricted 10.0.3.0/24
+# user-mode network (no route out); QEMU's virtual gateway answers there.
+SMOKE_LAN_TARGETS="${SMOKE_LAN_TARGETS:-10.0.3.0/24}" cp_lan_roundtrip "$APPLIANCE_ID"
 cp_directive_roundtrip "$APPLIANCE_ID"
+cp_bundle_roundtrip "$APPLIANCE_ID"
 
-smoke_log "PASS: appliance $APPLIANCE_ID enrolled, console OK, scan jobs done, directives acked"
+smoke_log "PASS: appliance $APPLIANCE_ID enrolled, console OK, scan jobs done (incl. the no-egress segment), directives acked, bundles applied"

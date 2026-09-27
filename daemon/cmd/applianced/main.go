@@ -16,6 +16,14 @@
 //	APPLIANCE_OSPD_SOCKET       ospd-openvas socket (default /run/ospd/ospd.sock)
 //	APPLIANCE_NAABU             naabu binary (default /opt/engine/naabu, then $PATH)
 //	APPLIANCE_SUPERVISE_ENGINE  "1": start redis + ospd-openvas as children (container)
+//	APPLIANCE_SCAN_TYPE         naabu scan type: "s" SYN (raw sockets / Npcap) or "c" connect; empty lets naabu choose
+//	APPLIANCE_PLUGINS_DIR       openvas VT feed directory updated by bundles (default /var/lib/openvas/plugins on Linux)
+//	APPLIANCE_RELEASE_KEY       extra release signing public key PEM (dev/staging; production embeds release-pub.pem)
+//
+// Platforms: the appliance is the Linux image/container. The daemon also
+// builds and runs on Windows (state under %ProgramData%\TPRM Appliance,
+// naabu.exe in engine\ beside applianced.exe); without ospd-openvas only
+// discovery/portscan jobs run there (daemon/internal/platform).
 package main
 
 import (
@@ -35,16 +43,19 @@ import (
 
 	"github.com/tprm/scanner-appliance/daemon/internal/engine"
 	"github.com/tprm/scanner-appliance/daemon/internal/enroll"
+	"github.com/tprm/scanner-appliance/daemon/internal/fingerprint"
 	"github.com/tprm/scanner-appliance/daemon/internal/heartbeat"
 	"github.com/tprm/scanner-appliance/daemon/internal/jobs"
 	"github.com/tprm/scanner-appliance/daemon/internal/netcfg"
 	"github.com/tprm/scanner-appliance/daemon/internal/nvt"
 	"github.com/tprm/scanner-appliance/daemon/internal/osp"
 	"github.com/tprm/scanner-appliance/daemon/internal/pki"
+	"github.com/tprm/scanner-appliance/daemon/internal/platform"
 	"github.com/tprm/scanner-appliance/daemon/internal/seed"
 	"github.com/tprm/scanner-appliance/daemon/internal/spool"
 	"github.com/tprm/scanner-appliance/daemon/internal/state"
 	"github.com/tprm/scanner-appliance/daemon/internal/tty"
+	"github.com/tprm/scanner-appliance/daemon/internal/update"
 )
 
 var (
@@ -97,8 +108,13 @@ func run(args []string) error {
 	ospSock := fs.String("ospd-socket", envOr("APPLIANCE_OSPD_SOCKET", osp.DefaultSocket), "ospd-openvas Unix socket")
 	naabuPath := fs.String("naabu", os.Getenv("APPLIANCE_NAABU"), "naabu binary (default /opt/engine/naabu or $PATH)")
 	supervise := fs.Bool("supervise-engine", os.Getenv("APPLIANCE_SUPERVISE_ENGINE") == "1", "start redis + ospd-openvas as child processes (no systemd)")
+	scanType := fs.String("scan-type", os.Getenv("APPLIANCE_SCAN_TYPE"), "naabu scan type: s (SYN, needs raw sockets / Npcap) or c (connect); empty lets naabu choose")
+	pluginsDir := fs.String("plugins-dir", envOr("APPLIANCE_PLUGINS_DIR", platform.PluginsDir()), "openvas VT feed directory that signature bundles update (empty: keep bundled feeds under the state dir)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *scanType != "" && *scanType != "s" && *scanType != "c" {
+		return fmt.Errorf("--scan-type must be s or c, got %q", *scanType)
 	}
 	log := newLogger(*logLevel)
 	log.Info("applianced starting", "version", version, "state_dir", *dir)
@@ -153,20 +169,44 @@ func run(args []string) error {
 	if *naabuPath == "" {
 		log.Warn("naabu not found; discovery/portscan jobs will fail until it is installed")
 	}
-	eng := &engine.Engine{NaabuPath: *naabuPath, OSP: osp.New(*ospSock), Log: log,
-		NVT: nvt.New(filepath.Join(st.Dir, "nvt-cache"), osp.New(*ospSock), log)}
+	upd := &update.Manager{StateDir: st.Dir, PluginsDir: *pluginsDir, Keys: pki.ReleaseKeys(), OSP: osp.New(*ospSock), Log: log,
+		Version: version, Container: fingerprint.Hypervisor() == "container"}
+	if len(upd.Keys) == 0 {
+		log.Warn("no release signing key (release-pub.pem); update_bundle / update_daemon will be refused")
+	}
+	eng := &engine.Engine{NaabuPath: *naabuPath, OSP: osp.New(*ospSock), Log: log, ScanType: *scanType,
+		NVT:       nvt.New(filepath.Join(st.Dir, "nvt-cache"), osp.New(*ospSock), log),
+		BundleDir: filepath.Join(st.Dir, "bundle"), HTTPXPath: findEngineTool("httpx"), NucleiPath: findEngineTool("nuclei"), Split: s.Split}
 	runner := &jobs.Runner{Store: st, Engine: eng, Spool: &spool.Spool{Dir: filepath.Join(st.Dir, "spool")}, Roots: roots, Log: log}
-	loop := &heartbeat.Loop{Store: st, Roots: roots, Version: version, Log: log, OSPSocket: *ospSock, Jobs: runner}
+	loop := &heartbeat.Loop{Store: st, Roots: roots, Version: version, Log: log, OSPSocket: *ospSock, Jobs: runner, Update: upd}
 	loop.Run(ctx)
 	runner.StopAll("daemon shutting down")
 	runner.Wait()
+	if loop.RestartRequested() {
+		log.Warn("exiting so the service supervisor starts the binary now in place")
+		return nil
+	}
 	log.Info("applianced stopped")
 	return nil
 }
 
-// findNaabu prefers the image's engine directory, then $PATH.
+// findEngineTool looks for an optional engine binary (httpx, nuclei) in
+// the engine directory, then $PATH; "" when absent.
+func findEngineTool(name string) string {
+	p := filepath.Join(heartbeat.EngineDir, platform.ExeName(name))
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	return ""
+}
+
+// findNaabu prefers the image's engine directory (engine\ beside the
+// executable on Windows), then $PATH.
 func findNaabu() string {
-	p := filepath.Join(heartbeat.EngineDir, "naabu")
+	p := filepath.Join(heartbeat.EngineDir, platform.ExeName("naabu"))
 	if _, err := os.Stat(p); err == nil {
 		return p
 	}

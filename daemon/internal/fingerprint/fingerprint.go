@@ -14,8 +14,8 @@ import (
 // Collect gathers the fingerprint. Every field is best-effort.
 func Collect() v1.Fingerprint {
 	fp := v1.Fingerprint{Hypervisor: Hypervisor(), CPU: cpuModel()}
-	if b, err := os.ReadFile("/etc/machine-id"); err == nil && len(strings.TrimSpace(string(b))) > 0 {
-		h := sha256.Sum256([]byte("tprm-machine-id:" + strings.TrimSpace(string(b))))
+	if id := machineID(); id != "" {
+		h := sha256.Sum256([]byte("tprm-machine-id:" + id))
 		fp.MachineIDHash = hex.EncodeToString(h[:])
 	}
 	if ifs, err := net.Interfaces(); err == nil {

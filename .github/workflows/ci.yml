@@ -28,31 +28,80 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Development CA (the daemon embeds daemon/internal/pki/roots.pem)
+      - name: Development CA (the daemon embeds daemon/internal/pki/roots.pem + release-pub.pem)
         run: |
           go run ./controlplane/cmd/cp-api ca init --dir dev/pki
           cp dev/pki/root.pem daemon/internal/pki/roots.pem
+          cp dev/pki/release-pub.pem daemon/internal/pki/release-pub.pem
 
       - name: go vet
         run: go vet ./...
 
+      - name: Cross-compile check (vet builds the tests too)
+        run: |
+          set -e
+          for t in windows/amd64 windows/arm64 darwin/arm64 freebsd/amd64; do
+            echo "== $t"
+            GOOS="${t%/*}" GOARCH="${t#*/}" go vet ./...
+          done
+
       - name: go test
         run: go test -race -count=1 ./...
 
-      - name: Build both binaries for amd64 + arm64
-        run: ci/build.sh --dev --version ci-${GITHUB_SHA::8}
+      - name: Build applianced + cp-api for every release target
+        run: |
+          ci/build.sh --dev --version ci-${GITHUB_SHA::8}
+          test -s dist/applianced-linux-amd64
+          test -s dist/applianced-linux-arm64
+          test -s dist/applianced-windows-amd64.exe
 
-      - name: Build scan engine (naabu, amd64)
+      - name: Build scan engine (naabu + httpx + nuclei, amd64)
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q libpcap-dev
           ci/build-engine.sh --arch amd64
           bin/engine/naabu -version
+          bin/engine/httpx -version
+          bin/engine/nuclei -version
 
       - uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
           retention-days: 7
+
+  windows:
+    name: go test (windows, advisory)
+    # The daemon is a supported build target on Windows (README "Running the
+    # daemon on Windows"): the cross-compile step above gates merges; this job
+    # runs the unit tests natively on a Windows runner. It stays advisory
+    # (continue-on-error) until it has been observed green there, then flip it.
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings (golden strings in tests)
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Development CA
+        run: |
+          go run ./controlplane/cmd/cp-api ca init --dir dev/pki
+          cp dev/pki/root.pem daemon/internal/pki/roots.pem
+          cp dev/pki/release-pub.pem daemon/internal/pki/release-pub.pem
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test -count=1 ./...
+      - name: applianced.exe starts
+        run: |
+          go build -o applianced.exe ./daemon/cmd/applianced
+          ./applianced.exe version
+          ./applianced.exe status || true   # no daemon running: prints the error, exit code is informational
 
   shellcheck:
     name: shellcheck
@@ -152,6 +201,7 @@ jobs:
         run: |
           go run ./controlplane/cmd/cp-api ca init --dir dev/pki
           cp dev/pki/root.pem daemon/internal/pki/roots.pem
+          cp dev/pki/release-pub.pem daemon/internal/pki/release-pub.pem
       - uses: docker/setup-buildx-action@v3
       - name: Build cp-api image
         uses: docker/build-push-action@v6
@@ -185,4 +235,6 @@ jobs:
         run: |
           docker run --rm --entrypoint /usr/local/sbin/openvas scanner-appliance:ci --version
           docker run --rm --entrypoint /opt/ospd/bin/ospd-openvas scanner-appliance:ci --version
+          docker run --rm --entrypoint /opt/engine/httpx scanner-appliance:ci -version
+          docker run --rm --entrypoint /opt/engine/nuclei scanner-appliance:ci -version
           docker run --rm --entrypoint cat scanner-appliance:ci /etc/appliance/openvas-settings.txt /var/lib/openvas/feed-info

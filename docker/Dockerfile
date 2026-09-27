@@ -23,12 +23,18 @@ ARG BASE_IMAGE=debian:12-slim
 
 # Pinned scan-engine versions; bump here.
 ARG NAABU_VERSION=v2.3.6
-# Phase 3 web add-on (WITH_WEB_ADDON=1) and fingerprinting add-on
-# (WITH_FINGERPRINT_ADDON=1); off by default per PLAN 20.
-ARG WITH_WEB_ADDON=0
+# Phase 3 web add-on (httpx + nuclei; templates arrive in the signed
+# bundle) is on by default; the fingerprinting add-on (WITH_FINGERPRINT_ADDON=1)
+# stays off until its legal review (PLAN 20 Phase 5).
+ARG WITH_WEB_ADDON=1
 ARG WITH_FINGERPRINT_ADDON=0
 ARG HTTPX_VERSION=v1.7.1
 ARG NUCLEI_VERSION=v3.4.10
+# nuclei's sonic dependency (via gin) uses runtime internals that changed in
+# Go 1.26; the web tools are built with this pinned toolchain (downloaded by
+# the go command) until nuclei ships a compatible sonic. Keep in sync with
+# ci/build-engine.sh.
+ARG ENGINE_GOTOOLCHAIN=go1.25.14
 ARG FINGERPRINTX_VERSION=v1.1.13
 ARG ZGRAB2_VERSION=v0.1.8
 
@@ -71,7 +77,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # ---------------------------------------------------------------------------
 # engine: third-party scanners. Built natively on the target platform because
 # naabu links libpcap (CGO). Slow under emulation for arm64 but simple.
-# Only naabu by default; httpx/nuclei (Phase 3) behind WITH_WEB_ADDON=1.
+# naabu plus httpx/nuclei (WITH_WEB_ADDON=1, the default since Phase 3).
 # ---------------------------------------------------------------------------
 FROM ${GO_IMAGE} AS engine
 ARG NAABU_VERSION
@@ -81,6 +87,7 @@ ARG HTTPX_VERSION
 ARG NUCLEI_VERSION
 ARG FINGERPRINTX_VERSION
 ARG ZGRAB2_VERSION
+ARG ENGINE_GOTOOLCHAIN
 ENV GOBIN=/out GOFLAGS=-trimpath
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpcap-dev build-essential \
@@ -90,12 +97,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     mkdir -p /out \
     && CGO_ENABLED=1 go install -ldflags="-s -w" github.com/projectdiscovery/naabu/v2/cmd/naabu@${NAABU_VERSION} \
     && if [ "${WITH_WEB_ADDON}" = "1" ]; then \
-         CGO_ENABLED=0 go install -ldflags="-s -w" github.com/projectdiscovery/httpx/cmd/httpx@${HTTPX_VERSION} \
-      && CGO_ENABLED=0 go install -ldflags="-s -w" github.com/projectdiscovery/nuclei/v3/cmd/nuclei@${NUCLEI_VERSION}; \
+         GOTOOLCHAIN=${ENGINE_GOTOOLCHAIN} CGO_ENABLED=0 go install -ldflags="-s -w" github.com/projectdiscovery/httpx/cmd/httpx@${HTTPX_VERSION} \
+      && GOTOOLCHAIN=${ENGINE_GOTOOLCHAIN} CGO_ENABLED=0 go install -ldflags="-s -w" github.com/projectdiscovery/nuclei/v3/cmd/nuclei@${NUCLEI_VERSION}; \
        fi \
     && if [ "${WITH_FINGERPRINT_ADDON}" = "1" ]; then \
-         CGO_ENABLED=0 go install -ldflags="-s -w" github.com/praetorian-inc/fingerprintx/cmd/fingerprintx@${FINGERPRINTX_VERSION} \
-      && CGO_ENABLED=0 go install -ldflags="-s -w" github.com/zmap/zgrab2/cmd/zgrab2@${ZGRAB2_VERSION}; \
+         GOTOOLCHAIN=${ENGINE_GOTOOLCHAIN} CGO_ENABLED=0 go install -ldflags="-s -w" github.com/praetorian-inc/fingerprintx/cmd/fingerprintx@${FINGERPRINTX_VERSION} \
+      && GOTOOLCHAIN=${ENGINE_GOTOOLCHAIN} CGO_ENABLED=0 go install -ldflags="-s -w" github.com/zmap/zgrab2/cmd/zgrab2@${ZGRAB2_VERSION}; \
        fi
 
 # ---------------------------------------------------------------------------

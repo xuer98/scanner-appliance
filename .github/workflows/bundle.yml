@@ -1,0 +1,110 @@
+name: bundle
+
+# Daily signature bundle (PLAN §13, §17.3): mirror the Greenbone Community
+# Feed, build the content-addressed bundle with the shipped scan configs and
+# the filtered nuclei templates, sign it with the release key and publish it
+# to the control plane, where it goes to the canary group first (PLAN §14).
+#
+# Secrets:
+#   CP_ADMIN_URL         https://cp.example.com:9443 (the mTLS listener also serves /admin)
+#   CP_ADMIN_TOKEN       bearer token for /admin
+#   CP_ROOT_CA_PEM       root CA the control plane's server certificate chains to (optional)
+#   RELEASE_KEY_PEM      the release signing key (cp-api ca init: release-key.pem)
+#   FEED_GPG_KEYRING_B64 optional: base64 GPG keyring with Greenbone's feed key, verifies sha256sums.asc
+# Variables:
+#   FEED_SOURCE          rsync source (default: the Community Feed 22.04 nasl module)
+#   NUCLEI_TEMPLATES_REF pinned nuclei-templates commit/tag (default: a known tag)
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      canary_hours:
+        description: "Canary period before general release (hours)"
+        default: "48"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bundle
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Preflight
+        env:
+          CP_ADMIN_URL: ${{ secrets.CP_ADMIN_URL }}
+          RELEASE_KEY_PEM: ${{ secrets.RELEASE_KEY_PEM }}
+        run: |
+          if [ -z "$CP_ADMIN_URL" ] || [ -z "$RELEASE_KEY_PEM" ]; then
+            echo "::error::CP_ADMIN_URL and RELEASE_KEY_PEM secrets are required"
+            exit 1
+          fi
+          printf '%s\n' "$RELEASE_KEY_PEM" > "$RUNNER_TEMP/release-key.pem"
+          if [ -n "${{ secrets.CP_ROOT_CA_PEM }}" ]; then
+            printf '%s\n' "${{ secrets.CP_ROOT_CA_PEM }}" > "$RUNNER_TEMP/cp-root.pem"
+            echo "CP_ROOT_CA=$RUNNER_TEMP/cp-root.pem" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.FEED_GPG_KEYRING_B64 }}" ]; then
+            echo "${{ secrets.FEED_GPG_KEYRING_B64 }}" | base64 -d > "$RUNNER_TEMP/feed.gpg"
+            echo "CP_FEED_GPG_KEYRING=$RUNNER_TEMP/feed.gpg" >> "$GITHUB_ENV"
+          fi
+          sudo apt-get update -q && sudo apt-get install -y -q rsync
+
+      - name: Build cp-api
+        run: go build -o "$RUNNER_TEMP/cp-api" ./controlplane/cmd/cp-api
+
+      - name: Restore the feed mirror
+        uses: actions/cache@v4
+        with:
+          path: feed-mirror
+          key: feed-mirror-${{ github.run_id }}
+          restore-keys: |
+            feed-mirror-
+
+      - name: feed sync (rsync + sha256sums)
+        env:
+          CP_FEED_SOURCE: ${{ vars.FEED_SOURCE }}
+        run: |
+          args=(--dest feed-mirror)
+          [ -n "$CP_FEED_SOURCE" ] && args+=(--source "$CP_FEED_SOURCE")
+          "$RUNNER_TEMP/cp-api" feed sync "${args[@]}"
+
+      - name: nuclei templates (pinned)
+        uses: actions/checkout@v4
+        with:
+          repository: projectdiscovery/nuclei-templates
+          ref: ${{ vars.NUCLEI_TEMPLATES_REF || 'v10.2.5' }}
+          path: nuclei-templates
+
+      - name: bundle build
+        run: |
+          "$RUNNER_TEMP/cp-api" bundle build --out bundle-out --feed feed-mirror \
+            --nuclei-templates nuclei-templates --key "$RUNNER_TEMP/release-key.pem" | tee bundle-summary.json
+
+      - name: publish (canary first)
+        env:
+          CP_URL: ${{ secrets.CP_ADMIN_URL }}
+          CP_ADMIN_TOKEN: ${{ secrets.CP_ADMIN_TOKEN }}
+        run: |
+          "$RUNNER_TEMP/cp-api" admin publish-bundle --dir bundle-out \
+            --canary-hours "${{ github.event.inputs.canary_hours || '48' }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-manifest
+          path: |
+            bundle-out/manifest.json
+            bundle-out/manifest.sig
+            bundle-summary.json
+          retention-days: 30

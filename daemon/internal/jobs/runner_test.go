@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -79,6 +80,9 @@ func TestPollRejectsAndRuns(t *testing.T) {
 	}
 	_ = st.SaveCertificate(issued.CertPEM, issuer.ChainPEM())
 
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake naabu is a POSIX shell script")
+	}
 	naabu := filepath.Join(t.TempDir(), "naabu")
 	_ = os.WriteFile(naabu, []byte("#!/bin/sh\nprintf '%s\\n' 10.30.5.20\n"), 0o755)
 	now := time.Now

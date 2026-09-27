@@ -2,6 +2,7 @@ package state
 
 import (
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -16,7 +17,7 @@ func TestKeyCSRStateWipe(t *testing.T) {
 		t.Fatal("key not stable across loads")
 	}
 	fi, _ := os.Stat(s.path("key.pem"))
-	if fi.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 { // NTFS has no POSIX mode bits
 		t.Fatalf("key perms %o", fi.Mode().Perm())
 	}
 	csr, err := s.CSR()

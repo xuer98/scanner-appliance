@@ -3,7 +3,10 @@
 // compile against one definition.
 package v1
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Fingerprint identifies the physical/virtual machine an appliance runs on.
 // It is informational: the control plane records it and alerts on change,
@@ -45,6 +48,15 @@ type SiteConfig struct {
 	// AllowPublic: the site attests ownership of public ranges listed in
 	// AllowedCIDRs; a job must additionally be flagged allow_public.
 	AllowPublic bool `json:"allow_public,omitempty"`
+	// LANRoutes are extra routes for multi-subnet floors in split-network
+	// mode (PLAN §15), written to lan0's networkd unit by the daemon.
+	LANRoutes []LANRoute `json:"lan_routes,omitempty"`
+}
+
+// LANRoute is one static route reachable through a gateway on lan0's subnet.
+type LANRoute struct {
+	CIDR string `json:"cidr"`
+	Via  string `json:"via"`
 }
 
 // EnrollResponse is returned on successful enrollment and renewal.
@@ -108,6 +120,14 @@ type Heartbeat struct {
 	SkewS int64 `json:"skew_s"`
 	// Engine is the detection-engine health (PLAN v1.1 §20 Phase 1: ospd_up, vt_cache_loaded).
 	Engine EngineHealth `json:"engine"`
+	// Phase 3 (PLAN §14): the platform the daemon runs on (release
+	// selection for update_daemon), the outcome of the last update or
+	// bundle apply (empty = ok; the control plane holds a canary rollout
+	// on it), and whether the OS wants a reboot after unattended-upgrades.
+	OS             string `json:"os,omitempty"`
+	Arch           string `json:"arch,omitempty"`
+	UpdateError    string `json:"update_error,omitempty"`
+	RebootRequired bool   `json:"reboot_required,omitempty"`
 }
 
 // EngineHealth reports the embedded openvas stack. Phase 1 only probes it;
@@ -136,13 +156,31 @@ const (
 	DirectiveRenewCert    = "renew_cert"
 	DirectiveWipe         = "wipe"
 	DirectiveRunJobNow    = "run_job_now"
+	// DirectiveReloadVTs makes the daemon wait for ospd to load the feed
+	// currently in the plugins directory and report the outcome (Phase 3).
+	DirectiveReloadVTs = "reload_vts"
+)
+
+// Payload keys shared by update_daemon / update_bundle (PLAN §8.2, §14):
+//
+//	url          path or URL of the artifact/manifest, relative to cp_url
+//	sha256       hex digest of the artifact (daemon) or manifest (bundle)
+//	sig          base64 ECDSA signature by the release key (cosign blob format)
+//	version      version being rolled out
+//	feed_version (bundle) feed version the manifest carries
+const (
+	PayloadURL         = "url"
+	PayloadSHA256      = "sha256"
+	PayloadSig         = "sig"
+	PayloadVersion     = "version"
+	PayloadFeedVersion = "feed_version"
 )
 
 // KnownDirectives is the closed allowlist checked on both sides.
 var KnownDirectives = map[string]bool{
 	DirectiveNoop: true, DirectiveSetInterval: true, DirectiveStopAll: true,
 	DirectiveUpdateDaemon: true, DirectiveUpdateBundle: true, DirectiveRenewCert: true,
-	DirectiveWipe: true, DirectiveRunJobNow: true,
+	DirectiveWipe: true, DirectiveRunJobNow: true, DirectiveReloadVTs: true,
 }
 
 // Directive is one control-channel instruction delivered in a heartbeat response.
@@ -227,10 +265,36 @@ type OpenVASParams struct {
 	FragilePortsExclude bool   `json:"fragile_ports_exclude"`
 }
 
-// WebParams is the Phase 3 web add-on configuration; nil until then.
+// WebParams configures the web add-on (httpx fingerprint + nuclei HTTP
+// templates, PLAN §10.2). Nil when the web module is not enabled.
 type WebParams struct {
 	MinSeverity string   `json:"min_severity"`
 	ExcludeTags []string `json:"exclude_tags"`
+}
+
+// DefaultWebParams is what PLAN §11 prescribes when the module is enabled.
+func DefaultWebParams() *WebParams {
+	return &WebParams{MinSeverity: SeverityMedium, ExcludeTags: []string{"dos", "fuzz", "intrusive"}}
+}
+
+// KnownSeverities is the closed severity set.
+var KnownSeverities = map[string]bool{SeverityCritical: true, SeverityHigh: true, SeverityMedium: true, SeverityLow: true, SeverityInfo: true}
+
+// SeverityRank orders severities (info=0 … critical=4); unknown is -1.
+func SeverityRank(s string) int {
+	switch s {
+	case SeverityInfo:
+		return 0
+	case SeverityLow:
+		return 1
+	case SeverityMedium:
+		return 2
+	case SeverityHigh:
+		return 3
+	case SeverityCritical:
+		return 4
+	}
+	return -1
 }
 
 // Window is when a job may run: a cron expression marks the start of each
@@ -333,6 +397,17 @@ type Port struct {
 	Version string `json:"version,omitempty"`
 	CPE     string `json:"cpe,omitempty"`
 	Source  string `json:"source"`
+	// Web is the httpx fingerprint when the web add-on probed the port.
+	Web *WebInfo `json:"web,omitempty"`
+}
+
+// WebInfo is what httpx learned about an HTTP(S) service.
+type WebInfo struct {
+	URL    string   `json:"url"`
+	Status int      `json:"status,omitempty"`
+	Title  string   `json:"title,omitempty"`
+	Server string   `json:"server,omitempty"`
+	Tech   []string `json:"tech,omitempty"`
 }
 
 // Finding is one detected issue on a host.
@@ -375,6 +450,9 @@ type ScanStats struct {
 	DurationS       int64            `json:"duration_s"`
 	PhaseDurationS  map[string]int64 `json:"phase_duration_s,omitempty"`
 	Rejected        []string         `json:"rejected"`
+	// Warnings are non-fatal conditions such as a skipped web phase
+	// because httpx/nuclei or templates were missing.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ResultBatch is one uploaded chunk of a job's normalized results. Chunks
@@ -442,6 +520,16 @@ type AdminApplianceView struct {
 	SkewS           int64        `json:"skew_s"`
 	Ifaces          []Iface      `json:"ifaces"`
 	Fingerprint     *Fingerprint `json:"fingerprint,omitempty"`
+	// Phase 3: canary group membership and the last update outcome.
+	Canary      bool   `json:"canary"`
+	OS          string `json:"os,omitempty"`
+	Arch        string `json:"arch,omitempty"`
+	UpdateError string `json:"update_error,omitempty"`
+}
+
+// AdminApplianceUpdate patches mutable appliance attributes.
+type AdminApplianceUpdate struct {
+	Canary *bool `json:"canary,omitempty"`
 }
 
 type AdminDirectiveRequest struct {
@@ -470,15 +558,94 @@ type AdminSiteView struct {
 }
 
 type AdminSiteUpdate struct {
-	AllowedCIDRs   *[]string `json:"allowed_cidrs,omitempty"`
-	Excludes       *[]string `json:"excludes,omitempty"`
-	FragilePorts   *[]int    `json:"fragile_ports,omitempty"`
-	TZ             *string   `json:"tz,omitempty"`
-	MaxPPS         *int      `json:"max_pps,omitempty"`
-	MaxConcurrency *int      `json:"max_concurrency,omitempty"`
-	UnsafeOK       *bool     `json:"unsafe_ok,omitempty"`
-	AllowPublic    *bool     `json:"allow_public,omitempty"`
+	AllowedCIDRs   *[]string   `json:"allowed_cidrs,omitempty"`
+	Excludes       *[]string   `json:"excludes,omitempty"`
+	FragilePorts   *[]int      `json:"fragile_ports,omitempty"`
+	TZ             *string     `json:"tz,omitempty"`
+	MaxPPS         *int        `json:"max_pps,omitempty"`
+	MaxConcurrency *int        `json:"max_concurrency,omitempty"`
+	UnsafeOK       *bool       `json:"unsafe_ok,omitempty"`
+	AllowPublic    *bool       `json:"allow_public,omitempty"`
+	LANRoutes      *[]LANRoute `json:"lan_routes,omitempty"`
 }
+
+// ---- Phase 3: bundles, releases and rollouts (PLAN §13, §14, §17.1) ----
+
+// Rollout states shared by bundles and releases.
+const (
+	RolloutCanary   = "canary"   // delivered to canary appliances only
+	RolloutReleased = "released" // delivered to every appliance
+	RolloutHeld     = "held"     // a canary reported a failure; not delivered further
+	RolloutRetired  = "retired"  // superseded; never delivered again
+)
+
+// AdminPublishBundleRequest publishes a signed manifest whose files were
+// uploaded beforehand (PUT /admin/bundles/files/{sha256}).
+type AdminPublishBundleRequest struct {
+	Manifest json.RawMessage `json:"manifest"`
+	Sig      string          `json:"sig"`
+	// CanaryHours is how long the bundle stays with the canary group before
+	// general release; 0 uses the server default.
+	CanaryHours float64 `json:"canary_hours,omitempty"`
+}
+
+// AdminBundleView describes one published bundle.
+type AdminBundleView struct {
+	Version     string     `json:"version"`
+	FeedVersion string     `json:"feed_version"`
+	Files       int        `json:"files"`
+	Bytes       int64      `json:"bytes"`
+	SHA256      string     `json:"sha256"`
+	Status      string     `json:"status"`
+	HeldReason  string     `json:"held_reason,omitempty"`
+	PublishedAt time.Time  `json:"published_at"`
+	CanaryUntil *time.Time `json:"canary_until,omitempty"`
+	// Appliances on this bundle / total enrolled, for the rollout view.
+	Installed int `json:"installed"`
+	Fleet     int `json:"fleet"`
+}
+
+// AdminMissingFilesRequest asks which content-addressed files the server
+// lacks so the publisher uploads only the delta.
+type AdminMissingFilesRequest struct {
+	SHA256 []string `json:"sha256"`
+}
+
+type AdminMissingFilesResponse struct {
+	Missing []string `json:"missing"`
+}
+
+// Release upload headers (PUT /admin/releases/{component}/{version}); the
+// body is the artifact.
+const (
+	HeaderReleaseSHA256 = "X-Release-SHA256"
+	HeaderReleaseSig    = "X-Release-Sig"
+	HeaderCanaryHours   = "X-Canary-Hours"
+)
+
+// AdminReleaseView describes one published daemon release.
+type AdminReleaseView struct {
+	Component   string     `json:"component"` // applianced-<os>-<arch>
+	Version     string     `json:"version"`
+	SHA256      string     `json:"sha256"`
+	Bytes       int64      `json:"bytes"`
+	Status      string     `json:"status"`
+	HeldReason  string     `json:"held_reason,omitempty"`
+	PublishedAt time.Time  `json:"published_at"`
+	CanaryUntil *time.Time `json:"canary_until,omitempty"`
+	Installed   int        `json:"installed"`
+	Fleet       int        `json:"fleet"`
+}
+
+// AdminRolloutRequest changes a bundle's or release's rollout state
+// (release now, hold, retire).
+type AdminRolloutRequest struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// ReleaseComponent names the daemon artifact for a platform.
+func ReleaseComponent(os, arch string) string { return "applianced-" + os + "-" + arch }
 
 // AdminJobRequest schedules a job for one appliance. Omitted fields take
 // the mode's defaults (api/v1 DefaultsFor).
@@ -546,6 +713,7 @@ type AdminFindingView struct {
 	Source      string     `json:"source"` // agent | openvas | nuclei | both
 	State       string     `json:"state"`
 	NVTOID      string     `json:"nvt_oid,omitempty"`
+	TemplateID  string     `json:"template_id,omitempty"` // nuclei (web add-on)
 	Name        string     `json:"name"`
 	Family      string     `json:"family,omitempty"`
 	Severity    string     `json:"severity"`

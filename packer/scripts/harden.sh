@@ -2,8 +2,9 @@
 # harden.sh - PLAN 4.3. Runs as root inside the Packer VM (Debian 12).
 #
 # Firewall, console lock-down, GRUB password, sysctl, systemd-networkd with
-# deterministic NIC names (wan0/lan0), htpdate, unattended-upgrades (disabled),
-# and the applianced.service unit. Idempotent: safe to re-run.
+# deterministic NIC names (wan0/lan0), htpdate, unattended-upgrades (security
+# pocket via the control-plane apt mirror), the self-update guard and the
+# applianced.service unit. Idempotent: safe to re-run.
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
@@ -439,15 +440,72 @@ EOF
 systemctl enable htpdate.service appliance-htpdate-reload.path
 
 # ---------------------------------------------------------------------------
-# Updates: unattended-upgrades installed but disabled until the apt mirror
-# behind the FQDN exists (Phase 3).
+# Updates (PLAN 4.4, 14): unattended-upgrades from the security pocket only,
+# fetched from the apt mirror behind the control-plane FQDN over mTLS. The
+# daemon writes the sources entry and the client-certificate settings at
+# enrollment (/etc/apt/sources.list.d/appliance-security.sources,
+# /etc/apt/apt.conf.d/50appliance); until then apt has nothing to fetch.
+# Reboots are not automatic: applianced reboots an idle appliance in the
+# maintenance slot when /var/run/reboot-required appears.
 # ---------------------------------------------------------------------------
-log "disabling unattended-upgrades"
+log "configuring unattended-upgrades (security pocket via the control-plane mirror)"
 cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
-APT::Periodic::Update-Package-Lists "0";
-APT::Periodic::Unattended-Upgrade "0";
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
 EOF
-systemctl disable --now unattended-upgrades.service apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+cat >/etc/apt/apt.conf.d/52unattended-upgrades-appliance <<'EOF'
+// Scanner appliance: security updates only, no automatic reboot (applianced
+// handles the reboot in the site's maintenance slot).
+Unattended-Upgrade::Origins-Pattern {
+  "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+};
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::MinimalSteps "true";
+EOF
+systemctl enable unattended-upgrades.service apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# Self-update guard (PLAN 14): applianced swaps its own binary on
+# update_daemon and keeps the previous one as applianced.prev with a
+# pending record. If the new binary cannot even start, this ExecStartPre
+# puts the previous binary back after three failed starts; the daemon then
+# reports the rollback in its heartbeat.
+# ---------------------------------------------------------------------------
+log "installing appliance-update-guard"
+cat >/usr/local/sbin/appliance-update-guard <<'EOF'
+#!/bin/sh
+# Crash-loop protection for applianced self-updates. Sources the pending
+# record written by the daemon (KEY='value' lines) and restores the
+# previous binary after three unconfirmed starts.
+set -eu
+P=/var/lib/appliance/update/pending.env
+[ -f "$P" ] || exit 0
+VERSION=''; PREV_VERSION=''; PREV=''; EXE=''; STARTED='0'; STARTS='0'; ROLLED_BACK='0'; REASON=''
+# shellcheck disable=SC1090
+. "$P"
+STARTS=$((STARTS + 1))
+if [ "$ROLLED_BACK" = "0" ] && [ "$STARTS" -ge 3 ] && [ -n "$PREV" ] && [ -f "$PREV" ] && [ -n "$EXE" ]; then
+  mv -f "$PREV" "$EXE"
+  chmod 0755 "$EXE"
+  ROLLED_BACK=1
+  REASON="rolled back after $STARTS failed starts"
+fi
+q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\''/g")"; }
+{
+  printf 'VERSION=%s\n' "$(q "$VERSION")"
+  printf 'PREV_VERSION=%s\n' "$(q "$PREV_VERSION")"
+  printf 'PREV=%s\n' "$(q "$PREV")"
+  printf 'EXE=%s\n' "$(q "$EXE")"
+  printf 'STARTED=%s\n' "$STARTED"
+  printf 'STARTS=%s\n' "$STARTS"
+  printf 'ROLLED_BACK=%s\n' "$ROLLED_BACK"
+  printf 'REASON=%s\n' "$(q "$REASON")"
+} >"$P.tmp" && mv -f "$P.tmp" "$P"
+exit 0
+EOF
+chmod 0755 /usr/local/sbin/appliance-update-guard
 
 # ---------------------------------------------------------------------------
 # open-vm-tools: needed to read the OVF environment on VMware. Harmless
@@ -473,7 +531,10 @@ RequiresMountsFor=/var/lib/appliance
 
 [Service]
 Type=simple
+ExecStartPre=/usr/local/sbin/appliance-update-guard
 ExecStart=/usr/local/bin/applianced run
+# Restart=always also covers the clean exit the daemon uses to hand over
+# to a freshly installed binary (update_daemon).
 Restart=always
 RestartSec=5
 KillMode=mixed
@@ -493,8 +554,11 @@ CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_SYS_ADMIN CAP_NET_BIND_SERVI
 NoNewPrivileges=no
 ProtectSystem=strict
 # connect(2) on a Unix socket needs write access to its path: /run/ospd for
-# ospd-openvas ("-": tolerate it not existing yet).
+# ospd-openvas ("-": tolerate it not existing yet). Phase 3 adds the VT feed
+# (bundle deltas), openvas.conf (source_iface in split mode), the daemon's
+# own binary (self-update) and apt's config (mirror credentials).
 ReadWritePaths=/var/lib/appliance /run/appliance /etc/systemd/network /etc/appliance /etc/htpdate.conf -/run/ospd
+ReadWritePaths=-/var/lib/openvas -/etc/openvas /usr/local/bin -/etc/apt/apt.conf.d -/etc/apt/sources.list.d
 ProtectHome=yes
 PrivateTmp=yes
 ProtectKernelTunables=no

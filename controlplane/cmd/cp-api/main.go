@@ -57,6 +57,10 @@ func main() {
 		err = caCmd(os.Args[2:])
 	case "admin":
 		err = adminCmd(os.Args[2:])
+	case "bundle":
+		err = bundleCmd(os.Args[2:])
+	case "feed":
+		err = feedCmd(os.Args[2:])
 	case "version":
 		fmt.Println(version)
 	default:
@@ -80,18 +84,32 @@ func usage() {
   admin jobs [--appliance ID] [--site ID] | job ID | cancel-job ID | run-now ID | job-hosts ID
   admin sites | site ID | site-update ID [--cidrs ..] [--excludes ..] [--fragile-ports ..] [--max-pps N] [--max-concurrency N] [--unsafe-ok B] [--allow-public B]
   admin hosts SITE | findings SITE | agent-inventory SITE FILE.json
+  admin site-update ID --lan-routes 10.31.0.0/16@10.30.5.1[,..]|none      (split-network floors, PLAN §15)
+  feed sync --dest DIR [--source rsync://…] [--gpg-keyring FILE]          (mirror the Greenbone Community Feed)
+  bundle build --out DIR --feed DIR [--nuclei-templates DIR] [--version V] --key release-key.pem
+  admin publish-bundle --dir DIR [--canary-hours H] | bundles | rollout bundle VERSION canary|released|held|retired [--reason R]
+  admin publish-release --file BIN --component applianced-linux-amd64 --version V --key release-key.pem [--canary-hours H]
+  admin releases | rollout release COMPONENT VERSION STATUS | set-canary ID true|false
+  ca release-key --dir DIR                                                 (create the release signing key pair if missing)
   admin flags: --url https://host:9443 (env CP_URL) --token T (env CP_ADMIN_TOKEN) --ca root.pem (env CP_ROOT_CA)`)
 }
 
 func caCmd(args []string) error {
-	if len(args) < 1 || args[0] != "init" {
-		return errors.New("usage: cp-api ca init --dir DIR [--org NAME]")
+	if len(args) < 1 || (args[0] != "init" && args[0] != "release-key") {
+		return errors.New("usage: cp-api ca init --dir DIR [--org NAME] | cp-api ca release-key --dir DIR")
 	}
-	fs := flag.NewFlagSet("ca init", flag.ContinueOnError)
+	fs := flag.NewFlagSet("ca "+args[0], flag.ContinueOnError)
 	dir := fs.String("dir", "pki", "output directory")
 	org := fs.String("org", "TPRM", "organization name")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
+	}
+	if args[0] == "release-key" {
+		if _, err := ensureReleaseKeys(*dir, true, slog.Default()); err != nil {
+			return err
+		}
+		fmt.Printf("%s/release-key.pem signs bundles and releases; embed %s/release-pub.pem into applianced (daemon/internal/pki/release-pub.pem)\n", *dir, *dir)
+		return nil
 	}
 	if err := ca.Init(*dir, *org); err != nil {
 		return err
@@ -99,9 +117,13 @@ func caCmd(args []string) error {
 	if _, err := ensureSpoolKey(*dir, true, slog.Default()); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s/{root.pem,root-key.pem,intermediate.pem,intermediate-key.pem,spool-key.pem}\n", *dir)
+	if _, err := ensureReleaseKeys(*dir, true, slog.Default()); err != nil {
+		return err
+	}
+	fmt.Printf("wrote %s/{root.pem,root-key.pem,intermediate.pem,intermediate-key.pem,spool-key.pem,release-key.pem,release-pub.pem}\n", *dir)
 	fmt.Println("move root-key.pem offline; embed root.pem into applianced (daemon/internal/pki/roots.pem)")
 	fmt.Println("spool-key.pem decrypts uploaded results; back it up with the intermediate key")
+	fmt.Println("release-key.pem signs bundles and daemon releases (cosign blob format); embed release-pub.pem into applianced (daemon/internal/pki/release-pub.pem)")
 	return nil
 }
 
@@ -140,6 +162,8 @@ func serve(args []string) error {
 	selfIssue := fs.Bool("self-issue", os.Getenv("CP_SELF_ISSUE") == "1", "issue the server TLS certificate and spool key from the pki dir when missing (dev/staging stacks; production supplies --server-cert/--server-key)")
 	adminToken := fs.String("admin-token", os.Getenv("CP_ADMIN_TOKEN"), "bearer token for /admin")
 	objDir := fs.String("object-dir", envOr("CP_OBJECT_DIR", "objects"), "local object store directory")
+	aptDir := fs.String("apt-dir", os.Getenv("CP_APT_DIR"), "directory served as the apt security mirror under /apt/ (mTLS); empty disables")
+	canaryHours := fs.Float64("canary-hours", envFloat("CP_CANARY_HOURS", 48), "hours a bundle/release stays with the canary group before general release")
 	logLevel := fs.String("log-level", envOr("CP_LOG_LEVEL", "info"), "debug|info|warn")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -197,6 +221,13 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	releaseKeys, err := ensureReleaseKeys(*pkiDir, *dev || *selfIssue, log)
+	if err != nil {
+		return err
+	}
+	if len(releaseKeys) == 0 {
+		log.Warn("no release signing key (pki-dir/release-pub.pem): bundle and release publishing is disabled")
+	}
 	if *adminToken == "" {
 		log.Warn("no admin token: /admin is disabled")
 	}
@@ -204,7 +235,9 @@ func serve(args []string) error {
 	srv := server.New(server.Config{
 		Store: st, CA: issuer, Objects: server.DirObjects{Root: *objDir},
 		PublicURL: *publicURL, AdminToken: *adminToken, Logger: log, SpoolKey: spoolKey,
+		ReleaseKeys: releaseKeys, CanaryPeriod: time.Duration(*canaryHours * float64(time.Hour)), AptDir: *aptDir,
 	})
+	go srv.RunRollout(ctx, time.Minute)
 	enrollSrv := &http.Server{Addr: *enrollAddr, Handler: srv.EnrollHandler(), TLSConfig: server.TLSConfigEnroll(cert),
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second}
 	mtlsSrv := &http.Server{Addr: *mtlsAddr, Handler: srv.MTLSHandler(), TLSConfig: server.TLSConfigMTLS(cert, issuer),
@@ -304,6 +337,14 @@ func adminCmd(args []string) error {
 	maxConc := fs.Int("max-concurrency", -1, "site max_concurrency (site-update)")
 	unsafeOK := fs.String("unsafe-ok", "", "true|false (site-update)")
 	sitePublic := fs.String("site-allow-public", "", "true|false: site attests public ranges (site-update)")
+	lanRoutes := fs.String("lan-routes", "", "CIDR@gateway[,..] for split-network floors, or 'none' to clear (site-update)")
+	dir := fs.String("dir", "", "bundle directory from `cp-api bundle build` (publish-bundle)")
+	file := fs.String("file", "", "artifact to publish (publish-release)")
+	component := fs.String("component", "", "release component, e.g. applianced-linux-amd64 (publish-release)")
+	relVersion := fs.String("version", "", "release version (publish-release)")
+	keyPath := fs.String("key", envOr("CP_RELEASE_KEY", "dev/pki/release-key.pem"), "release signing key PEM (publish-release)")
+	canaryHrs := fs.Float64("canary-hours", 0, "canary period override in hours (publish-*)")
+	reason := fs.String("reason", "", "reason recorded with a rollout change")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -312,17 +353,15 @@ func adminCmd(args []string) error {
 	if err != nil {
 		return err
 	}
-	call := func(method, path string, body any) (int, []byte, error) {
-		var buf bytes.Buffer
-		if body != nil {
-			_ = json.NewEncoder(&buf).Encode(body)
-		}
-		req, err := http.NewRequest(method, strings.TrimRight(*base, "/")+path, &buf)
+	callRaw := func(method, path string, body io.Reader, headers map[string]string) (int, []byte, error) {
+		req, err := http.NewRequest(method, strings.TrimRight(*base, "/")+path, body)
 		if err != nil {
 			return 0, nil, err
 		}
 		req.Header.Set("Authorization", "Bearer "+*token)
-		req.Header.Set("Content-Type", "application/json")
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
 		resp, err := cl.Do(req)
 		if err != nil {
 			return 0, nil, err
@@ -330,6 +369,13 @@ func adminCmd(args []string) error {
 		defer resp.Body.Close()
 		b, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, b, nil
+	}
+	call := func(method, path string, body any) (int, []byte, error) {
+		var buf bytes.Buffer
+		if body != nil {
+			_ = json.NewEncoder(&buf).Encode(body)
+		}
+		return callRaw(method, path, &buf, map[string]string{"Content-Type": "application/json"})
 	}
 	var (
 		status int
@@ -450,7 +496,49 @@ func adminCmd(args []string) error {
 			}
 			upd.AllowPublic = &b
 		}
+		if *lanRoutes != "" {
+			routes := []v1.LANRoute{}
+			if *lanRoutes != "none" {
+				routes, err = parseLANRoutes(*lanRoutes)
+				if err != nil {
+					return err
+				}
+			}
+			upd.LANRoutes = &routes
+		}
 		status, out, err = call("PATCH", "/admin/sites/"+rest[0], upd)
+	case "publish-bundle":
+		if *dir == "" {
+			return errors.New("--dir required (output of `cp-api bundle build`)")
+		}
+		status, out, err = publishBundleDir(callRaw, *dir, *canaryHrs)
+	case "publish-release":
+		if *file == "" || *component == "" || *relVersion == "" {
+			return errors.New("--file, --component and --version required")
+		}
+		status, out, err = publishRelease(callRaw, *file, *component, *relVersion, *keyPath, *canaryHrs)
+	case "bundles":
+		status, out, err = call("GET", "/admin/bundles", nil)
+	case "releases":
+		status, out, err = call("GET", "/admin/releases", nil)
+	case "rollout":
+		switch {
+		case len(rest) == 3 && rest[0] == "bundle":
+			status, out, err = call("POST", "/admin/bundles/"+rest[1]+"/rollout", v1.AdminRolloutRequest{Status: rest[2], Reason: *reason})
+		case len(rest) == 4 && rest[0] == "release":
+			status, out, err = call("POST", "/admin/releases/"+rest[1]+"/"+rest[2]+"/rollout", v1.AdminRolloutRequest{Status: rest[3], Reason: *reason})
+		default:
+			return errors.New("usage: admin rollout bundle VERSION STATUS | admin rollout release COMPONENT VERSION STATUS")
+		}
+	case "set-canary":
+		if len(rest) < 2 {
+			return errors.New("usage: admin set-canary ID true|false")
+		}
+		b, perr := strconv.ParseBool(rest[1])
+		if perr != nil {
+			return perr
+		}
+		status, out, err = call("PATCH", "/admin/appliances/"+rest[0], v1.AdminApplianceUpdate{Canary: &b})
 	case "agent-inventory":
 		if len(rest) < 2 {
 			return errors.New("usage: admin agent-inventory SITE FILE.json")
@@ -580,4 +668,13 @@ func dedupe(in []string) []string {
 		}
 	}
 	return out
+}
+
+func envFloat(k string, d float64) float64 {
+	if v := os.Getenv(k); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
+	return d
 }

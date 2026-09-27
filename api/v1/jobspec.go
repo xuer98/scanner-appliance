@@ -31,11 +31,15 @@ func (j *JobSpec) DefaultsFor(mode string) {
 		}
 	case ModeFull:
 		if len(j.Modules) == 0 {
-			j.Modules = []string{ModuleDiscovery, ModulePortscan, ModuleOpenVAS}
+			// Phase 3: full = discovery + port + openvas full + web add-on (PLAN §10.5).
+			j.Modules = []string{ModuleDiscovery, ModulePortscan, ModuleOpenVAS, ModuleWeb}
 		}
 		if j.OpenVAS == nil {
 			j.OpenVAS = &OpenVASParams{Config: "full", MaxHosts: 4, MaxChecks: 4, FragilePortsExclude: true}
 		}
+	}
+	if j.HasModule(ModuleWeb) && j.Web == nil {
+		j.Web = DefaultWebParams()
 	}
 	if j.Ports == "" {
 		j.Ports = PortsStandard
@@ -123,7 +127,15 @@ func (j *JobSpec) ValidateShape() error {
 		}
 	}
 	if seen[ModuleWeb] {
-		return errors.New("web module is not available before Phase 3")
+		if j.Web == nil {
+			return errors.New("web module needs web params")
+		}
+		if !KnownSeverities[j.Web.MinSeverity] {
+			return fmt.Errorf("web.min_severity %q is not a severity", j.Web.MinSeverity)
+		}
+		if !seen[ModulePortscan] {
+			return errors.New("web module needs the portscan module (it targets the open HTTP ports)")
+		}
 	}
 	if seen[ModulePortscan] {
 		if _, err := ParsePortSpec(j.Ports); err != nil {

@@ -36,6 +36,7 @@ type Site struct {
 	TZ             string
 	UnsafeOK       bool
 	AllowPublic    bool
+	LANRoutes      []v1.LANRoute
 }
 
 type Appliance struct {
@@ -54,6 +55,14 @@ type Appliance struct {
 	BinaryHashes    map[string]string
 	EnrolledAt      *time.Time
 	CreatedAt       time.Time
+	// Phase 3 (PLAN §14): canary group, platform (release selection), the
+	// engine's loaded feed version and the last update outcome.
+	Canary         bool
+	OS             string
+	Arch           string
+	FeedVersion    string
+	UpdateError    string
+	RebootRequired bool
 }
 
 type EnrollmentCode struct {
@@ -153,6 +162,21 @@ type Store interface {
 	GetHost(ctx context.Context, id string) (*Host, error)
 	ListFindings(ctx context.Context, siteID, hostID string) ([]*Finding, error)
 	UpsertNVTs(ctx context.Context, nvts []NVT) error
+
+	// Bundles, releases and rollouts (PLAN §13, §14, §17.1)
+	PutBundle(ctx context.Context, b *Bundle) error
+	GetBundle(ctx context.Context, version string) (*Bundle, error)
+	ListBundles(ctx context.Context) ([]*Bundle, error) // newest first
+	SetBundleStatus(ctx context.Context, version, status, reason string) error
+	// PutBundleFiles records content-addressed files that exist in the
+	// object store; HasBundleFiles reports which of the digests are known.
+	PutBundleFiles(ctx context.Context, files []BundleFileRec) error
+	HasBundleFiles(ctx context.Context, sha256 []string) (map[string]bool, error)
+	PutRelease(ctx context.Context, r *Release) error
+	GetRelease(ctx context.Context, component, version string) (*Release, error)
+	ListReleases(ctx context.Context) ([]*Release, error) // newest first
+	SetReleaseStatus(ctx context.Context, component, version, status, reason string) error
+	SetApplianceCanary(ctx context.Context, id string, canary bool) error
 
 	Close() error
 }

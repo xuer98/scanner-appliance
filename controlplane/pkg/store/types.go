@@ -72,6 +72,7 @@ type Finding struct {
 	Source      string // agent | openvas | nuclei | both
 	State       string // confirmed | network_observed | suspected
 	NVTOID      string
+	TemplateID  string // nuclei template id (web add-on)
 	Name        string
 	Family      string
 	Severity    string
@@ -111,9 +112,12 @@ type IngestSummary struct {
 func (s *Site) Config() v1.SiteConfig {
 	c := v1.SiteConfig{AllowedCIDRs: append([]string{}, s.AllowedCIDRs...), Excludes: append([]string{}, s.Excludes...),
 		FragilePorts: append([]int{}, s.FragilePorts...), TZ: s.TZ, MaxPPS: s.MaxPPS, MaxConcurrency: s.MaxConcurrency,
-		UnsafeOK: s.UnsafeOK, AllowPublic: s.AllowPublic}
+		UnsafeOK: s.UnsafeOK, AllowPublic: s.AllowPublic, LANRoutes: append([]v1.LANRoute{}, s.LANRoutes...)}
 	if c.AllowedCIDRs == nil {
 		c.AllowedCIDRs = []string{}
+	}
+	if len(c.LANRoutes) == 0 {
+		c.LANRoutes = nil
 	}
 	return c
 }

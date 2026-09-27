@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/tprm/scanner-appliance/daemon/internal/enroll"
 	"github.com/tprm/scanner-appliance/daemon/internal/heartbeat"
 	"github.com/tprm/scanner-appliance/daemon/internal/netcfg"
+	"github.com/tprm/scanner-appliance/daemon/internal/platform"
 	"github.com/tprm/scanner-appliance/daemon/internal/state"
 	"github.com/tprm/scanner-appliance/daemon/internal/support"
 )
@@ -50,10 +50,10 @@ func (c *Console) init() {
 		c.Idle = IdleTimeout
 	}
 	if c.PowerOff == nil {
-		c.PowerOff = func() error { return exec.Command("systemctl", "poweroff").Run() }
+		c.PowerOff = platform.PowerOff
 	}
 	if c.ApplyNetwork == nil {
-		c.ApplyNetwork = netcfg.Apply
+		c.ApplyNetwork = func(ctx context.Context, n state.Network) error { return netcfg.Apply(ctx, n) }
 	}
 	c.lines = make(chan string)
 	c.errc = make(chan error, 1)
@@ -189,6 +189,12 @@ func (c *Console) status() {
 			c.printf("  Cert expires:    %s\n", live.CertNotAfter.Format("2006-01-02"))
 		}
 		c.printf("  Bundle version:  %s\n", orDash(live.BundleVersion))
+		if live.Updating != "" {
+			c.printf("  Updating:        %s\n", live.Updating)
+		}
+		if live.UpdateError != "" {
+			c.printf("  Update error:    %s\n", live.UpdateError)
+		}
 	}
 	c.printf("  Proxy:           %s\n", orDash(redact(st.Proxy)))
 	c.printf("  Split network:   %s\n", yesno(st.Split, ""))

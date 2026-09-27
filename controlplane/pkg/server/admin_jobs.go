@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -291,6 +292,19 @@ func (s *Server) adminUpdateSite(w http.ResponseWriter, r *http.Request) {
 	if req.AllowPublic != nil {
 		site.AllowPublic = *req.AllowPublic
 	}
+	if req.LANRoutes != nil {
+		for _, rt := range *req.LANRoutes {
+			if _, _, err := net.ParseCIDR(rt.CIDR); err != nil {
+				writeErr(w, http.StatusBadRequest, "lan_routes: bad cidr "+rt.CIDR, "bad_cidr")
+				return
+			}
+			if ip := net.ParseIP(rt.Via); ip == nil || ip.To4() == nil {
+				writeErr(w, http.StatusBadRequest, "lan_routes: bad gateway "+rt.Via, "bad_gateway")
+				return
+			}
+		}
+		site.LANRoutes = *req.LANRoutes
+	}
 	if err := s.cfg.Store.UpdateSite(r.Context(), site); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error(), "store")
 		return
@@ -378,7 +392,7 @@ func hostView(h *store.Host) v1.AdminHostView {
 }
 
 func findingView(f *store.Finding) v1.AdminFindingView {
-	v := v1.AdminFindingView{ID: f.ID, HostID: f.HostID, Source: f.Source, State: f.State, NVTOID: f.NVTOID, Name: f.Name, Family: f.Family,
+	v := v1.AdminFindingView{ID: f.ID, HostID: f.HostID, Source: f.Source, State: f.State, NVTOID: f.NVTOID, TemplateID: f.TemplateID, Name: f.Name, Family: f.Family,
 		Severity: f.Severity, CVSS: f.CVSS, CVE: f.CVE, QoD: f.QoD, Port: f.Port, Proto: f.Proto, Solution: f.Solution, Evidence: f.Evidence,
 		FeedVersion: f.FeedVersion, FirstSeen: f.FirstSeen, LastSeen: f.LastSeen}
 	if v.CVE == nil {

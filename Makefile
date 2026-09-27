@@ -1,10 +1,10 @@
-# Scanner appliance — build targets (Phase 1 + 2).
+# Scanner appliance — build targets (Phase 1–3). Linux is the product; Windows is a daemon-only host build.
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)
 CP_URL  ?= https://appliance.tprm.example.com
 LDFLAGS  = -s -w -X main.version=$(VERSION) -X main.defaultCPURL=$(CP_URL)
 GOFLAGS  = -trimpath
 
-.PHONY: all build build-linux build-engine test vet lint dev-ca dev-cp dev-appliance dev-job dev-tty clean ova docker
+.PHONY: all build build-linux build-windows build-cross build-engine test vet lint dev-bundle dev-publish-bundle dev-ca dev-cp dev-appliance dev-job dev-tty clean ova docker
 
 all: vet test build
 
@@ -13,9 +13,15 @@ build:            ## native binaries into bin/
 	CGO_ENABLED=0 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/cp-api     ./controlplane/cmd/cp-api
 
 build-linux:      ## static linux/amd64 + arm64 (what the image and container use)
+	./ci/build.sh --dev --version $(VERSION) --targets "linux/amd64 linux/arm64"
+
+build-windows:    ## windows/amd64 applianced.exe + cp-api.exe → dist/ (daemon-only host, README "Running the daemon on Windows")
+	./ci/build.sh --dev --version $(VERSION) --targets windows/amd64
+
+build-cross:      ## every release target (linux amd64 + arm64, windows amd64)
 	./ci/build.sh --dev --version $(VERSION)
 
-build-engine:     ## naabu → bin/engine/naabu (Linux host with libpcap-dev; the Dockerfile builds its own)
+build-engine:     ## naabu + httpx + nuclei → bin/engine/ (Linux host with libpcap-dev; the Dockerfile builds its own)
 	./ci/build-engine.sh --arch amd64
 
 test:
@@ -23,6 +29,7 @@ test:
 
 vet:
 	go vet ./...
+	GOOS=windows GOARCH=amd64 go vet ./...
 	gofmt -l . | tee /dev/stderr | test -z "$$(cat)"
 
 lint:
@@ -46,6 +53,16 @@ dev-job: dev-ca   ## create + run a job now: make dev-job APL=apl_… MODE=disco
 	CP_URL=https://localhost:9443 CP_ADMIN_TOKEN=dev CP_ROOT_CA=dev/pki/root.pem \
 	go run ./controlplane/cmd/cp-api admin create-job --appliance $(APL) --mode $(MODE) --targets $(TARGETS) --now
 
+# Phase 3: a bundle from a feed mirror (FEED=path to the nasl tree; empty = configs + fragile ports only)
+FEED ?=
+TEMPLATES ?=
+dev-bundle: dev-ca  ## build a signed bundle into dev/bundle (FEED=… TEMPLATES=…)
+	go run ./controlplane/cmd/cp-api bundle build --out dev/bundle $(if $(FEED),--feed $(FEED)) $(if $(TEMPLATES),--nuclei-templates $(TEMPLATES)) --key dev/pki/release-key.pem
+
+dev-publish-bundle: ## publish dev/bundle to the local cp-api (canary first: make the appliance a canary with `admin set-canary`)
+	CP_URL=https://localhost:9443 CP_ADMIN_TOKEN=dev CP_ROOT_CA=dev/pki/root.pem \
+	go run ./controlplane/cmd/cp-api admin publish-bundle --dir dev/bundle --canary-hours $(or $(CANARY_HOURS),48)
+
 dev-tty: dev-ca   ## the console against the local daemon state
 	APPLIANCE_ROOT_CA=dev/pki/root.pem APPLIANCE_STATE_DIR=dev/state APPLIANCE_RUN_DIR=dev/run \
 	go run ./daemon/cmd/applianced tty
@@ -60,4 +77,4 @@ docker: dev-ca    ## container images (appliance + cp-api)
 	docker build -f docker/Dockerfile.cp-api --build-arg VERSION=$(VERSION) -t cp-api:$(VERSION) .
 
 clean:
-	rm -rf bin dist dev/state dev/run dev/objects
+	rm -rf bin dist dev/state dev/run dev/objects dev/bundle

@@ -6,38 +6,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
+
+	"github.com/tprm/scanner-appliance/daemon/internal/platform"
 )
 
-// EngineDir holds the scan-engine binaries whose hashes are reported.
-var EngineDir = "/opt/engine"
+// EngineDir holds the scan-engine binaries whose hashes are reported
+// (/opt/engine on the image; engine\ beside the executable on Windows).
+var EngineDir = platform.EngineDir()
 
-func uptimeSeconds() int64 {
-	b, err := os.ReadFile("/proc/uptime")
-	if err != nil {
-		return 0
-	}
-	f := strings.Fields(string(b))
-	if len(f) == 0 {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(f[0], 64)
-	return int64(v)
-}
-
-func load1() float64 {
-	b, err := os.ReadFile("/proc/loadavg")
-	if err != nil {
-		return 0
-	}
-	f := strings.Fields(string(b))
-	if len(f) == 0 {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(f[0], 64)
-	return v
-}
+// Host metrics (uptimeSeconds, load1, diskFreeMB, memFreeMB, setClock) live
+// in sys_linux.go, sys_windows.go and sys_other.go.
 
 // binaryHashes hashes applianced itself and everything in EngineDir.
 func binaryHashes() map[string]string {

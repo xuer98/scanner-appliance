@@ -20,6 +20,7 @@ const (
 	PhaseDiscovery = "discovery"
 	PhasePortscan  = "portscan"
 	PhaseOpenVAS   = "openvas"
+	PhaseWeb       = "web"
 	PhaseFinalize  = "finalize"
 )
 
@@ -65,6 +66,18 @@ type Engine struct {
 	ScanType string
 	// IfaceExists is overridable in tests.
 	IfaceExists func(string) bool
+
+	// Phase 3. BundleDir is the installed signature bundle (configs/,
+	// nuclei-templates/, fragile-ports.json) that overrides the shipped
+	// defaults. HTTPXPath / NucleiPath enable the web add-on ("" skips it
+	// with a warning in the job stats). Split binds naabu and openvas to
+	// lan0 when the job names no interface (PLAN §15); OpenVASConf is the
+	// openvas.conf whose source_iface line is managed for that.
+	BundleDir   string
+	HTTPXPath   string
+	NucleiPath  string
+	Split       bool
+	OpenVASConf string
 }
 
 func (e *Engine) init() {
@@ -83,6 +96,21 @@ func (e *Engine) init() {
 	if e.MaxResultsPerPoll == 0 {
 		e.MaxResultsPerPoll = 2000
 	}
+	if e.OpenVASConf == "" {
+		e.OpenVASConf = "/etc/openvas/openvas.conf"
+	}
+}
+
+// scanIface is the interface scans are bound to: the job's, else lan0 in
+// split-network mode when it exists, else none.
+func (e *Engine) scanIface(spec v1.JobSpec) string {
+	if spec.Iface != "" && e.ifaceExists(spec.Iface) {
+		return spec.Iface
+	}
+	if e.Split && e.ifaceExists("lan0") {
+		return "lan0"
+	}
+	return ""
 }
 
 type run struct {
@@ -177,6 +205,13 @@ func (r *run) phases(ctx context.Context) error {
 			return r.abort(ctx, err)
 		}
 		r.progress(PhaseOpenVAS, 100)
+	}
+	if spec.HasModule(v1.ModuleWeb) {
+		r.progress(PhaseWeb, 0)
+		if err := r.timed(PhaseWeb, func() error { return r.web(ctx) }); err != nil {
+			return r.abort(ctx, err)
+		}
+		r.progress(PhaseWeb, 100)
 	}
 	r.progress(PhaseFinalize, 0)
 	return r.emitAll(ctx, true, meta)
@@ -282,14 +317,11 @@ func (r *run) openvas(ctx context.Context) (map[string]*nvt.Meta, error) {
 	if r.e.OSP == nil {
 		return nil, errors.New("openvas: no OSP client configured")
 	}
-	cfg, err := ConfigFor(r.spec.OpenVAS.Config)
+	cfg, err := r.e.configFor(r.spec.OpenVAS.Config)
 	if err != nil {
 		return nil, err
 	}
-	fragile := r.site.FragilePorts
-	if len(fragile) == 0 {
-		fragile = DefaultFragilePorts
-	}
+	fragile := r.fragilePorts()
 	var scanHosts []string
 	tcp := map[int]bool{}
 	for _, ip := range r.order {
@@ -329,6 +361,11 @@ func (r *run) openvas(ctx context.Context) (map[string]*nvt.Meta, error) {
 	var excludes []string
 	excludes = append(excludes, r.spec.Excludes...)
 	excludes = append(excludes, r.site.Excludes...)
+	if iface := r.e.scanIface(r.spec); iface != "" {
+		if err := setConfKey(r.e.OpenVASConf, "source_iface", iface); err != nil {
+			r.log.Warn("could not bind openvas to interface", "iface", iface, "err", err)
+		}
+	}
 	target := osp.Target{Hosts: scanHosts, Ports: openvasPortList(tcp, cfg.UDPPorts), ExcludeHosts: excludes, AliveTest: osp.AliveTestConsiderAlive}
 	scanID, err := r.e.OSP.StartScan(ctx, target, params, osp.VTSelection{Families: cfg.Families})
 	if err != nil {

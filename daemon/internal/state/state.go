@@ -22,11 +22,14 @@ import (
 	"time"
 
 	v1 "github.com/tprm/scanner-appliance/api/v1"
+	"github.com/tprm/scanner-appliance/daemon/internal/platform"
 )
 
-const (
-	DefaultDir    = "/var/lib/appliance"
-	DefaultRunDir = "/run/appliance"
+// Defaults for the Linux image; Windows uses %ProgramData%\TPRM Appliance\{state,run}
+// (daemon/internal/platform). APPLIANCE_STATE_DIR / APPLIANCE_RUN_DIR override.
+var (
+	DefaultDir    = platform.StateDir()
+	DefaultRunDir = platform.RunDir()
 )
 
 // NIC is a per-interface network setting written to systemd-networkd.
@@ -68,6 +71,9 @@ type State struct {
 	StopAll           bool   `json:"stop_all"`
 	SeedConsumed      bool   `json:"seed_consumed"`
 	BundleVersion     string `json:"bundle_version,omitempty"`
+	// LastUpdateError is the outcome of the last bundle/daemon update
+	// ("" = ok); it rides in the heartbeat so a canary can hold a rollout.
+	LastUpdateError string `json:"last_update_error,omitempty"`
 
 	// Spool key: results are sealed to this control-plane key before they
 	// touch disk (PLAN §9). Refreshed at enrollment and renewal.
@@ -278,6 +284,9 @@ type Status struct {
 	Engine         v1.EngineHealth `json:"engine"`
 	FeedVersion    string          `json:"feed_version,omitempty"`
 	PendingResults int             `json:"pending_results"`
+	// Phase 3: the update in progress ("bundle <v>") and the last failure.
+	Updating    string `json:"updating,omitempty"`
+	UpdateError string `json:"update_error,omitempty"`
 }
 
 func (s *Store) WriteStatus(st *Status) error {

@@ -29,6 +29,11 @@ type Memory struct {
 	findings map[string]*Finding
 	jobHosts map[string]map[string]bool
 	nvts     map[string]*NVT
+
+	// Phase 3
+	bundles     map[string]*Bundle
+	bundleFiles map[string]BundleFileRec
+	releases    map[string]*Release
 }
 
 func NewMemory() *Memory {
@@ -185,6 +190,8 @@ func (m *Memory) RecordHeartbeat(_ context.Context, id string, at time.Time, hb 
 	if hb.BinarySHA256 != nil {
 		a.BinaryHashes = hb.BinarySHA256
 	}
+	a.OS, a.Arch, a.FeedVersion = hb.OS, hb.Arch, hb.FeedVersion
+	a.UpdateError, a.RebootRequired = hb.UpdateError, hb.RebootRequired
 	m.heartbeats[id] = append(m.heartbeats[id], cp)
 	if len(m.heartbeats[id]) > 1000 {
 		m.heartbeats[id] = m.heartbeats[id][len(m.heartbeats[id])-1000:]

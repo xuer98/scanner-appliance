@@ -276,3 +276,127 @@ cp_job_roundtrip() {
   hosts="$(cp_api GET "/admin/jobs/${jid}/hosts" | jq 'length')"
   smoke_log "inventory job reported $hosts host(s)"
 }
+
+# ---------------------------------------------------------------------------
+# Phase 3: signature bundle delta (PLAN §13, §18.2 "apply a synthetic feed
+# delta bundle") and the canary rollout (PLAN §14).
+#
+# Builds a small bundle on the host with `cp-api bundle build` (shipped scan
+# configs + fragile ports; SMOKE_BUNDLE_FEED=1 adds a two-VT synthetic feed
+# so a real engine reloads it), publishes it, makes the appliance a canary
+# and waits until its heartbeat reports the bundle version. A second bundle
+# with a changed config file exercises the delta path.
+#
+#   SMOKE_BUNDLE_TIMEOUT  seconds to wait for bundle_version (300)
+#   SMOKE_SKIP_BUNDLE=1   skip
+#   SMOKE_RELEASE_KEY     release signing key (dev/pki/release-key.pem)
+# ---------------------------------------------------------------------------
+SMOKE_BUNDLE_TIMEOUT="${SMOKE_BUNDLE_TIMEOUT:-300}"
+
+# cp_build_bundle <out-dir> <version> <feed-version|""> -> stdout: version
+cp_build_bundle() {
+  local out="$1" version="$2" feedver="$3" root cfg feed
+  smoke_require_tools go
+  root="$(smoke_repo_root)"
+  rm -rf "$out"; mkdir -p "$out"
+  cfg="$out/configs"; mkdir -p "$cfg"
+  # A config override that still passes policy (safe families only).
+  cat >"$cfg/inventory.json" <<EOF
+{"name":"inventory","families":["Web Servers","SSL and TLS"],"udp_ports":[161],"params":{"optimize_test":"1","smoke_version":"${version}"}}
+EOF
+  local args=(bundle build --out "$out/bundle" --configs "$cfg" --version "$version" --key "${SMOKE_RELEASE_KEY:-$root/dev/pki/release-key.pem}")
+  if [[ -n "$feedver" ]]; then
+    feed="$out/feed"; mkdir -p "$feed"
+    printf 'PLUGIN_SET = "%s";\nPLUGIN_FEED = "Smoke Feed";\nFEED_VENDOR = "TPRM";\nFEED_HOME = "https://example.invalid";\nFEED_NAME = "SMOKE";\n' "$feedver" >"$feed/plugin_feed_info.inc"
+    for n in 1 2; do
+      cat >"$feed/smoke_${n}.nasl" <<EOF
+if(description){
+  script_oid("1.3.6.1.4.1.25623.1.0.99999${n}");
+  script_version("2026-09-26T00:00:00+0000");
+  script_name("Smoke test VT ${n}");
+  script_category(ACT_GATHER_INFO);
+  script_family("General");
+  script_tag(name:"summary", value:"smoke");
+  script_tag(name:"qod_type", value:"remote_banner");
+  exit(0);
+}
+exit(0);
+EOF
+    done
+    args+=(--feed "$feed")
+  fi
+  (cd "$root" && go run ./controlplane/cmd/cp-api "${args[@]}" >"$out/summary.json") || smoke_die "bundle build failed"
+  smoke_log "built bundle $version ($(jq -r '.files' "$out/summary.json") files)"
+  printf '%s\n' "$version"
+}
+
+# cp_publish_bundle <out-dir> [canary-hours]
+cp_publish_bundle() {
+  local out="$1" hours="${2:-48}" root
+  root="$(smoke_repo_root)"
+  local args=(admin publish-bundle --dir "$out/bundle" --canary-hours "$hours" --url "$CP_ADMIN_URL" --token "$CP_ADMIN_TOKEN")
+  if [[ -n "${CP_CA_FILE:-}" ]]; then args+=(--ca "$CP_CA_FILE"); else args+=(--insecure); fi
+  (cd "$root" && go run ./controlplane/cmd/cp-api "${args[@]}" >"$out/publish.json") || { cat "$out/publish.json" >&2; smoke_die "publish-bundle failed"; }
+  smoke_log "published bundle $(jq -r '.version + " status=" + .status' "$out/publish.json")"
+}
+
+# cp_wait_bundle <appliance_id> <version> [timeout]
+cp_wait_bundle() {
+  local id="$1" want="$2" timeout="${3:-$SMOKE_BUNDLE_TIMEOUT}" deadline resp got err last=""
+  deadline=$((SECONDS + timeout))
+  while (( SECONDS < deadline )); do
+    if resp="$(cp_api GET "/admin/appliances/${id}" 2>/dev/null)"; then
+      got="$(jq -r '.bundle_version // ""' <<<"$resp")"
+      err="$(jq -r '.update_error // ""' <<<"$resp")"
+      if [[ "$got $err" != "$last" ]]; then
+        smoke_log "  bundle_version=${got:-<none>} update_error=${err:-<none>}"
+        last="$got $err"
+      fi
+      [[ "$got" == "$want" ]] && return 0
+      [[ -n "$err" && "$err" == bundle\ "$want":* ]] && smoke_die "appliance failed to apply bundle $want: $err"
+    fi
+    sleep 5
+  done
+  smoke_die "appliance did not report bundle $want within ${timeout}s"
+}
+
+# cp_bundle_roundtrip <appliance_id>: publish v1 to the canary, then a delta.
+cp_bundle_roundtrip() {
+  local id="$1" work v1 v2 feed1="" feed2=""
+  if [[ "${SMOKE_SKIP_BUNDLE:-0}" == "1" ]]; then
+    smoke_log "SMOKE_SKIP_BUNDLE=1: not testing bundles"
+    return 0
+  fi
+  work="$(mktemp -d "${TMPDIR:-/tmp}/smoke-bundle.XXXXXX")"
+  if [[ "${SMOKE_BUNDLE_FEED:-0}" == "1" ]]; then
+    feed1="$(date -u +%Y%m%d%H%M)"; feed2="$((feed1 + 1))"
+  fi
+  cp_api PATCH "/admin/appliances/${id}" '{"canary":true}' >/dev/null || smoke_die "set canary failed"
+  v1="$(cp_build_bundle "$work/v1" "smoke-$(date -u +%Y%m%dT%H%M%SZ)-1" "$feed1")"
+  cp_publish_bundle "$work/v1"
+  cp_wait_bundle "$id" "$v1"
+  smoke_log "canary applied bundle $v1"
+  v2="$(cp_build_bundle "$work/v2" "smoke-$(date -u +%Y%m%dT%H%M%SZ)-2" "$feed2")"
+  cp_publish_bundle "$work/v2"
+  cp_wait_bundle "$id" "$v2"
+  smoke_log "delta bundle $v2 applied"
+  cp_api GET /admin/bundles | jq -c '.[] | {version, status, installed, fleet}' | while read -r line; do smoke_log "  $line"; done
+  rm -rf "$work"
+}
+
+# cp_lan_roundtrip <appliance_id>: split-network DoD (PLAN §20 Phase 3) - a
+# discovery job against the no-egress LAN segment must find something.
+#   SMOKE_LAN_TARGETS  the lan0 segment (run-qemu: 10.0.3.0/24)
+#   SMOKE_SKIP_LAN=1   skip
+cp_lan_roundtrip() {
+  local id="$1" jid hosts
+  if [[ "${SMOKE_SKIP_LAN:-0}" == "1" || -z "${SMOKE_LAN_TARGETS:-}" ]]; then
+    smoke_log "no SMOKE_LAN_TARGETS: not testing the split-network segment"
+    return 0
+  fi
+  jid="$(cp_create_job "$id" discovery "$SMOKE_LAN_TARGETS")"
+  cp_wait_job "$jid"
+  hosts="$(cp_api GET "/admin/jobs/${jid}/hosts" | jq 'length')"
+  smoke_log "split-network discovery of $SMOKE_LAN_TARGETS reported $hosts host(s)"
+  (( hosts >= 1 )) || smoke_die "no hosts found on the no-egress segment $SMOKE_LAN_TARGETS"
+}

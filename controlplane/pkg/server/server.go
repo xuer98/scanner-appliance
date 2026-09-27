@@ -11,6 +11,7 @@ package server
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
@@ -59,12 +60,22 @@ type Config struct {
 	SpoolKey *SpoolKey
 	// Now is overridable for tests.
 	Now func() time.Time
+	// Phase 3 (PLAN §13, §14): public keys that bundles and releases must be
+	// signed with (pki-dir/release-pub.pem; several for rotation), the
+	// canary period before general release, how long to wait for an
+	// appliance to report a version before re-queueing its update, and the
+	// directory served as the apt security mirror under /apt/.
+	ReleaseKeys  []*ecdsa.PublicKey
+	CanaryPeriod time.Duration
+	RequeueAfter time.Duration
+	AptDir       string
 }
 
 type Server struct {
-	cfg     Config
-	log     *slog.Logger
-	limiter *ipLimiter
+	cfg       Config
+	log       *slog.Logger
+	limiter   *ipLimiter
+	rolloutMu sync.Mutex
 }
 
 func New(cfg Config) *Server {
@@ -106,6 +117,10 @@ func (s *Server) MTLSHandler() http.Handler {
 	mux.HandleFunc("GET /v1/appliances/{id}/jobs", s.withAppliance(s.handleJobs))
 	mux.HandleFunc("POST /v1/jobs/{job}/status", s.withAppliance(s.handleJobStatus))
 	mux.HandleFunc("POST /v1/jobs/{job}/results", s.withAppliance(s.handleResults))
+	mux.HandleFunc("GET /v1/bundles/{version}/manifest", s.withAppliance(s.handleBundleManifest))
+	mux.HandleFunc("GET /v1/bundles/{version}/files/{sha256}", s.withAppliance(s.handleBundleFile))
+	mux.HandleFunc("GET /v1/releases/{component}/{version}", s.withAppliance(s.handleRelease))
+	mux.HandleFunc("GET /apt/{path...}", s.withAppliance(s.handleApt))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 
 	mux.HandleFunc("POST /admin/appliances", s.withAdmin(s.adminCreateAppliance))
@@ -115,6 +130,17 @@ func (s *Server) MTLSHandler() http.Handler {
 	mux.HandleFunc("POST /admin/appliances/{id}/revoke", s.withAdmin(s.adminRevoke))
 	mux.HandleFunc("POST /admin/appliances/{id}/directives", s.withAdmin(s.adminCreateDirective))
 	mux.HandleFunc("GET /admin/appliances/{id}/directives", s.withAdmin(s.adminListDirectives))
+	mux.HandleFunc("PATCH /admin/appliances/{id}", s.withAdmin(s.adminUpdateAppliance))
+
+	mux.HandleFunc("POST /admin/bundles/missing", s.withAdmin(s.adminMissingBundleFiles))
+	mux.HandleFunc("PUT /admin/bundles/files/{sha256}", s.withAdmin(s.adminPutBundleFile))
+	mux.HandleFunc("POST /admin/bundles", s.withAdmin(s.adminPublishBundle))
+	mux.HandleFunc("GET /admin/bundles", s.withAdmin(s.adminListBundles))
+	mux.HandleFunc("GET /admin/bundles/{version}", s.withAdmin(s.adminGetBundle))
+	mux.HandleFunc("POST /admin/bundles/{version}/rollout", s.withAdmin(s.adminBundleRollout))
+	mux.HandleFunc("PUT /admin/releases/{component}/{version}", s.withAdmin(s.adminPutRelease))
+	mux.HandleFunc("GET /admin/releases", s.withAdmin(s.adminListReleases))
+	mux.HandleFunc("POST /admin/releases/{component}/{version}/rollout", s.withAdmin(s.adminReleaseRollout))
 
 	mux.HandleFunc("POST /admin/jobs", s.withAdmin(s.adminCreateJob))
 	mux.HandleFunc("GET /admin/jobs", s.withAdmin(s.adminListJobs))
@@ -374,6 +400,7 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "store error", "store")
 		return
 	}
+	s.noteUpdateError(r.Context(), apl, &hb)
 	pending, err := s.cfg.Store.PendingDirectives(r.Context(), apl.ID, true)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "store error", "store")
@@ -554,6 +581,7 @@ func (s *Server) view(a *store.Appliance) v1.AdminApplianceView {
 		ApplianceID: a.ID, SiteID: a.SiteID, Status: a.Status, Online: online, Version: a.Version, BundleVersion: a.BundleVersion, FeedVersion: feed,
 		CertSerial: a.CertSerial, CertNotAfter: a.CertNotAfter, LastHeartbeatAt: a.LastHeartbeatAt, LastHeartbeat: a.LastHeartbeat,
 		SkewS: a.SkewS, Ifaces: a.Ifaces, Fingerprint: a.Fingerprint,
+		Canary: a.Canary, OS: a.OS, Arch: a.Arch, UpdateError: a.UpdateError,
 	}
 }
 

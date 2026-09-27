@@ -127,8 +127,8 @@ func (e *Engine) naabuArgs(spec v1.JobSpec, site v1.SiteConfig, hosts []string) 
 	if len(excl) > 0 {
 		args = append(args, "-exclude-hosts", strings.Join(excl, ","))
 	}
-	if spec.Iface != "" && e.ifaceExists(spec.Iface) {
-		args = append(args, "-interface", spec.Iface)
+	if iface := e.scanIface(spec); iface != "" {
+		args = append(args, "-interface", iface)
 	}
 	if e.ScanType != "" {
 		args = append(args, "-scan-type", e.ScanType)

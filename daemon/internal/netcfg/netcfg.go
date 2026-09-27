@@ -9,11 +9,13 @@ package netcfg
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	v1 "github.com/tprm/scanner-appliance/api/v1"
@@ -125,6 +127,31 @@ func isVirtual(n string) bool {
 // Render produces a systemd .network unit for one NIC.
 // lan0 never gets a default route or DNS from DHCP (PLAN §4.3).
 func Render(name string, nic *state.NIC, isLAN bool) (string, error) {
+	return RenderRoutes(name, nic, isLAN, nil)
+}
+
+// RenderRoutes is Render plus static routes through a gateway on the
+// NIC's subnet: the multi-subnet floor case of split-network mode (PLAN
+// §15). Routes are only accepted for the LAN leg.
+func RenderRoutes(name string, nic *state.NIC, isLAN bool, routes []v1.LANRoute) (string, error) {
+	if len(routes) > 0 && !isLAN {
+		return "", fmt.Errorf("%s: static routes are only pushed to lan0", name)
+	}
+	var rt strings.Builder
+	for _, r := range routes {
+		_, dst, err := net.ParseCIDR(r.CIDR)
+		if err != nil || dst.IP.To4() == nil {
+			return "", fmt.Errorf("%s: bad route destination %q", name, r.CIDR)
+		}
+		gw := net.ParseIP(r.Via)
+		if gw == nil || gw.To4() == nil {
+			return "", fmt.Errorf("%s: bad route gateway %q", name, r.Via)
+		}
+		if dst.Contains(net.IPv4zero) && dst.IP.Equal(net.IPv4zero) {
+			return "", fmt.Errorf("%s: a default route is never pushed to lan0", name)
+		}
+		fmt.Fprintf(&rt, "\n[Route]\nDestination=%s\nGateway=%s\n", dst.String(), gw.String())
+	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# managed by applianced — edit via the console, not by hand\n[Match]\nName=%s\n\n[Network]\n", name)
 	if nic == nil || nic.Mode == "" || nic.Mode == "dhcp" {
@@ -134,6 +161,7 @@ func Render(name string, nic *state.NIC, isLAN bool) (string, error) {
 		} else {
 			sb.WriteString("\n[DHCPv4]\nUseNTP=no\n")
 		}
+		sb.WriteString(rt.String())
 		return sb.String(), nil
 	}
 	if nic.Mode != "static" {
@@ -169,16 +197,21 @@ func Render(name string, nic *state.NIC, isLAN bool) (string, error) {
 		}
 		fmt.Fprintf(&sb, "DNS=%s\n", d)
 	}
+	sb.WriteString(rt.String())
 	return sb.String(), nil
 }
 
-// Apply writes units for both NICs and reloads networkd.
-func Apply(ctx context.Context, n state.Network) error {
+// Apply writes units for both NICs (plus the site's LAN routes) and
+// reloads networkd.
+func Apply(ctx context.Context, n state.Network, routes ...v1.LANRoute) error {
+	if runtime.GOOS == "windows" {
+		return errors.New("network configuration is only supported on the Linux appliance (systemd-networkd)")
+	}
 	wan, err := Render("wan0", n.WAN0, false)
 	if err != nil {
 		return err
 	}
-	lan, err := Render("lan0", n.LAN0, true)
+	lan, err := RenderRoutes("lan0", n.LAN0, true, routes)
 	if err != nil {
 		return err
 	}

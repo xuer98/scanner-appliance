@@ -99,6 +99,13 @@ find /var/log -type f -name '*.gz' -delete
 find /var/log -type f -name '*.[0-9]' -delete
 find /var/log -type f -exec truncate -s0 {} +
 rm -rf /var/lib/apt/lists/* /var/cache/apt/*.bin /var/cache/apt/archives/*.deb
+# The appliance has no route to public mirrors; its only apt source is the
+# security pocket mirrored behind the control plane, which applianced writes
+# to /etc/apt/sources.list.d/appliance-security.sources at enrollment.
+cat >/etc/apt/sources.list <<'EOF'
+# Sources are managed by applianced: see /etc/apt/sources.list.d/appliance-security.sources
+EOF
+rm -f /etc/apt/sources.list.d/debian.sources
 rm -rf /var/cache/debconf/*-old /var/lib/dpkg/*-old
 rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
 rm -f /root/.bash_history /root/.lesshst /root/.viminfo /root/.wget-hsts

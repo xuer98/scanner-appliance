@@ -48,6 +48,7 @@ func TestStoreConformance(t *testing.T) {
 			jobsScenario(t, ctx, st, vendor, site, apl)
 			correlationScenario(t, ctx, st, site.ID)
 			sitesScenario(t, ctx, st, vendor, site)
+			opsScenario(t, ctx, st, site, apl)
 		})
 	}
 }
@@ -324,5 +325,123 @@ func sitesScenario(t *testing.T, ctx context.Context, st Store, vendor *Vendor, 
 	sites, _ := st.ListSites(ctx)
 	if len(sites) != 1 || sites[0].VendorID != vendor.ID {
 		t.Fatalf("list sites: %+v", sites)
+	}
+}
+
+func opsScenario(t *testing.T, ctx context.Context, st Store, site *Site, apl *Appliance) {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Second)
+	later := now.Add(48 * time.Hour)
+	b1 := &Bundle{Version: "20260901T000000Z", FeedVersion: "202609010000", ObjectKey: "bundles/20260901T000000Z/manifest.json",
+		SHA256: "aa", Sig: "sig1", Files: 3, Bytes: 300, Status: v1.RolloutReleased, PublishedAt: now.Add(-time.Hour)}
+	b2 := &Bundle{Version: "20260926T000000Z", FeedVersion: "202609260530", ObjectKey: "bundles/20260926T000000Z/manifest.json",
+		SHA256: "bb", Sig: "sig2", Files: 4, Bytes: 400, Status: v1.RolloutCanary, PublishedAt: now, CanaryUntil: &later}
+	for _, b := range []*Bundle{b1, b2} {
+		if err := st.PutBundle(ctx, b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := st.GetBundle(ctx, b2.Version)
+	if err != nil || got.FeedVersion != b2.FeedVersion || got.CanaryUntil == nil || !got.CanaryUntil.Equal(later) || got.Status != v1.RolloutCanary {
+		t.Fatalf("get bundle: %v %+v", err, got)
+	}
+	if _, err := st.GetBundle(ctx, "nope"); err != ErrNotFound {
+		t.Fatalf("missing bundle: %v", err)
+	}
+	list, _ := st.ListBundles(ctx)
+	if len(list) != 2 || list[0].Version != b2.Version {
+		t.Fatalf("list bundles newest first: %+v", list)
+	}
+	if err := st.SetBundleStatus(ctx, b2.Version, v1.RolloutHeld, "canary apl_x reported reload failure"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetBundleStatus(ctx, "nope", v1.RolloutHeld, ""); err != ErrNotFound {
+		t.Fatalf("status of missing bundle: %v", err)
+	}
+	got, _ = st.GetBundle(ctx, b2.Version)
+	if got.Status != v1.RolloutHeld || got.HeldReason == "" {
+		t.Fatalf("held: %+v", got)
+	}
+	// Re-put keeps the row unique (upsert).
+	b2.Status = v1.RolloutReleased
+	if err := st.PutBundle(ctx, b2); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ = st.ListBundles(ctx); len(list) != 2 {
+		t.Fatalf("upsert duplicated the bundle: %d", len(list))
+	}
+
+	files := []BundleFileRec{{SHA256: "f1", Size: 10, ObjectKey: "bundles/files/f1"}, {SHA256: "f2", Size: 20, ObjectKey: "bundles/files/f2"}}
+	if err := st.PutBundleFiles(ctx, files); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutBundleFiles(ctx, files[:1]); err != nil { // idempotent
+		t.Fatal(err)
+	}
+	has, err := st.HasBundleFiles(ctx, []string{"f1", "f2", "f3"})
+	if err != nil || !has["f1"] || !has["f2"] || has["f3"] {
+		t.Fatalf("has files: %v %v", err, has)
+	}
+	if has, _ := st.HasBundleFiles(ctx, nil); len(has) != 0 {
+		t.Fatal("empty query")
+	}
+
+	r := &Release{Component: "applianced-linux-amd64", Version: "1.3.0", ObjectKey: "releases/applianced-linux-amd64/1.3.0",
+		SHA256: "cc", Sig: "sig3", Bytes: 8_000_000, Status: v1.RolloutCanary, PublishedAt: now, CanaryUntil: &later}
+	if err := st.PutRelease(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	r2 := *r
+	r2.Component = "applianced-linux-arm64"
+	if err := st.PutRelease(ctx, &r2); err != nil {
+		t.Fatal(err)
+	}
+	gr, err := st.GetRelease(ctx, r.Component, r.Version)
+	if err != nil || gr.SHA256 != "cc" || gr.Bytes != 8_000_000 {
+		t.Fatalf("get release: %v %+v", err, gr)
+	}
+	if _, err := st.GetRelease(ctx, r.Component, "0.0.0"); err != ErrNotFound {
+		t.Fatalf("missing release: %v", err)
+	}
+	if rl, _ := st.ListReleases(ctx); len(rl) != 2 {
+		t.Fatalf("list releases: %+v", rl)
+	}
+	if err := st.SetReleaseStatus(ctx, r.Component, r.Version, v1.RolloutReleased, ""); err != nil {
+		t.Fatal(err)
+	}
+	if gr, _ = st.GetRelease(ctx, r.Component, r.Version); gr.Status != v1.RolloutReleased {
+		t.Fatalf("release status: %+v", gr)
+	}
+
+	if err := st.SetApplianceCanary(ctx, apl.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetApplianceCanary(ctx, "apl_missing", true); err != ErrNotFound {
+		t.Fatalf("canary on missing appliance: %v", err)
+	}
+	hb := &v1.Heartbeat{Version: "1.3.0", BundleVersion: b2.Version, FeedVersion: "202609260530", OS: "linux", Arch: "amd64",
+		UpdateError: "bundle 20260926T000000Z: ospd did not load feed", RebootRequired: true, Engine: v1.EngineHealth{OSPDUp: true}}
+	if err := st.RecordHeartbeat(ctx, apl.ID, now, hb); err != nil {
+		t.Fatal(err)
+	}
+	ga, _ := st.GetAppliance(ctx, apl.ID)
+	if !ga.Canary || ga.OS != "linux" || ga.Arch != "amd64" || ga.FeedVersion != "202609260530" || ga.UpdateError == "" || !ga.RebootRequired || ga.BundleVersion != b2.Version {
+		t.Fatalf("appliance after heartbeat: %+v", ga)
+	}
+
+	site.LANRoutes = []v1.LANRoute{{CIDR: "10.31.0.0/16", Via: "10.30.5.1"}}
+	if err := st.UpdateSite(ctx, site); err != nil {
+		t.Fatal(err)
+	}
+	gs, _ := st.GetSite(ctx, site.ID)
+	if cfg := gs.Config(); len(cfg.LANRoutes) != 1 || cfg.LANRoutes[0].Via != "10.30.5.1" {
+		t.Fatalf("lan routes: %+v", cfg)
+	}
+	site.LANRoutes = nil
+	if err := st.UpdateSite(ctx, site); err != nil {
+		t.Fatal(err)
+	}
+	if gs, _ = st.GetSite(ctx, site.ID); len(gs.Config().LANRoutes) != 0 {
+		t.Fatalf("lan routes not cleared: %+v", gs.Config())
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +21,9 @@ import (
 // arguments to logPath. Exported for the e2e test via engine_export_test.
 func fakeNaabu(t *testing.T, logPath string) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake naabu is a POSIX shell script")
+	}
 	script := `#!/bin/sh
 echo "$@" >> "` + logPath + `"
 case " $* " in

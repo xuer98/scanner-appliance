@@ -161,8 +161,20 @@ func (ix *siteIndex) ingestAppliance(jobID string, in []v1.Host, feedVersion str
 	return sum, touchedIDs
 }
 
+// findingIdent is the detector-side identity: the openvas OID or the
+// nuclei template id.
+func findingIdent(nvtOID, templateID string) string {
+	if nvtOID != "" {
+		return nvtOID
+	}
+	if templateID != "" {
+		return "nuclei:" + templateID
+	}
+	return ""
+}
+
 func findingKey(f *Finding) string {
-	return f.NVTOID + "|" + f.Proto + ":" + fmt.Sprint(f.Port)
+	return findingIdent(f.NVTOID, f.TemplateID) + "|" + f.Proto + ":" + fmt.Sprint(f.Port)
 }
 
 func (ix *siteIndex) applianceFindings(h *Host, in []v1.Finding, jobID, feedVersion string, at time.Time) int {
@@ -170,10 +182,11 @@ func (ix *siteIndex) applianceFindings(h *Host, in []v1.Finding, jobID, feedVers
 	for _, inf := range in {
 		n++
 		ev := v1.Evidence{Source: inf.Source, JobID: jobID, At: at, QoD: inf.QoD, Detail: inf.Evidence}
-		key := inf.NVTOID + "|" + inf.Proto + ":" + fmt.Sprint(inf.Port)
+		ident := findingIdent(inf.NVTOID, inf.ID)
+		key := ident + "|" + inf.Proto + ":" + fmt.Sprint(inf.Port)
 		var target *Finding
 		for _, f := range ix.findings[h.ID] {
-			if f.NVTOID != "" && findingKey(f) == key {
+			if ident != "" && findingKey(f) == key {
 				target = f
 				break
 			}
@@ -188,7 +201,7 @@ func (ix *siteIndex) applianceFindings(h *Host, in []v1.Finding, jobID, feedVers
 			}
 		}
 		if target == nil {
-			f := &Finding{ID: NewID("fnd"), HostID: h.ID, Source: inf.Source, NVTOID: inf.NVTOID, Name: inf.Name, Family: inf.Family,
+			f := &Finding{ID: NewID("fnd"), HostID: h.ID, Source: inf.Source, NVTOID: inf.NVTOID, TemplateID: inf.ID, Name: inf.Name, Family: inf.Family,
 				Severity: inf.Severity, CVSS: inf.CVSS, CVE: append([]string{}, inf.CVE...), QoD: inf.QoD, Port: inf.Port, Proto: inf.Proto,
 				Solution: inf.Solution, Evidence: []v1.Evidence{ev}, FeedVersion: feedVersion, FirstSeen: at, LastSeen: at}
 			f.State = v1.FindingNetworkObserved
@@ -207,8 +220,8 @@ func (ix *siteIndex) applianceFindings(h *Host, in []v1.Finding, jobID, feedVers
 		target.Evidence = appendEvidence(target.Evidence, ev)
 		target.LastSeen = at
 		target.FeedVersion = feedVersion
-		if target.NVTOID == "" {
-			target.NVTOID, target.Family, target.Port, target.Proto, target.Solution = inf.NVTOID, inf.Family, inf.Port, inf.Proto, inf.Solution
+		if target.NVTOID == "" && target.TemplateID == "" {
+			target.NVTOID, target.TemplateID, target.Family, target.Port, target.Proto, target.Solution = inf.NVTOID, inf.ID, inf.Family, inf.Port, inf.Proto, inf.Solution
 		}
 		if inf.Name != "" && (target.Name == "" || target.Source != v1.SourceAgent) {
 			target.Name = inf.Name

@@ -17,8 +17,8 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	v1 "github.com/tprm/scanner-appliance/api/v1"
@@ -27,7 +27,9 @@ import (
 	"github.com/tprm/scanner-appliance/daemon/internal/jobs"
 	"github.com/tprm/scanner-appliance/daemon/internal/netcfg"
 	"github.com/tprm/scanner-appliance/daemon/internal/osp"
+	"github.com/tprm/scanner-appliance/daemon/internal/platform"
 	"github.com/tprm/scanner-appliance/daemon/internal/state"
+	"github.com/tprm/scanner-appliance/daemon/internal/update"
 )
 
 const (
@@ -62,6 +64,11 @@ type Loop struct {
 	OSPSocket string
 	// Jobs runs scans; nil disables job polling (Phase 1 behaviour).
 	Jobs *jobs.Runner
+	// Update applies bundles and daemon releases (Phase 3); nil acks those
+	// directives without effect.
+	Update *update.Manager
+	// Reboot is invoked in the maintenance slot when the OS requires it.
+	Reboot func() error
 
 	client    *cpclient.Client
 	clientKey string // proxy + cert mtime; rebuild when it changes
@@ -74,6 +81,15 @@ type Loop struct {
 	stateName string
 	engine    v1.EngineHealth
 	pollNow   bool
+
+	// Phase 3
+	results         chan updateResult
+	busy            string
+	stop            chan struct{}
+	restart         bool
+	awaitConfirm    bool
+	confirmDeadline time.Time
+	routesKey       string
 }
 
 func (l *Loop) init() {
@@ -84,21 +100,32 @@ func (l *Loop) init() {
 		l.Now = time.Now
 	}
 	if l.PowerOff == nil {
-		l.PowerOff = func() error { return exec.Command("systemctl", "poweroff").Run() }
+		l.PowerOff = platform.PowerOff
+	}
+	if l.Reboot == nil {
+		l.Reboot = platform.Reboot
+	}
+	if l.results == nil {
+		l.results = make(chan updateResult, 8)
+		l.stop = make(chan struct{})
 	}
 }
 
 // Run blocks until ctx is done.
 func (l *Loop) Run(ctx context.Context) {
 	l.init()
+	l.startupUpdate()
 	for {
+		if l.confirmOverdue() {
+			return
+		}
 		st, err := l.Store.Load()
 		if err != nil {
 			l.Log.Error("state unreadable", "err", err)
 			l.stateName = StateUnenrolled
 			l.lastErr = err.Error()
 			l.publish(st)
-			if !sleep(ctx, unenrolledPoll) {
+			if !l.wait(ctx, unenrolledPoll) {
 				return
 			}
 			continue
@@ -113,8 +140,11 @@ func (l *Loop) Run(ctx context.Context) {
 		if l.Jobs != nil && !l.Jobs.Idle() {
 			l.stateName = StateScanning
 		}
+		if l.busy != "" {
+			l.stateName = StateUpdating
+		}
 		wait := l.tick(ctx, st)
-		if !sleep(ctx, wait) {
+		if !l.wait(ctx, wait) {
 			return
 		}
 	}
@@ -125,7 +155,7 @@ func (l *Loop) unenrolledTick(ctx context.Context, st *state.State) bool {
 	l.stateName = StateUnenrolled
 	if st.PendingCode == "" {
 		l.publish(st)
-		return sleep(ctx, unenrolledPoll)
+		return l.wait(ctx, unenrolledPoll)
 	}
 	l.stateName = StateEnrolling
 	l.publish(st)
@@ -147,11 +177,11 @@ func (l *Loop) unenrolledTick(ctx context.Context, st *state.State) bool {
 		_ = l.Store.Save(st)
 		l.Log.Warn("seed code rejected; waiting for a code from the console")
 		l.publish(st)
-		return sleep(ctx, unenrolledPoll)
+		return l.wait(ctx, unenrolledPoll)
 	}
 	l.failures++
 	l.publish(st)
-	return sleep(ctx, backoff(enrollRetryMin, enrollRetryMax, l.failures))
+	return l.wait(ctx, backoff(enrollRetryMin, enrollRetryMax, l.failures))
 }
 
 func (l *Loop) interval(st *state.State) time.Duration {
@@ -169,6 +199,11 @@ func (l *Loop) interval(st *state.State) time.Duration {
 // tick sends one heartbeat and returns how long to wait before the next.
 func (l *Loop) tick(ctx context.Context, st *state.State) time.Duration {
 	base := l.interval(st)
+	if l.drainUpdates(st) {
+		if err := l.Store.Save(st); err != nil {
+			l.Log.Error("save", "err", err)
+		}
+	}
 	if err := l.ensureClient(st); err != nil {
 		l.lastErr = err.Error()
 		l.Log.Error("client", "err", err)
@@ -201,6 +236,12 @@ func (l *Loop) tick(ctx context.Context, st *state.State) time.Duration {
 	l.reachable = true
 	l.lastErr = ""
 	l.acks = nil
+	if l.awaitConfirm {
+		l.awaitConfirm = false
+		if err := l.Update.Confirm(); err != nil {
+			l.Log.Warn("could not record update confirmation", "err", err)
+		}
+	}
 	l.skew = resp.ServerEpoch - now.Unix()
 	if d := time.Duration(l.skew) * time.Second; d > maxSkew || d < -maxSkew {
 		l.Log.Warn("clock skew; stepping clock", "skew_s", l.skew)
@@ -221,9 +262,14 @@ func (l *Loop) tick(ctx context.Context, st *state.State) time.Duration {
 		l.publish(st)
 		return time.Hour
 	}
+	if l.restart {
+		l.publish(st)
+		return time.Second
+	}
+	l.applyRoutes(ctx, st)
 	if l.Jobs != nil {
 		l.Jobs.Flush(ctx)
-		if !st.StopAll && (l.Jobs.Idle() || l.pollNow) {
+		if !st.StopAll && l.busy == "" && (l.Jobs.Idle() || l.pollNow) {
 			l.pollNow = false
 			l.Jobs.Poll(ctx, l.client, st, hb.Engine)
 		}
@@ -233,7 +279,11 @@ func (l *Loop) tick(ctx context.Context, st *state.State) time.Duration {
 			l.stateName = StateScanning
 		}
 	}
+	if l.busy != "" {
+		l.stateName = StateUpdating
+	}
 	l.publish(st)
+	l.maybeReboot(st)
 	return jitter(l.interval(st))
 }
 
@@ -282,6 +332,7 @@ func (l *Loop) build(st *state.State) v1.Heartbeat {
 		UptimeS: uptimeSeconds(), Load1: load1(), DiskFreeMB: diskFreeMB(l.Store.Dir), MemFreeMB: memFreeMB(),
 		Ifaces: netcfg.Interfaces(), BinarySHA256: binaryHashes(),
 		ClockEpoch: l.Now().Unix(), AckedDirectiveIDs: l.acks, State: l.stateName, SkewS: l.skew, StopAll: st.StopAll,
+		OS: runtime.GOOS, Arch: runtime.GOARCH, UpdateError: st.LastUpdateError, RebootRequired: rebootRequired(),
 	}
 	if l.Jobs != nil {
 		hb.CurrentJob = l.Jobs.Progress()
@@ -360,10 +411,12 @@ func (l *Loop) apply(ctx context.Context, st *state.State, d v1.Directive) bool 
 		}
 		l.wipe(ctx, st, "directive "+d.ID)
 		return true
-	case v1.DirectiveUpdateDaemon, v1.DirectiveUpdateBundle:
-		log.Warn("directive not supported by this version; acknowledging without effect")
-		l.lastErr = "unsupported directive " + d.Type
-		return true
+	case v1.DirectiveUpdateBundle:
+		return l.applyUpdateBundle(ctx, st, d)
+	case v1.DirectiveUpdateDaemon:
+		return l.applyUpdateDaemon(ctx, st, d)
+	case v1.DirectiveReloadVTs:
+		return l.applyReloadVTs(ctx, st, d)
 	default:
 		log.Warn("unknown directive type; acknowledging without effect")
 		return true
@@ -416,6 +469,7 @@ func (l *Loop) publish(st *state.State) {
 		CPURL: st.CPURL, Reachable: l.reachable, LastError: l.lastErr, LastHeartbeat: l.lastHB, SkewS: l.skew,
 		IntervalS: int(l.interval(st) / time.Second), Ifaces: netcfg.Interfaces(), StopAll: st.StopAll, CertNotAfter: st.CertNotAfter,
 		Engine: l.engine, FeedVersion: l.engine.FeedVersion,
+		Updating: l.busy, UpdateError: st.LastUpdateError,
 	}
 	if l.Jobs != nil {
 		s.CurrentJob = l.Jobs.Progress()

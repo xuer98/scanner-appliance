@@ -10,13 +10,17 @@ import (
 	_ "embed"
 	"errors"
 	"os"
+	"path/filepath"
+
+	"github.com/tprm/scanner-appliance/daemon/internal/platform"
 )
 
 //go:embed roots.pem
 var embeddedRoots []byte
 
-// RuntimeRootPath is the on-disk fallback (used by the OVA in dev/staging).
-const RuntimeRootPath = "/etc/appliance/root-ca.pem"
+// RuntimeRootPath is the on-disk fallback (used by the OVA in dev/staging):
+// /etc/appliance/root-ca.pem, or %ProgramData%\TPRM Appliance\etc\root-ca.pem.
+var RuntimeRootPath = filepath.Join(platform.ConfDir(), "root-ca.pem")
 
 // Pool returns the pinned root pool. Sources are additive so a staging
 // root can coexist with the embedded production root.
@@ -35,7 +39,7 @@ func Pool() (*x509.CertPool, error) {
 		}
 	}
 	if n == 0 {
-		return nil, errors.New("no control-plane root CA available (embedded roots.pem empty and no APPLIANCE_ROOT_CA / /etc/appliance/root-ca.pem)")
+		return nil, errors.New("no control-plane root CA available (embedded roots.pem empty and no APPLIANCE_ROOT_CA / " + RuntimeRootPath + ")")
 	}
 	return pool, nil
 }

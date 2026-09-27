@@ -15,12 +15,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	v1 "github.com/tprm/scanner-appliance/api/v1"
 	"github.com/tprm/scanner-appliance/daemon/internal/cpclient"
 	"github.com/tprm/scanner-appliance/daemon/internal/netcfg"
+	"github.com/tprm/scanner-appliance/daemon/internal/platform"
 	"github.com/tprm/scanner-appliance/daemon/internal/state"
 )
 
@@ -70,29 +72,38 @@ func Build(ctx context.Context, w io.Writer, st *state.Store, version string) er
 	}
 	addFile("cert.pem", filepath.Join(st.Dir, "cert.pem"))
 	addFile("status.json", filepath.Join(st.RunDir, "status.json"))
-	addFile("os-release", "/etc/os-release")
-	addFile("machine-id", "/etc/machine-id")
-	addCmd("journal-applianced.txt", "journalctl", "-u", "applianced", "--no-pager", "-n", "5000")
-	addCmd("journal-networkd.txt", "journalctl", "-u", "systemd-networkd", "--no-pager", "-n", "500")
-	addCmd("dmesg.txt", "dmesg", "--ctime")
-	addCmd("ip-addr.txt", "ip", "addr")
-	addCmd("ip-route.txt", "ip", "route", "show", "table", "all")
-	addCmd("resolvectl.txt", "resolvectl", "status")
-	addCmd("nft-ruleset.txt", "nft", "list", "ruleset")
-	addCmd("df.txt", "df", "-h")
-	addCmd("uptime.txt", "uptime")
-	addCmd("systemctl-failed.txt", "systemctl", "--failed", "--no-pager")
-	if entries, err := os.ReadDir(netcfg.NetworkdDir); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() {
-				addFile("network/"+e.Name(), filepath.Join(netcfg.NetworkdDir, e.Name()))
+	if runtime.GOOS == "windows" {
+		// A Windows host runs the daemon only (no engine, no systemd).
+		addCmd("systeminfo.txt", "systeminfo")
+		addCmd("ipconfig.txt", "ipconfig", "/all")
+		addCmd("route.txt", "route", "print")
+		addCmd("tasklist.txt", "tasklist")
+		addCmd("eventlog-application.txt", "wevtutil", "qe", "Application", "/c:500", "/rd:true", "/f:text")
+	} else {
+		addFile("os-release", "/etc/os-release")
+		addFile("machine-id", "/etc/machine-id")
+		addCmd("journal-applianced.txt", "journalctl", "-u", "applianced", "--no-pager", "-n", "5000")
+		addCmd("journal-networkd.txt", "journalctl", "-u", "systemd-networkd", "--no-pager", "-n", "500")
+		addCmd("dmesg.txt", "dmesg", "--ctime")
+		addCmd("ip-addr.txt", "ip", "addr")
+		addCmd("ip-route.txt", "ip", "route", "show", "table", "all")
+		addCmd("resolvectl.txt", "resolvectl", "status")
+		addCmd("nft-ruleset.txt", "nft", "list", "ruleset")
+		addCmd("df.txt", "df", "-h")
+		addCmd("uptime.txt", "uptime")
+		addCmd("systemctl-failed.txt", "systemctl", "--failed", "--no-pager")
+		if entries, err := os.ReadDir(netcfg.NetworkdDir); err == nil {
+			for _, e := range entries {
+				if !e.IsDir() {
+					addFile("network/"+e.Name(), filepath.Join(netcfg.NetworkdDir, e.Name()))
+				}
 			}
 		}
 	}
-	if entries, err := os.ReadDir("/etc/appliance"); err == nil {
+	if entries, err := os.ReadDir(platform.ConfDir()); err == nil {
 		for _, e := range entries {
 			if !e.IsDir() {
-				addFile("etc-appliance/"+e.Name(), filepath.Join("/etc/appliance", e.Name()))
+				addFile("etc-appliance/"+e.Name(), filepath.Join(platform.ConfDir(), e.Name()))
 			}
 		}
 	}

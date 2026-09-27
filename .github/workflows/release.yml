@@ -52,22 +52,29 @@ jobs:
           cache: true
       - id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-      - name: Root CA to embed
+      - name: Root CA and release key to embed
         run: |
           printf '%s\n' "${{ secrets.APPLIANCE_ROOT_CA_PEM }}" > "$RUNNER_TEMP/root.pem"
           test -s "$RUNNER_TEMP/root.pem"
+          if [ -n "${{ secrets.APPLIANCE_RELEASE_PUB_PEM }}" ]; then
+            printf '%s\n' "${{ secrets.APPLIANCE_RELEASE_PUB_PEM }}" > "$RUNNER_TEMP/release-pub.pem"
+            echo "APPLIANCE_RELEASE_PUB=$RUNNER_TEMP/release-pub.pem" >> "$GITHUB_ENV"
+          else
+            echo "::warning::APPLIANCE_RELEASE_PUB_PEM is not set; appliances built from this release refuse bundles and self-updates"
+          fi
       - name: go vet + test
         env:
           APPLIANCE_ROOT_CA: ${{ runner.temp }}/root.pem
         run: |
           cp "$APPLIANCE_ROOT_CA" daemon/internal/pki/roots.pem
+          [ -z "${APPLIANCE_RELEASE_PUB:-}" ] || cp "$APPLIANCE_RELEASE_PUB" daemon/internal/pki/release-pub.pem
           go vet ./...
           go test -count=1 ./...
       - name: ci/build.sh
         env:
           APPLIANCE_ROOT_CA: ${{ runner.temp }}/root.pem
         run: ci/build.sh --version "${{ steps.ver.outputs.version }}"
-      - name: Build scan engine (naabu) for the VM image
+      - name: Build scan engine (naabu, httpx, nuclei) for the VM image
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q libpcap-dev
           ci/build-engine.sh --arch amd64
@@ -96,9 +103,11 @@ jobs:
           mkdir -p bin/engine
           cp dist/applianced-linux-amd64 bin/applianced-linux-amd64
           chmod +x bin/applianced-linux-amd64
-          # naabu (Phase 2 discovery/portscan) goes to /opt/engine in the image.
-          cp dist/engine/naabu-linux-amd64 bin/engine/naabu
-          chmod +x bin/engine/naabu
+          # naabu (discovery/portscan) and the web add-on go to /opt/engine in the image.
+          for t in naabu httpx nuclei; do
+            cp "dist/engine/${t}-linux-amd64" "bin/engine/${t}"
+            chmod +x "bin/engine/${t}"
+          done
       - name: Fetch the VT feed snapshot
         id: feed
         env:
@@ -169,8 +178,10 @@ jobs:
       digest: ${{ steps.push.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
-      - name: Root CA to embed
-        run: printf '%s\n' "${{ secrets.APPLIANCE_ROOT_CA_PEM }}" > daemon/internal/pki/roots.pem
+      - name: Root CA and release key to embed
+        run: |
+          printf '%s\n' "${{ secrets.APPLIANCE_ROOT_CA_PEM }}" > daemon/internal/pki/roots.pem
+          [ -z "${{ secrets.APPLIANCE_RELEASE_PUB_PEM }}" ] || printf '%s\n' "${{ secrets.APPLIANCE_RELEASE_PUB_PEM }}" > daemon/internal/pki/release-pub.pem
       - name: Fetch the VT feed snapshot into docker/feed/
         env:
           FEED_TARBALL_URL: ${{ secrets.FEED_TARBALL_URL }}
@@ -286,6 +297,9 @@ jobs:
       VERSION: ${{ needs.build.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
       - uses: actions/download-artifact@v4
         with:
           name: dist-bin
@@ -309,6 +323,25 @@ jobs:
           ci/sign.sh dist
       - name: ci/manifest.sh
         run: ci/manifest.sh dist "$VERSION"
+      - name: Publish the daemon release to the control plane (canary rollout, PLAN §14)
+        env:
+          CP_URL: ${{ secrets.STAGING_CP_ADMIN_URL }}
+          CP_ADMIN_TOKEN: ${{ secrets.STAGING_CP_ADMIN_TOKEN }}
+          RELEASE_KEY_PEM: ${{ secrets.RELEASE_KEY_PEM }}
+        run: |
+          if [ -z "$CP_URL" ] || [ -z "$RELEASE_KEY_PEM" ]; then
+            echo "STAGING_CP_ADMIN_URL / RELEASE_KEY_PEM not set; skipping release publication"
+            exit 0
+          fi
+          printf '%s\n' "$RELEASE_KEY_PEM" > "$RUNNER_TEMP/release-key.pem"
+          if [ -n "${{ secrets.STAGING_CP_CA_PEM }}" ]; then
+            printf '%s\n' "${{ secrets.STAGING_CP_CA_PEM }}" > "$RUNNER_TEMP/staging-ca.pem"
+            export CP_ROOT_CA="$RUNNER_TEMP/staging-ca.pem"
+          fi
+          for arch in amd64 arm64; do
+            go run ./controlplane/cmd/cp-api admin publish-release --file "dist/applianced-linux-${arch}" \
+              --component "applianced-linux-${arch}" --version "$VERSION" --key "$RUNNER_TEMP/release-key.pem"
+          done
       - name: Record container digest in the manifest
         run: |
           jq --arg img "${IMAGE}:${VERSION}" --arg digest "${{ needs.container.outputs.digest }}" \
@@ -322,7 +355,9 @@ jobs:
           fail_on_unmatched_files: false
           files: |
             dist/applianced-linux-*
+            dist/applianced-windows-*
             dist/cp-api-linux-*
+            dist/cp-api-windows-*
             dist/*.qcow2
             dist/*.ova
             dist/*.vhdx

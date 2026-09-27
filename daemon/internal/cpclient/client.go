@@ -143,6 +143,39 @@ func (c *Client) doHeaders(ctx context.Context, method, rawURL string, body io.R
 	return resp.StatusCode, nil
 }
 
+// Download streams GET {cpURL}{path} into w, capped at max bytes, and
+// returns the response headers and byte count. Used for bundle manifests,
+// bundle files and daemon releases (PLAN §13, §14).
+func (c *Client) Download(ctx context.Context, cpURL, path string, w io.Writer, max int64) (http.Header, int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, join(cpURL, path), nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("User-Agent", c.UserAgent)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		var er v1.ErrorResponse
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		_ = json.Unmarshal(b, &er)
+		if er.Error == "" {
+			er.Error = strings.TrimSpace(string(b))
+		}
+		return resp.Header, 0, &Error{Status: resp.StatusCode, Code: er.Code, Msg: er.Error}
+	}
+	n, err := io.Copy(w, io.LimitReader(resp.Body, max+1))
+	if err != nil {
+		return resp.Header, n, err
+	}
+	if n > max {
+		return resp.Header, n, fmt.Errorf("download of %s exceeds %d bytes", path, max)
+	}
+	return resp.Header, n, nil
+}
+
 func (c *Client) postJSON(ctx context.Context, rawURL string, in, out any) error {
 	b, err := json.Marshal(in)
 	if err != nil {

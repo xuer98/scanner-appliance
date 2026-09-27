@@ -9,13 +9,13 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 )
 
 // Supervisor runs redis-openvas and ospd-openvas as children where there
 // is no systemd (the container, PLAN §4.7). On the VM image the systemd
-// units own them and the supervisor is not used.
+// units own them and the supervisor is not used. The engine only exists on
+// Linux; elsewhere Available() is false and Run is never called.
 type Supervisor struct {
 	RedisConf string
 	RedisSock string
@@ -81,7 +81,7 @@ func (s *Supervisor) loop(ctx context.Context, name string, build func() *exec.C
 	for ctx.Err() == nil {
 		cmd := build()
 		cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		setProcAttr(cmd)
 		start := time.Now()
 		s.Log.Info("engine process starting", "name", name)
 		if err := cmd.Start(); err != nil {
@@ -96,7 +96,7 @@ func (s *Supervisor) loop(ctx context.Context, name string, build func() *exec.C
 		go func() { done <- cmd.Wait() }()
 		select {
 		case <-ctx.Done():
-			_ = cmd.Process.Signal(syscall.SIGTERM)
+			_ = terminate(cmd.Process)
 			select {
 			case <-done:
 			case <-time.After(30 * time.Second):

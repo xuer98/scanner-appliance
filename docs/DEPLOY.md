@@ -202,6 +202,46 @@ docker run -d --name scanner-appliance --restart unless-stopped \
   `cosign verify ghcr.io/tprm/scanner-appliance:VERSION --certificate-identity-regexp 'github.com/tprm/scanner-appliance' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 - Logs: `docker logs scanner-appliance`. Status: `docker exec scanner-appliance applianced status`.
 
+## Option D: Windows host (daemon only)
+
+For sites without a hypervisor slot we can supply `applianced-windows-amd64.exe`, a build of the appliance daemon for a Windows machine you already run. It enrolls, reports status and runs the **discovery and port-scan** part of a job; it does not carry the vulnerability-test engine, so inventory scans still need the VM or the container.
+
+1. Unzip to `C:\Program Files\TPRM Appliance\` with `engine\naabu.exe` beside the executable, and install [Npcap](https://npcap.com) (host discovery needs it).
+2. From an elevated PowerShell prompt:
+
+   ```powershell
+   $env:APPLIANCE_CODE = "ABCD-EFGH-IJKL-MNOP-QRST"
+   $env:APPLIANCE_PROXY = "user:pass@proxy.vendor.local:3128"    # optional
+   & 'C:\Program Files\TPRM Appliance\applianced.exe' run
+   ```
+
+   State lives under `%ProgramData%\TPRM Appliance`; `applianced.exe status` prints what the console Status screen shows.
+3. To keep it running across logins, register it with a service wrapper (WinSW or NSSM) or a scheduled task that starts at boot as SYSTEM; the daemon has no built-in Windows service mode.
+
+Outbound requirements are the same as for the VM: TCP 443 to the single FQDN, optionally through your proxy.
+
+## Split-network deployments
+
+For a warehouse floor with no internet at all, give the appliance two
+adapters and set `appliance.split` to `true` (OVF property, `split: true` in
+`seed.yaml`, or `APPLIANCE_SPLIT=1`): `wan0` carries only the outbound
+HTTPS session to us, `lan0` sits in the scanned segment and never receives a
+default route. All probes leave through `lan0`. If the floor has several
+subnets behind a router on the `lan0` segment, tell us the ranges and the
+router address and we push them to the appliance as static routes; nothing
+needs to change on your side.
+
+## What updates itself
+
+| What | How | Your involvement |
+|------|-----|------------------|
+| Vulnerability tests (the feed) and scan configurations | A signed bundle we publish daily; the appliance fetches only the changed files over the existing HTTPS session and reloads them without a reboot. It goes to our lab appliances first and to yours about two days later. | None. Status shows `Updating: bundle …` while it applies. |
+| The appliance daemon | The same signed channel; the daemon verifies the new build, swaps it and confirms itself within ten minutes, or reverts on its own. | None. |
+| Operating-system security patches | Debian security updates from a mirror we host behind the same FQDN; the appliance installs them unattended. | None, but a kernel update needs a reboot: the appliance reboots itself between 03:00 and 04:00 local time when it is idle. Tell us if that hour is a bad time for your site. |
+
+The container image is updated by pulling a new tag (see Option C); the
+bundle and OS mechanisms above apply to it as well.
+
 ## After power-on: the console
 
 The VM console (screen, or serial port on KVM) shows a text menu:
@@ -237,6 +277,8 @@ There is no shell and no login; the menu is the whole interface.
 | Portal shows a job *rejected* with `window` | The appliance clock and the site timezone disagree with the window; check the clock warning in Status and the timezone we have on file |
 | Portal shows a job *rejected* with `scope` | The target ranges are outside the ranges attested for the site; ask us to update the scope |
 | Status shows *Results queued* for a long time | Results are waiting for egress to the control plane; check the WAN adapter and proxy |
+| Status shows *Update error* | The last bundle or daemon update did not apply and was reverted; the appliance keeps scanning on the previous version. We see the same message and follow up |
+| Status shows *Updating* for more than 30 minutes | The engine is loading a new feed (normal for up to 15 minutes); if it persists, the appliance reverts on its own and reports it |
 
 ## What a scan looks like
 

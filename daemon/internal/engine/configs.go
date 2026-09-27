@@ -4,78 +4,93 @@
 package engine
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	v1 "github.com/tprm/scanner-appliance/api/v1"
+	"github.com/tprm/scanner-appliance/internal/bundle"
+	"github.com/tprm/scanner-appliance/internal/scanconfig"
 )
 
-// ScanConfig is one openvas scan config (PLAN §10.4). Phase 3 moves these
-// into the signed bundle; until then they ship with the daemon.
-type ScanConfig struct {
-	Name     string
-	Families []string
-	// UDPPorts is the small UDP set openvas may probe (naabu is TCP-only).
-	UDPPorts []int
-	// Params are scanner_params sent with every scan of this config.
-	Params map[string]string
-}
-
-var udpSmallSet = []int{53, 67, 69, 111, 123, 137, 161, 162, 500, 514, 520, 1434, 1900, 4500, 5353}
-
-// detectionFamilies are always part of a scan: they feed service/product/OS
-// detection and populate the port and os_guess fields.
-var detectionFamilies = []string{"Service detection", "Product detection", "General"}
-
-// remoteFamilies are the unauthenticated network-check families of the
-// Greenbone community feed. Authenticated-only families ("* Local Security
-// Checks", Credentials, Compliance, Policy, IT-Grundschutz) are never
-// selected: the appliance has no credentials (PLAN non-goals). Denial of
-// Service and Brute force attacks are excluded by policy (PLAN §10.4, §16).
-var remoteFamilies = []string{
-	"Buffer overflow", "CISCO", "Databases", "Default Accounts", "F5", "FTP", "Finger abuses", "Firewalls",
-	"Gain a shell remotely", "Huawei", "JunOS", "Malware", "Nmap NSE", "Nmap NSE net", "Palo Alto PAN-OS",
-	"Peer-To-Peer File Sharing", "Port scanners", "Privilege escalation", "RPC", "Remote file access",
-	"SMTP problems", "SNMP", "SSL and TLS", "Useless services", "Web Servers", "Web application abuses",
-	"Windows", "Windows : Microsoft Bulletins",
-}
+// ScanConfig is one openvas scan config (PLAN §10.4); the shipped set
+// lives in internal/scanconfig and a signature bundle may override it.
+type ScanConfig = scanconfig.Config
 
 // ExcludedFamilies are never selectable in any config.
-var ExcludedFamilies = map[string]bool{"Denial of Service": true, "Brute force attacks": true}
+var ExcludedFamilies = scanconfig.ExcludedFamilies
 
 // Configs are the shipped scan configs, by name.
-var Configs = map[string]ScanConfig{
-	"inventory": {
-		Name:     "inventory",
-		Families: append(append([]string{}, detectionFamilies...), "Web Servers", "Windows", "Windows : Microsoft Bulletins", "SSL and TLS", "Databases", "Default Accounts"),
-		UDPPorts: udpSmallSet,
-		Params:   map[string]string{"optimize_test": "1", "auto_enable_dependencies": "1", "timeout_retry": "2", "scanner_plugins_timeout": "3600", "report_host_details": "1"},
-	},
-	"full": {
-		Name:     "full",
-		Families: append(append([]string{}, detectionFamilies...), remoteFamilies...),
-		UDPPorts: udpSmallSet,
-		Params:   map[string]string{"optimize_test": "1", "auto_enable_dependencies": "1", "timeout_retry": "3", "scanner_plugins_timeout": "7200", "report_host_details": "1"},
-	},
-}
+var Configs = scanconfig.Defaults()
 
-// ConfigFor returns the config after removing anything on the exclusion list.
-func ConfigFor(name string) (ScanConfig, error) {
-	c, ok := Configs[name]
-	if !ok {
-		return ScanConfig{}, fmt.Errorf("unknown openvas config %q", name)
-	}
-	out := c
-	out.Families = nil
-	seen := map[string]bool{}
-	for _, f := range c.Families {
-		if !ExcludedFamilies[f] && !seen[f] {
-			seen[f] = true
-			out.Families = append(out.Families, f)
+// ConfigFor returns the shipped config with policy exclusions applied.
+func ConfigFor(name string) (ScanConfig, error) { return scanconfig.Lookup(name, nil) }
+
+// configFor prefers configs from the installed bundle.
+func (e *Engine) configFor(name string) (ScanConfig, error) {
+	var overrides map[string]ScanConfig
+	if e.BundleDir != "" {
+		m, err := scanconfig.Load(filepath.Join(e.BundleDir, bundle.ConfigsDir))
+		if err != nil {
+			e.Log.Warn("bundled scan configs unusable; using shipped defaults", "err", err)
+		} else {
+			overrides = m
 		}
 	}
-	return out, nil
+	return scanconfig.Lookup(name, overrides)
+}
+
+// fragilePorts: the site's list, else the bundle's default list, else the
+// shipped default (PLAN §10.6).
+func (r *run) fragilePorts() []int {
+	if len(r.site.FragilePorts) > 0 {
+		return r.site.FragilePorts
+	}
+	if r.e.BundleDir != "" {
+		if b, err := os.ReadFile(filepath.Join(r.e.BundleDir, bundle.FragileFile)); err == nil {
+			var ports []int
+			if json.Unmarshal(b, &ports) == nil && len(ports) > 0 {
+				return ports
+			}
+		}
+	}
+	return DefaultFragilePorts
+}
+
+// setConfKey sets "key = value" in a key/value config file (openvas.conf),
+// replacing an existing line or appending one. A missing file is created.
+func setConfKey(path, key, value string) error {
+	b, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	var out []string
+	found := false
+	for _, line := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
+		k, _, ok := strings.Cut(line, "=")
+		if ok && strings.TrimSpace(k) == key {
+			if found {
+				continue
+			}
+			found = true
+			line = key + " = " + value
+		}
+		if line != "" || len(out) > 0 {
+			out = append(out, line)
+		}
+	}
+	if !found {
+		out = append(out, key+" = "+value)
+	}
+	text := strings.Join(out, "\n") + "\n"
+	if string(b) == text {
+		return nil
+	}
+	return os.WriteFile(path, []byte(text), 0o644)
 }
 
 // standardExtraPorts complement naabu's top-1000 list for warehouse/OT

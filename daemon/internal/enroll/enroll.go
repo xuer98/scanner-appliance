@@ -15,6 +15,7 @@ import (
 	v1 "github.com/tprm/scanner-appliance/api/v1"
 	"github.com/tprm/scanner-appliance/daemon/internal/cpclient"
 	"github.com/tprm/scanner-appliance/daemon/internal/fingerprint"
+	"github.com/tprm/scanner-appliance/daemon/internal/platform"
 	"github.com/tprm/scanner-appliance/daemon/internal/state"
 )
 
@@ -135,13 +136,14 @@ func persist(st *state.Store, resp *v1.EnrollResponse, enrollURL string, first b
 		return err
 	}
 	writeTimeSourceHint(s.CPURL, s.Proxy)
+	writeAptConfig(st, s.CPURL, s.Proxy)
 	return nil
 }
 
 // Paths harden.sh wires up for htpdate (PLAN §8.3): a .path unit restarts
 // htpdate when either file changes.
 var (
-	CPFQDNPath      = "/etc/appliance/cp-fqdn"
+	CPFQDNPath      = filepath.Join(platform.ConfDir(), "cp-fqdn")
 	HTPDateConfPath = "/etc/htpdate.conf"
 )
 

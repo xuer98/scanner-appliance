@@ -24,6 +24,7 @@
 #                      serves the /admin API used here
 #   SMOKE_KEEP=1       leave the stack running afterwards
 #   SMOKE_NO_BUILD=1   do not (re)build images
+#   SMOKE_SKIP_BUNDLE=1  skip the signature-bundle canary/delta test (Phase 3)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -108,6 +109,7 @@ smoke_log "starting the appliance container"
 cp_wait_enrolled "$APPLIANCE_ID" "$SMOKE_TIMEOUT"
 cp_job_roundtrip "$APPLIANCE_ID"
 cp_directive_roundtrip "$APPLIANCE_ID"
+cp_bundle_roundtrip "$APPLIANCE_ID"
 
 # The container path has no console; the TTY test lives in run-qemu.sh.
-smoke_log "PASS: container appliance $APPLIANCE_ID enrolled, scan jobs done, directives acked"
+smoke_log "PASS: container appliance $APPLIANCE_ID enrolled, scan jobs done, directives acked, bundles applied"
