@@ -130,3 +130,37 @@ func correlationScenario(t *testing.T, ctx context.Context, m Store, siteID stri
 		t.Fatalf("get host: %+v %v", got, err)
 	}
 }
+
+// TestMergePorts: a later port-scan-only observation keeps the detail an
+// earlier inventory or fingerprint pass learned, drops closed ports and
+// adds new ones (Phase 5).
+func TestMergePorts(t *testing.T) {
+	prev := []v1.Port{
+		{Port: 3389, Proto: "tcp", Service: "rdp", Product: "Microsoft Terminal Services", CPE: "cpe:/a:microsoft:terminal_services", Source: "nmap:version_detection"},
+		{Port: 8080, Proto: "tcp", Service: "http", Source: "openvas:find_service", Web: &v1.WebInfo{URL: "http://10.30.5.20:8080", Server: "Apache"}},
+		{Port: 23, Proto: "tcp", Service: "telnet", Source: "openvas:find_service"},
+	}
+	cur := []v1.Port{
+		{Port: 3389, Proto: "tcp", Source: "naabu"},
+		{Port: 8080, Proto: "tcp", Service: "https", Source: "naabu"},
+		{Port: 445, Proto: "tcp", Source: "naabu"},
+	}
+	got := mergePorts(prev, cur)
+	if len(got) != 3 {
+		t.Fatalf("ports: %+v", got)
+	}
+	if got[0].Product != "Microsoft Terminal Services" || got[0].Service != "rdp" || got[0].CPE == "" || got[0].Source != "nmap:version_detection" {
+		t.Fatalf("detail not carried: %+v", got[0])
+	}
+	if got[1].Service != "https" || got[1].Web == nil || got[1].Web.Server != "Apache" || got[1].Source != "naabu" {
+		t.Fatalf("new detail overridden or web lost: %+v", got[1])
+	}
+	if got[2].Port != 445 || got[2].Service != "" {
+		t.Fatalf("new port: %+v", got[2])
+	}
+	for _, p := range got {
+		if p.Port == 23 {
+			t.Fatal("closed port kept")
+		}
+	}
+}

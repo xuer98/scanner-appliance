@@ -37,6 +37,13 @@ type Site struct {
 	UnsafeOK       bool
 	AllowPublic    bool
 	LANRoutes      []v1.LANRoute
+	// Phase 4 policy (PLAN §10.6, §19, §22): versioned, audited in site_change.
+	FragileCleared []string
+	FragileHosts   []string
+	VTExcludes     []string
+	Version        int
+	AttestedAt     *time.Time
+	AttestedBy     string
 }
 
 type Appliance struct {
@@ -63,6 +70,9 @@ type Appliance struct {
 	FeedVersion    string
 	UpdateError    string
 	RebootRequired bool
+	// EngineDownSince is set while heartbeats report the engine not ready
+	// (PLAN §8.4 degraded after 15 min); nil when ready.
+	EngineDownSince *time.Time
 }
 
 type EnrollmentCode struct {
@@ -177,6 +187,49 @@ type Store interface {
 	ListReleases(ctx context.Context) ([]*Release, error) // newest first
 	SetReleaseStatus(ctx context.Context, component, version, status, reason string) error
 	SetApplianceCanary(ctx context.Context, id string, canary bool) error
+
+	// Phase 4 (PLAN §10.6, §16, §17.4, §19, §22)
+	RecordSiteChange(ctx context.Context, c *SiteChange) error
+	ListSiteChanges(ctx context.Context, siteID string) ([]*SiteChange, error) // newest first
+	CreateScopeRequest(ctx context.Context, r *ScopeRequest) error
+	GetScopeRequest(ctx context.Context, id string) (*ScopeRequest, error)
+	ListScopeRequests(ctx context.Context, siteID, status string) ([]*ScopeRequest, error)
+	UpdateScopeRequest(ctx context.Context, r *ScopeRequest) error
+	CreateSchedule(ctx context.Context, sc *Schedule) error
+	GetSchedule(ctx context.Context, id string) (*Schedule, error)
+	ListSchedules(ctx context.Context, siteID string) ([]*Schedule, error)
+	UpdateSchedule(ctx context.Context, sc *Schedule) error
+	DeleteSchedule(ctx context.Context, id string) error
+	GetFinding(ctx context.Context, id string) (*Finding, error)
+	ReviewFinding(ctx context.Context, id, review, by, reason string, at time.Time) error
+	// ReviewByDetector marks the site's unreviewed findings of one detector
+	// (NVT OID or "nuclei:<template>") as false positives; returns the count.
+	ReviewByDetector(ctx context.Context, siteID, detector, by, reason string, at time.Time) (int, error)
+	GetNVT(ctx context.Context, oid string) (*NVT, error)
+
+	// Phase 5 (PLAN §20 Phase 5, §21): control-plane settings such as the
+	// nmap legal sign-off. GetSetting returns ErrNotFound for an absent key.
+	GetSetting(ctx context.Context, key string) (string, error)
+	PutSetting(ctx context.Context, key, value string) error
+	DeleteSetting(ctx context.Context, key string) error
+
+	// Phase 6 (Qualys replacement): scoped ingest (IngestHosts is the
+	// unscoped form), the finding lifecycle, external scanner imports,
+	// retention bookkeeping and cluster-wide singleton locks.
+	IngestScan(ctx context.Context, in ScanIngest) (IngestSummary, error)
+	// ResolveFindings marks fixed the open network-scanner findings of the
+	// hosts a job observed (excluding hosts the fragile policy kept away
+	// from detection) whose scope is covered and that the job did not
+	// re-observe (last_seen before the job started). Returns them.
+	ResolveFindings(ctx context.Context, siteID, jobID string, scopes []string, before, at time.Time) ([]*Finding, error)
+	IngestExternal(ctx context.Context, siteID, scanner string, hosts []v1.ExternalHost, at time.Time) (IngestSummary, error)
+	ListResultBatches(ctx context.Context, before time.Time, limit int) ([]ResultBatchRec, error) // unpurged, oldest first
+	MarkResultBatchPurged(ctx context.Context, jobID string, seq int) error
+	ListSupportBundles(ctx context.Context, before time.Time, limit int) ([]SupportBundleRec, error)
+	MarkSupportBundlePurged(ctx context.Context, id int64) error
+	// TryLock takes a named lock held until release is called; ok is false
+	// when another control-plane instance holds it.
+	TryLock(ctx context.Context, name string) (release func(), ok bool, err error)
 
 	Close() error
 }

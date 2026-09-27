@@ -50,6 +50,7 @@ services:
       CP_MTLS_ADDR: ":9443"
       CP_PUBLIC_URL: https://cp-api:9443
       CP_ADMIN_TOKEN: ${CP_ADMIN_TOKEN:-dev-admin-token}
+      CP_OWNER_TOKEN: ${CP_OWNER_TOKEN:-dev-owner-token}
     volumes:
       # Bind-mounted so the same dev CA is used by ci/build.sh (embedded root)
       # and by the running control plane. Created by `ci/build.sh --dev` or by
@@ -71,6 +72,9 @@ services:
       dockerfile: docker/Dockerfile
       args:
         VERSION: ${VERSION:-dev}
+        # 1 installs nmap for the Phase 5 fingerprint pass (NPSL; only after
+        # the legal sign-off, cp-api admin signoff nmap).
+        WITH_NMAP: ${WITH_NMAP:-0}
     image: ghcr.io/tprm/scanner-appliance:${VERSION:-dev}
     depends_on:
       cp-api:

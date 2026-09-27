@@ -12,7 +12,6 @@ package server
 import (
 	"context"
 	"crypto/ecdsa"
-	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -69,6 +68,20 @@ type Config struct {
 	CanaryPeriod time.Duration
 	RequeueAfter time.Duration
 	AptDir       string
+	// Phase 4: the vendor-owner token approves scope changes and attests
+	// the scope (PLAN §16); Product / Version / Contact feed the
+	// transparency page.
+	VendorOwnerToken string
+	Product          string
+	Version          string
+	Contact          string
+	// Phase 6: SLA days per severity (DefaultSLADays when empty; Tier 3-4
+	// doubled), retention of raw result chunks and support bundles, and
+	// the webhook retry schedule (tests shorten it).
+	SLADays          map[string]int
+	RawRetention     time.Duration
+	SupportRetention time.Duration
+	WebhookBackoff   []time.Duration
 }
 
 type Server struct {
@@ -76,6 +89,14 @@ type Server struct {
 	log       *slog.Logger
 	limiter   *ipLimiter
 	rolloutMu sync.Mutex
+
+	// Phase 6: outbound events, metrics, per-job ingest totals for the
+	// completion event and the last alert set the watch loop saw.
+	events     *Dispatcher
+	metrics    *Metrics
+	accMu      sync.Mutex
+	acc        map[string]*jobAccum
+	lastAlerts map[string]v1.AdminAlert
 }
 
 func New(cfg Config) *Server {
@@ -96,14 +117,25 @@ func New(cfg Config) *Server {
 		cfg.SpoolKey = &SpoolKey{Key: k}
 		cfg.Logger.Warn("no spool key configured; using an ephemeral one (results spooled against it are lost on restart)")
 	}
-	return &Server{cfg: cfg, log: cfg.Logger, limiter: newIPLimiter(10, time.Minute)}
+	s := &Server{cfg: cfg, log: cfg.Logger, limiter: newIPLimiter(10, time.Minute), acc: map[string]*jobAccum{}, lastAlerts: map[string]v1.AdminAlert{}}
+	s.metrics = newMetrics(cfg.Now())
+	s.events = newDispatcher(cfg.Store, cfg.Logger, cfg.Now, cfg.WebhookBackoff, s.metrics)
+	return s
 }
+
+// RunWebhooks delivers queued webhook events until ctx ends.
+func (s *Server) RunWebhooks(ctx context.Context) { s.events.Run(ctx) }
+
+// Events exposes the dispatcher (tests drain it).
+func (s *Server) Events() *Dispatcher { return s.events }
 
 // EnrollHandler serves the no-client-cert listener.
 func (s *Server) EnrollHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/enroll", s.handleEnroll)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
+	mux.HandleFunc("GET /transparency", s.handleTransparency)
+	mux.HandleFunc("GET /transparency.json", s.handleTransparencyJSON)
 	return logging(s.log, mux)
 }
 
@@ -122,6 +154,8 @@ func (s *Server) MTLSHandler() http.Handler {
 	mux.HandleFunc("GET /v1/releases/{component}/{version}", s.withAppliance(s.handleRelease))
 	mux.HandleFunc("GET /apt/{path...}", s.withAppliance(s.handleApt))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
+	mux.HandleFunc("GET /transparency", s.handleTransparency)
+	mux.HandleFunc("GET /transparency.json", s.handleTransparencyJSON)
 
 	mux.HandleFunc("POST /admin/appliances", s.withAdmin(s.adminCreateAppliance))
 	mux.HandleFunc("GET /admin/appliances", s.withAdmin(s.adminListAppliances))
@@ -154,6 +188,57 @@ func (s *Server) MTLSHandler() http.Handler {
 	mux.HandleFunc("GET /admin/sites/{id}/hosts", s.withAdmin(s.adminSiteHosts))
 	mux.HandleFunc("GET /admin/sites/{id}/findings", s.withAdmin(s.adminSiteFindings))
 	mux.HandleFunc("POST /admin/sites/{id}/agent-inventory", s.withAdmin(s.adminAgentInventory))
+
+	// Phase 4: versioned policy, scope approval, schedules, coverage, alerts.
+	mux.HandleFunc("GET /admin/sites/{id}/changes", s.withAdmin(s.adminSiteChanges))
+	mux.HandleFunc("POST /admin/sites/{id}/scope-requests", s.withAdmin(s.adminCreateScopeRequest))
+	mux.HandleFunc("GET /admin/sites/{id}/scope-requests", s.withAdmin(s.adminListScopeRequests))
+	mux.HandleFunc("POST /admin/sites/{id}/scope-requests/{rid}/{decision}", s.withAdmin(s.adminDecideScopeRequest))
+	mux.HandleFunc("POST /admin/sites/{id}/attest", s.withAdmin(s.adminAttestSite))
+	mux.HandleFunc("GET /admin/sites/{id}/fragile", s.withAdmin(s.adminFragile))
+	mux.HandleFunc("POST /admin/sites/{id}/fragile", s.withAdmin(s.adminFragilePolicy))
+	mux.HandleFunc("GET /admin/sites/{id}/exclusions", s.withAdmin(s.adminListExclusions))
+	mux.HandleFunc("POST /admin/sites/{id}/exclusions", s.withAdmin(s.adminAddExclusion))
+	mux.HandleFunc("DELETE /admin/sites/{id}/exclusions/{vt}", s.withAdmin(s.adminRemoveExclusion))
+	mux.HandleFunc("GET /admin/sites/{id}/tuning", s.withAdmin(s.adminTuning))
+	mux.HandleFunc("GET /admin/sites/{id}/coverage", s.withAdmin(s.adminSiteCoverage))
+	mux.HandleFunc("GET /admin/sites/{id}/calendar", s.withAdmin(s.adminCalendar))
+	mux.HandleFunc("GET /admin/vendors/{id}/coverage", s.withAdmin(s.adminVendorCoverage))
+	mux.HandleFunc("GET /admin/findings/{id}", s.withAdmin(s.adminGetFinding))
+	mux.HandleFunc("PATCH /admin/findings/{id}", s.withAdmin(s.adminReviewFinding))
+	mux.HandleFunc("GET /admin/hosts/{id}", s.withAdmin(s.adminGetHost))
+	mux.HandleFunc("POST /admin/schedules", s.withAdmin(s.adminCreateSchedule))
+	mux.HandleFunc("GET /admin/schedules", s.withAdmin(s.adminListSchedules))
+	mux.HandleFunc("GET /admin/schedules/{id}", s.withAdmin(s.adminGetSchedule))
+	mux.HandleFunc("PATCH /admin/schedules/{id}", s.withAdmin(s.adminUpdateSchedule))
+	mux.HandleFunc("DELETE /admin/schedules/{id}", s.withAdmin(s.adminDeleteSchedule))
+	mux.HandleFunc("GET /admin/alerts", s.withAdmin(s.adminAlerts))
+	// Phase 5 (PLAN §20 Phase 5, §21): legal sign-off for nmap, the
+	// onboarding checklist and the feed-gap report.
+	mux.HandleFunc("GET /admin/signoffs/{tool}", s.withAdmin(s.adminGetSignoff))
+	mux.HandleFunc("PUT /admin/signoffs/{tool}", s.withAdmin(s.adminPutSignoff))
+	mux.HandleFunc("DELETE /admin/signoffs/{tool}", s.withAdmin(s.adminDeleteSignoff))
+	mux.HandleFunc("GET /admin/sites/{id}/onboarding", s.withAdmin(s.adminOnboarding))
+	mux.HandleFunc("GET /admin/feed-gaps", s.withAdmin(s.adminFeedGaps))
+	// Phase 6 (Qualys replacement): external scanner imports and parity,
+	// summaries, trend and exports, webhooks, retention, metrics.
+	mux.HandleFunc("POST /admin/sites/{id}/external-scans", s.withAdmin(s.adminExternalScan))
+	mux.HandleFunc("POST /admin/sites/{id}/external-scans/qualys", s.withAdmin(s.adminExternalScanQualys))
+	mux.HandleFunc("GET /admin/sites/{id}/parity", s.withAdmin(s.adminParity))
+	mux.HandleFunc("GET /admin/sites/{id}/summary", s.withAdmin(s.adminSiteSummary))
+	mux.HandleFunc("GET /admin/sites/{id}/trend", s.withAdmin(s.adminTrend))
+	mux.HandleFunc("GET /admin/sites/{id}/export/findings.csv", s.withAdmin(s.adminExportSiteFindings))
+	mux.HandleFunc("GET /admin/sites/{id}/export/hosts.csv", s.withAdmin(s.adminExportSiteHosts))
+	mux.HandleFunc("GET /admin/vendors/{id}/summary", s.withAdmin(s.adminVendorSummary))
+	mux.HandleFunc("GET /admin/vendors/{id}/export/findings.csv", s.withAdmin(s.adminExportVendorFindings))
+	mux.HandleFunc("GET /admin/webhooks", s.withAdmin(s.adminListWebhooks))
+	mux.HandleFunc("POST /admin/webhooks", s.withAdmin(s.adminCreateWebhook))
+	mux.HandleFunc("DELETE /admin/webhooks/{id}", s.withAdmin(s.adminDeleteWebhook))
+	mux.HandleFunc("POST /admin/webhooks/{id}/test", s.withAdmin(s.adminTestWebhook))
+	mux.HandleFunc("GET /admin/webhooks/{id}/deliveries", s.withAdmin(s.adminWebhookDeliveries))
+	mux.HandleFunc("POST /admin/retention/run", s.withAdmin(s.adminRetention))
+	mux.HandleFunc("GET /admin/metrics", s.withAdmin(s.handleMetrics))
+	mux.HandleFunc("GET /admin/sla", s.withAdmin(s.adminSLA))
 	return logging(s.log, mux)
 }
 
@@ -232,14 +317,15 @@ func (s *Server) withAppliance(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// withAdmin accepts the operator token or the vendor-owner token (Phase 4,
+// PLAN §16); handlers that need the owner call requireOwner.
 func (s *Server) withAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.cfg.AdminToken == "" {
+		if s.cfg.AdminToken == "" && s.cfg.VendorOwnerToken == "" {
 			writeErr(w, http.StatusForbidden, "admin api disabled (no token configured)", "admin_disabled")
 			return
 		}
-		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(tok), []byte(s.cfg.AdminToken)) != 1 {
+		if s.role(r) == "" {
 			writeErr(w, http.StatusUnauthorized, "bad admin token", "admin_auth")
 			return
 		}
@@ -377,6 +463,7 @@ func (s *Server) handleRenew(w http.ResponseWriter, r *http.Request) {
 // ---- /v1/appliances/{id}/heartbeat ----
 
 func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
+	s.metrics.heartbeats.Add(1)
 	apl := applianceFrom(r)
 	var hb v1.Heartbeat
 	if err := decodeJSON(r, &hb); err != nil {
@@ -551,8 +638,25 @@ func (s *Server) adminListAppliances(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error(), "store")
 		return
 	}
+	siteFilter, vendorFilter := r.URL.Query().Get("site"), r.URL.Query().Get("vendor")
+	vendorSites := map[string]bool{}
+	if vendorFilter != "" {
+		if sites, err := s.cfg.Store.ListSites(r.Context()); err == nil {
+			for _, site := range sites {
+				if site.VendorID == vendorFilter {
+					vendorSites[site.ID] = true
+				}
+			}
+		}
+	}
 	out := make([]v1.AdminApplianceView, 0, len(list))
 	for _, a := range list {
+		if siteFilter != "" && a.SiteID != siteFilter {
+			continue
+		}
+		if vendorFilter != "" && !vendorSites[a.SiteID] {
+			continue
+		}
 		out = append(out, s.view(a))
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -574,14 +678,17 @@ func (s *Server) adminGetAppliance(w http.ResponseWriter, r *http.Request) {
 func (s *Server) view(a *store.Appliance) v1.AdminApplianceView {
 	online := a.LastHeartbeatAt != nil && s.cfg.Now().Sub(*a.LastHeartbeatAt) <= OnlineWindow
 	feed := ""
+	var tools []string
 	if a.LastHeartbeat != nil {
 		feed = a.LastHeartbeat.FeedVersion
+		tools = a.LastHeartbeat.Engine.Tools
 	}
 	return v1.AdminApplianceView{
 		ApplianceID: a.ID, SiteID: a.SiteID, Status: a.Status, Online: online, Version: a.Version, BundleVersion: a.BundleVersion, FeedVersion: feed,
 		CertSerial: a.CertSerial, CertNotAfter: a.CertNotAfter, LastHeartbeatAt: a.LastHeartbeatAt, LastHeartbeat: a.LastHeartbeat,
 		SkewS: a.SkewS, Ifaces: a.Ifaces, Fingerprint: a.Fingerprint,
 		Canary: a.Canary, OS: a.OS, Arch: a.Arch, UpdateError: a.UpdateError,
+		Health: s.health(a, s.cfg.Now()), EngineDownSince: a.EngineDownSince, Tools: tools,
 	}
 }
 

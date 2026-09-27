@@ -87,7 +87,6 @@ func TestPhase1(t *testing.T) {
 	s.EnrollURL = enrollSrv.URL
 	s.PendingCode = created.Code
 	s.IntervalOverrideS = 1 // enrollment overwrites PollIntervalS with the server default (60 s)
-	heartbeat.MinInterval = time.Second
 	_ = st.Save(s)
 	loop := &heartbeat.Loop{Store: st, Roots: roots, Version: "e2e", Log: slog.Default(), PowerOff: func() error { return nil }}
 	ctx, cancel := context.WithCancel(context.Background())

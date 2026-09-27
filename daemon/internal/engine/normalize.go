@@ -28,6 +28,9 @@ type hostAgg struct {
 	scanned  bool // reached openvas
 	findings []v1.Finding
 	errors   int
+	// nmapOS is the fingerprint pass's OS match (Phase 5); it competes
+	// with openvas's guess on confidence in finalize.
+	nmapOS *v1.OSGuess
 }
 
 func newHostAgg(ip string) *hostAgg { return &hostAgg{ip: ip, ports: map[string]*v1.Port{}} }
@@ -245,6 +248,10 @@ func (h *hostAgg) finalize(meta map[string]*nvt.Meta) v1.Host {
 		if h.osCPE != "" {
 			out.OSGuess.Confidence = 0.7
 		}
+	}
+	if h.nmapOS != nil && (out.OSGuess == nil || h.nmapOS.Confidence > out.OSGuess.Confidence) {
+		g := *h.nmapOS
+		out.OSGuess = &g
 	}
 	for _, p := range h.ports {
 		out.Ports = append(out.Ports, *p)

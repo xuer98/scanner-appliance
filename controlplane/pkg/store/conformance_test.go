@@ -49,6 +49,8 @@ func TestStoreConformance(t *testing.T) {
 			correlationScenario(t, ctx, st, site.ID)
 			sitesScenario(t, ctx, st, vendor, site)
 			opsScenario(t, ctx, st, site, apl)
+			pilotScenario(t, ctx, st, site, apl)
+			replaceScenario(t, ctx, st, site, apl)
 		})
 	}
 }
@@ -444,4 +446,475 @@ func opsScenario(t *testing.T, ctx context.Context, st Store, site *Site, apl *A
 	if gs, _ = st.GetSite(ctx, site.ID); len(gs.Config().LANRoutes) != 0 {
 		t.Fatalf("lan routes not cleared: %+v", gs.Config())
 	}
+}
+
+func pilotScenario(t *testing.T, ctx context.Context, st Store, site *Site, apl *Appliance) {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Second)
+
+	// Versioned site policy: cleared/marked fragile hosts, VT exclusions, attestation.
+	site.FragileCleared = []string{"10.30.5.21"}
+	site.FragileHosts = []string{"10.30.5.90"}
+	site.VTExcludes = []string{"1.3.6.1.4.1.25623.1.0.999", "nuclei:tech-detect"}
+	site.Version = 7
+	site.AttestedAt, site.AttestedBy = &now, "owner@acme"
+	if err := st.UpdateSite(ctx, site); err != nil {
+		t.Fatal(err)
+	}
+	gs, _ := st.GetSite(ctx, site.ID)
+	cfg := gs.Config()
+	if cfg.Version != 7 || len(cfg.FragileCleared) != 1 || cfg.FragileHosts[0] != "10.30.5.90" || len(cfg.VTExcludes) != 2 || gs.AttestedAt == nil || !gs.AttestedAt.Equal(now) || gs.AttestedBy != "owner@acme" {
+		t.Fatalf("site policy: %+v attested=%v", cfg, gs.AttestedAt)
+	}
+
+	// Audit log, newest first.
+	for i, kind := range []string{"scope", "fragile"} {
+		c := &SiteChange{SiteID: site.ID, Version: 5 + i, At: now.Add(time.Duration(i) * time.Minute), Actor: "op", Kind: kind, Field: "x", Old: "a", New: "b", Reason: "pilot"}
+		if err := st.RecordSiteChange(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.RecordSiteChange(ctx, &SiteChange{SiteID: "site_missing", At: now, Kind: "scope"}); err != ErrNotFound {
+		t.Fatalf("change on missing site: %v", err)
+	}
+	changes, _ := st.ListSiteChanges(ctx, site.ID)
+	if len(changes) != 2 || changes[0].Kind != "fragile" || changes[1].Version != 5 {
+		t.Fatalf("changes: %+v", changes)
+	}
+
+	// Scope requests.
+	req := &ScopeRequest{SiteID: site.ID, Status: v1.ScopePending, AllowedCIDRs: []string{"10.30.0.0/16", "10.31.0.0/16"}, Reason: "new floor", RequestedAt: now, RequestedBy: "op"}
+	if err := st.CreateScopeRequest(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateScopeRequest(ctx, &ScopeRequest{SiteID: "site_missing", Status: v1.ScopePending, RequestedAt: now}); err != ErrNotFound {
+		t.Fatalf("request on missing site: %v", err)
+	}
+	pending, _ := st.ListScopeRequests(ctx, site.ID, v1.ScopePending)
+	if len(pending) != 1 || pending[0].ID != req.ID || len(pending[0].AllowedCIDRs) != 2 {
+		t.Fatalf("pending: %+v", pending)
+	}
+	req.Status, req.DecidedAt, req.DecidedBy, req.Decision = v1.ScopeApproved, &now, "owner", "ok"
+	if err := st.UpdateScopeRequest(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.GetScopeRequest(ctx, req.ID); got.Status != v1.ScopeApproved || got.DecidedBy != "owner" {
+		t.Fatalf("approved: %+v", got)
+	}
+	if l, _ := st.ListScopeRequests(ctx, site.ID, v1.ScopePending); len(l) != 0 {
+		t.Fatal("still pending")
+	}
+	if _, err := st.GetScopeRequest(ctx, "scr_missing"); err != ErrNotFound {
+		t.Fatalf("missing request: %v", err)
+	}
+
+	// Schedules.
+	sc := &Schedule{SiteID: site.ID, ApplianceID: apl.ID, Name: "weekly inventory", Mode: v1.ModeInventory, Targets: []string{"10.30.5.0/24"}, Cron: "0 22 * * 6", TZ: "UTC", MaxDurationS: 3600, Enabled: true}
+	if err := st.CreateSchedule(ctx, sc); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateSchedule(ctx, &Schedule{SiteID: site.ID, ApplianceID: "apl_missing", Mode: v1.ModeDiscovery, Cron: "* * * * *"}); err != ErrNotFound {
+		t.Fatalf("schedule on missing appliance: %v", err)
+	}
+	next := now.Add(time.Hour)
+	sc.NextOccurrence, sc.NextJobID, sc.Enabled = &next, "job_next", false
+	if err := st.UpdateSchedule(ctx, sc); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetSchedule(ctx, sc.ID)
+	if err != nil || got.NextJobID != "job_next" || got.Enabled || got.NextOccurrence == nil || !got.NextOccurrence.Equal(next) || got.Targets[0] != "10.30.5.0/24" {
+		t.Fatalf("schedule: %v %+v", err, got)
+	}
+	if l, _ := st.ListSchedules(ctx, site.ID); len(l) != 1 {
+		t.Fatalf("list schedules: %+v", l)
+	}
+	if err := st.DeleteSchedule(ctx, sc.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteSchedule(ctx, sc.ID); err != ErrNotFound {
+		t.Fatalf("double delete: %v", err)
+	}
+
+	// Jobs remember their schedule.
+	job := &Job{ID: NewID("job"), SiteID: site.ID, ApplianceID: apl.ID, Status: v1.JobQueued, ScheduleID: "sch_x",
+		Spec: v1.JobSpec{JobID: "x", SiteID: site.ID, ApplianceID: apl.ID, Mode: v1.ModeDiscovery, Targets: []string{"10.30.5.0/24"}, Modules: []string{v1.ModuleDiscovery}, Rate: v1.Rate{PPS: 1, PerHostParallel: 1}}}
+	if err := st.CreateJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if gj, _ := st.GetJob(ctx, job.ID); gj.ScheduleID != "sch_x" {
+		t.Fatalf("schedule id lost: %+v", gj)
+	}
+
+	// Finding review and codified exclusions at ingest.
+	hosts := []v1.Host{{IP: "10.30.5.77", Ports: []v1.Port{{Port: 80, Proto: "tcp"}}, Findings: []v1.Finding{
+		{Source: "openvas", NVTOID: "1.3.6.1.4.1.25623.1.0.555", Name: "real", Severity: v1.SeverityHigh, CVSS: 7.5, QoD: 80, Port: 80, Proto: "tcp", CVE: []string{}},
+		{Source: "openvas", NVTOID: "1.3.6.1.4.1.25623.1.0.999", Name: "noise", Severity: v1.SeverityMedium, CVSS: 5, QoD: 80, Port: 80, Proto: "tcp", CVE: []string{}},
+		{Source: "nuclei", ID: "tech-detect", Name: "tech", Severity: v1.SeverityInfo, QoD: 80, Port: 80, Proto: "tcp", CVE: []string{}},
+	}}}
+	sum, err := st.IngestHosts(ctx, site.ID, job.ID, hosts, "202609260530", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Findings != 3 || sum.Suppressed != 2 {
+		t.Fatalf("ingest with exclusions: %+v", sum)
+	}
+	var hostID string
+	if hl, _ := st.ListHosts(ctx, site.ID); true {
+		for _, h := range hl {
+			if h.IP == "10.30.5.77" {
+				hostID = h.ID
+			}
+		}
+	}
+	list, _ := st.ListFindings(ctx, site.ID, hostID)
+	if hostID == "" || len(list) != 3 {
+		t.Fatalf("ingested host findings: host=%q n=%d", hostID, len(list))
+	}
+	var real *Finding
+	for _, f := range list {
+		switch f.Detector() {
+		case "1.3.6.1.4.1.25623.1.0.555":
+			real = f
+			if f.Review != "" {
+				t.Fatalf("real finding reviewed: %+v", f)
+			}
+		default:
+			if f.Review != v1.ReviewFalsePositive || f.ReviewedBy != "policy" {
+				t.Fatalf("excluded finding not suppressed: %+v", f)
+			}
+		}
+	}
+	if real == nil {
+		t.Fatal("real finding missing")
+	}
+	if err := st.ReviewFinding(ctx, real.ID, v1.ReviewAccepted, "analyst", "compensating control", now); err != nil {
+		t.Fatal(err)
+	}
+	gf, err := st.GetFinding(ctx, real.ID)
+	if err != nil || gf.Review != v1.ReviewAccepted || gf.ReviewedAt == nil || gf.ReviewedBy != "analyst" {
+		t.Fatalf("review: %v %+v", err, gf)
+	}
+	// A re-observation keeps the review.
+	if _, err := st.IngestHosts(ctx, site.ID, job.ID, hosts[:1], "202609260530", now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if gf, _ = st.GetFinding(ctx, real.ID); gf.Review != v1.ReviewAccepted {
+		t.Fatalf("review lost on re-ingest: %+v", gf)
+	}
+	if err := st.ReviewFinding(ctx, real.ID, "", "analyst", "reopened", now); err != nil {
+		t.Fatal(err)
+	}
+	if gf, _ = st.GetFinding(ctx, real.ID); gf.Review != "" || gf.ReviewedAt != nil {
+		t.Fatalf("reopen: %+v", gf)
+	}
+	if n, err := st.ReviewByDetector(ctx, site.ID, "1.3.6.1.4.1.25623.1.0.555", "analyst", "codified", now); err != nil || n != 1 {
+		t.Fatalf("review by detector: %v %d", err, n)
+	}
+	if n, _ := st.ReviewByDetector(ctx, site.ID, "1.3.6.1.4.1.25623.1.0.555", "analyst", "codified", now); n != 0 {
+		t.Fatalf("already reviewed findings touched: %d", n)
+	}
+	if _, err := st.GetFinding(ctx, "fnd_missing"); err != ErrNotFound {
+		t.Fatalf("missing finding: %v", err)
+	}
+	if err := st.ReviewFinding(ctx, "fnd_missing", v1.ReviewAccepted, "x", "", now); err != ErrNotFound {
+		t.Fatalf("review missing: %v", err)
+	}
+
+	// NVT mirror lookup.
+	if err := st.UpsertNVTs(ctx, []NVT{{OID: "1.3.6.1.4.1.25623.1.0.555", Name: "real", Family: "Web Servers", CVSS: 7.5, CVEs: []string{"CVE-2024-0001"}, QoD: 80, FeedVersion: "202609260530"}}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := st.GetNVT(ctx, "1.3.6.1.4.1.25623.1.0.555"); err != nil || n.Family != "Web Servers" || n.CVEs[0] != "CVE-2024-0001" {
+		t.Fatalf("nvt: %v %+v", err, n)
+	}
+	if _, err := st.GetNVT(ctx, "nope"); err != ErrNotFound {
+		t.Fatalf("missing nvt: %v", err)
+	}
+
+	// Phase 5: settings (the nmap sign-off) and explicit schedule modules.
+	if _, err := st.GetSetting(ctx, "signoff:nmap"); err != ErrNotFound {
+		t.Fatalf("absent setting: %v", err)
+	}
+	if err := st.PutSetting(ctx, "signoff:nmap", `{"reference":"LEGAL-1"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutSetting(ctx, "signoff:nmap", `{"reference":"LEGAL-2"}`); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := st.GetSetting(ctx, "signoff:nmap"); err != nil || v != `{"reference":"LEGAL-2"}` {
+		t.Fatalf("setting: %v %q", err, v)
+	}
+	if err := st.DeleteSetting(ctx, "signoff:nmap"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteSetting(ctx, "signoff:nmap"); err != ErrNotFound {
+		t.Fatalf("delete absent: %v", err)
+	}
+	fp := &Schedule{SiteID: site.ID, ApplianceID: apl.ID, Name: "fingerprint weekly", Mode: v1.ModeInventory, Targets: []string{"10.30.5.0/24"},
+		Modules: []string{v1.ModuleDiscovery, v1.ModulePortscan, v1.ModuleFingerprint}, Cron: "0 1 * * 2", TZ: "UTC", MaxDurationS: 3600, Enabled: true, CreatedAt: now}
+	if err := st.CreateSchedule(ctx, fp); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.GetSchedule(ctx, fp.ID); len(got.Modules) != 3 || got.Modules[2] != v1.ModuleFingerprint {
+		t.Fatalf("schedule modules: %+v", got.Modules)
+	}
+	fp.Modules = nil
+	if err := st.UpdateSchedule(ctx, fp); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.GetSchedule(ctx, fp.ID); len(got.Modules) != 0 {
+		t.Fatalf("cleared modules: %+v", got.Modules)
+	}
+	_ = st.DeleteSchedule(ctx, fp.ID)
+
+	// Engine-down tracking across heartbeats.
+	down := &v1.Heartbeat{Version: "1.3.0", Engine: v1.EngineHealth{OSPDUp: true, VTCacheLoaded: false}}
+	if err := st.RecordHeartbeat(ctx, apl.ID, now, down); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordHeartbeat(ctx, apl.ID, now.Add(time.Minute), down); err != nil {
+		t.Fatal(err)
+	}
+	ga, _ := st.GetAppliance(ctx, apl.ID)
+	if ga.EngineDownSince == nil || !ga.EngineDownSince.Equal(now) {
+		t.Fatalf("engine down since: %v", ga.EngineDownSince)
+	}
+	if err := st.RecordHeartbeat(ctx, apl.ID, now.Add(2*time.Minute), &v1.Heartbeat{Version: "1.3.0", Engine: v1.EngineHealth{OSPDUp: true, VTCacheLoaded: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if ga, _ = st.GetAppliance(ctx, apl.ID); ga.EngineDownSince != nil {
+		t.Fatalf("engine down not cleared: %v", ga.EngineDownSince)
+	}
+}
+
+// replaceScenario (Phase 6): the finding lifecycle across scans of
+// different scope, external scanner imports correlated by CVE, retention
+// bookkeeping and singleton locks.
+func replaceScenario(t *testing.T, ctx context.Context, st Store, site *Site, apl *Appliance) {
+	t.Helper()
+	now := time.Date(2026, 10, 5, 8, 0, 0, 0, time.UTC)
+	mk := func(id string, at time.Time) *Job {
+		j := &Job{ID: id, SiteID: site.ID, ApplianceID: apl.ID, Status: v1.JobRunning, StartedAt: &at}
+		j.Spec.DefaultsFor(v1.ModeInventory)
+		if err := st.CreateJob(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+		return j
+	}
+	bluekeep := v1.Finding{Source: "openvas", NVTOID: "1.3.6.1.4.1.25623.1.0.108587", Name: "BlueKeep", Severity: v1.SeverityCritical, CVSS: 9.8, QoD: 97, Port: 3389, Proto: "tcp", CVE: []string{"CVE-2019-0708"}}
+	smb := v1.Finding{Source: "openvas", NVTOID: "1.3.6.1.4.1.25623.1.0.777", Name: "SMBv1 enabled", Severity: v1.SeverityMedium, CVSS: 5.0, QoD: 80, Port: 445, Proto: "tcp", CVE: []string{"CVE-2017-0144"}}
+	web := v1.Finding{Source: "nuclei", ID: "CVE-2021-41773", Name: "Apache traversal", Severity: v1.SeverityCritical, CVSS: 9.8, QoD: 80, Port: 8080, Proto: "tcp", CVE: []string{"CVE-2021-41773"}}
+	host := "10.30.9.20"
+	// Scan 1 (inventory scope): three findings, all open.
+	j1 := mk("job_r1", now)
+	sum, err := st.IngestScan(ctx, ScanIngest{SiteID: site.ID, JobID: j1.ID, FeedVersion: "f1", At: now.Add(time.Minute), Scope: v1.ScopeInventory,
+		Hosts: []v1.Host{{IP: host, Ports: []v1.Port{{Port: 3389, Proto: "tcp"}, {Port: 445, Proto: "tcp"}, {Port: 8080, Proto: "tcp"}}, Findings: []v1.Finding{bluekeep, smb, web}}}})
+	if err != nil || sum.NewFindings != 3 || sum.NewBySeverity[v1.SeverityCritical] != 2 || len(sum.New) != 2 {
+		t.Fatalf("scan 1: %v %+v", err, sum)
+	}
+	var hostID string
+	for _, h := range must(st.ListHosts(ctx, site.ID)) {
+		if h.IP == host {
+			hostID = h.ID
+		}
+	}
+	byName := func() map[string]*Finding {
+		m := map[string]*Finding{}
+		for _, f := range must(st.ListFindings(ctx, site.ID, hostID)) {
+			m[f.Name] = f
+		}
+		return m
+	}
+	fs := byName()
+	if fs["BlueKeep"].Scope != v1.ScopeInventory || fs["Apache traversal"].Scope != v1.ScopeWeb || !fs["BlueKeep"].IsOpen() {
+		t.Fatalf("scopes: %+v %+v", fs["BlueKeep"], fs["Apache traversal"])
+	}
+	// Scan 2 (inventory, host observed without SMBv1): SMBv1 fixed, the web
+	// finding (web scope) untouched, BlueKeep re-observed stays open.
+	j2 := mk("job_r2", now.Add(time.Hour))
+	if _, err := st.IngestScan(ctx, ScanIngest{SiteID: site.ID, JobID: j2.ID, FeedVersion: "f1", At: now.Add(time.Hour + time.Minute), Scope: v1.ScopeInventory,
+		Hosts: []v1.Host{{IP: host, Ports: []v1.Port{{Port: 3389, Proto: "tcp"}, {Port: 8080, Proto: "tcp"}}, Findings: []v1.Finding{bluekeep}}}}); err != nil {
+		t.Fatal(err)
+	}
+	fixed, err := st.ResolveFindings(ctx, site.ID, j2.ID, []string{v1.ScopeInventory}, *j2.StartedAt, now.Add(time.Hour+2*time.Minute))
+	if err != nil || len(fixed) != 1 || fixed[0].Name != "SMBv1 enabled" || fixed[0].Status != v1.FindingFixed || fixed[0].FixedAt == nil {
+		t.Fatalf("resolve after scan 2: %v %+v", err, fixed)
+	}
+	fs = byName()
+	if !fs["BlueKeep"].IsOpen() || !fs["Apache traversal"].IsOpen() || fs["SMBv1 enabled"].IsOpen() {
+		t.Fatalf("lifecycle after scan 2: bk=%s web=%s smb=%s", fs["BlueKeep"].Status, fs["Apache traversal"].Status, fs["SMBv1 enabled"].Status)
+	}
+	// Scan 3 (full scope with the web module, host observed with nothing): the
+	// web finding is fixed; a fragile-kept-away host is never resolved.
+	j3 := mk("job_r3", now.Add(2*time.Hour))
+	if _, err := st.IngestScan(ctx, ScanIngest{SiteID: site.ID, JobID: j3.ID, FeedVersion: "f1", At: now.Add(2*time.Hour + time.Minute), Scope: v1.ScopeFull,
+		Hosts: []v1.Host{{IP: host, Ports: []v1.Port{{Port: 8080, Proto: "tcp"}}}, {IP: "10.30.9.21", Notes: []string{"fragile:9100"}, Ports: []v1.Port{{Port: 9100, Proto: "tcp"}}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.IngestScan(ctx, ScanIngest{SiteID: site.ID, JobID: j1.ID, FeedVersion: "f1", At: now.Add(2*time.Hour + time.Minute), Scope: v1.ScopeInventory,
+		Hosts: []v1.Host{{IP: "10.30.9.21", Notes: []string{"fragile:9100"}, Ports: []v1.Port{{Port: 9100, Proto: "tcp"}}, Findings: []v1.Finding{{Source: "openvas", NVTOID: "1.2.3", Name: "printer", Severity: v1.SeverityLow, CVSS: 3, QoD: 80, CVE: []string{}}}}}}); err != nil {
+		t.Fatal(err)
+	}
+	fixed, err = st.ResolveFindings(ctx, site.ID, j3.ID, []string{v1.ScopeInventory, v1.ScopeFull, v1.ScopeWeb}, *j3.StartedAt, now.Add(2*time.Hour+2*time.Minute))
+	if err != nil || len(fixed) != 2 {
+		t.Fatalf("resolve after scan 3: %v %d fixed", err, len(fixed))
+	}
+	names := map[string]bool{}
+	for _, f := range fixed {
+		names[f.Name] = true
+	}
+	if !names["BlueKeep"] || !names["Apache traversal"] || names["printer"] {
+		t.Fatalf("fixed set: %v", names)
+	}
+	// Scan 4: BlueKeep is back → reopened.
+	j4 := mk("job_r4", now.Add(3*time.Hour))
+	if _, err := st.IngestScan(ctx, ScanIngest{SiteID: site.ID, JobID: j4.ID, FeedVersion: "f2", At: now.Add(3*time.Hour + time.Minute), Scope: v1.ScopeInventory,
+		Hosts: []v1.Host{{IP: host, Ports: []v1.Port{{Port: 3389, Proto: "tcp"}}, Findings: []v1.Finding{bluekeep}}}}); err != nil {
+		t.Fatal(err)
+	}
+	fs = byName()
+	if bk := fs["BlueKeep"]; !bk.IsOpen() || bk.Reopens != 1 || bk.ReopenedAt == nil || bk.FixedAt != nil {
+		t.Fatalf("reopen: %+v", bk)
+	}
+
+	// External scanner import (Qualys): the same CVE merges into the
+	// appliance finding with a second evidence source and confirms it; a new
+	// host and finding are created; info rows skipped; a fixed row closes an
+	// external-only finding.
+	ts := now.Add(4 * time.Hour)
+	ext := []v1.ExternalHost{
+		{IP: host, Hostname: "wms-app-09", OS: "Windows Server 2008 R2", Findings: []v1.ExternalFinding{
+			{ID: "91534", Name: "Microsoft RDP RCE (BlueKeep)", Type: "confirmed", Severity: v1.SeverityCritical, CVSS: 9.8, CVE: []string{"cve-2019-0708"}, Port: 3389, Proto: "tcp", Status: "active"},
+			{ID: "45038", Name: "Host scan time", Type: "info", Severity: v1.SeverityInfo, CVE: []string{}},
+		}},
+		{IP: "10.30.9.50", Hostname: "fw-reno", OS: "FortiOS 7.2", Findings: []v1.ExternalFinding{
+			{ID: "44444", Name: "FortiOS SSL-VPN heap overflow", Type: "confirmed", Severity: v1.SeverityCritical, CVSS: 9.8, CVE: []string{"CVE-2022-42475"}, Port: 443, Proto: "tcp", Status: "active"},
+			{ID: "55555", Name: "Old TLS", Type: "potential", Severity: v1.SeverityMedium, CVE: []string{}, Port: 443, Proto: "tcp", Status: "active"},
+		}},
+	}
+	esum, err := st.IngestExternal(ctx, site.ID, "qualys", ext, ts)
+	if err != nil || esum.Hosts != 2 || esum.Created != 1 || esum.Merged != 1 || esum.Findings != 3 || esum.NewFindings != 2 || esum.Skipped != 1 {
+		t.Fatalf("external import: %v %+v", err, esum)
+	}
+	fs = byName()
+	bk := fs["BlueKeep"]
+	if bk.State != v1.FindingConfirmed || len(bk.Evidence) < 2 || bk.ExternalID != "91534" || bk.Source != "openvas" {
+		t.Fatalf("merged external: %+v", bk)
+	}
+	srcs := map[string]bool{}
+	for _, e := range bk.Evidence {
+		srcs[e.Source] = true
+	}
+	if !srcs["qualys"] || !srcs["openvas"] {
+		t.Fatalf("evidence sources: %v", srcs)
+	}
+	var fw *Host
+	for _, h := range must(st.ListHosts(ctx, site.ID)) {
+		if h.IP == "10.30.9.50" {
+			fw = h
+		}
+	}
+	if fw == nil || fw.Source != v1.SourceExternal || fw.Hostname != "fw-reno" || fw.OSGuess == nil || fw.OSGuess.Family != "network" {
+		t.Fatalf("external host: %+v", fw)
+	}
+	fwf := must(st.ListFindings(ctx, site.ID, fw.ID))
+	if len(fwf) != 2 {
+		t.Fatalf("external findings: %d", len(fwf))
+	}
+	for _, f := range fwf {
+		if f.Source != "qualys" || f.Scope != "qualys" || f.ExternalID == "" || !f.IsOpen() {
+			t.Fatalf("external finding: %+v", f)
+		}
+		if f.ExternalID == "55555" && f.State != v1.FindingSuspected {
+			t.Fatalf("potential should be suspected: %+v", f)
+		}
+	}
+	esum, err = st.IngestExternal(ctx, site.ID, "qualys", []v1.ExternalHost{{IP: "10.30.9.50", Findings: []v1.ExternalFinding{
+		{ID: "44444", Name: "FortiOS SSL-VPN heap overflow", Severity: v1.SeverityCritical, CVE: []string{"CVE-2022-42475"}, Port: 443, Proto: "tcp", Status: "fixed"}}}}, ts.Add(time.Hour))
+	if err != nil || esum.Fixed != 1 {
+		t.Fatalf("external fixed: %v %+v", err, esum)
+	}
+	for _, f := range must(st.ListFindings(ctx, site.ID, fw.ID)) {
+		if f.ExternalID == "44444" && (f.IsOpen() || f.FixedAt == nil) {
+			t.Fatalf("not fixed by import: %+v", f)
+		}
+	}
+	// A later appliance scan of the merged finding's host does not touch
+	// the external-only finding (different host) and re-observes BlueKeep.
+	if _, err := st.IngestExternal(ctx, "site_missing", "qualys", ext, ts); err != ErrNotFound {
+		t.Fatalf("missing site: %v", err)
+	}
+
+	// Retention bookkeeping.
+	old := now.Add(-100 * 24 * time.Hour)
+	if _, err := st.RecordResultBatch(ctx, ResultBatchRec{JobID: j1.ID, Seq: 7, ReceivedAt: old, ObjectKey: "results/job_r1/000007.json", SHA256: "s7", Hosts: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RecordResultBatch(ctx, ResultBatchRec{JobID: j1.ID, Seq: 8, ReceivedAt: now, ObjectKey: "results/job_r1/000008.json", SHA256: "s8", Hosts: 1}); err != nil {
+		t.Fatal(err)
+	}
+	batches := must(st.ListResultBatches(ctx, now.Add(-90*24*time.Hour), 100))
+	found := false
+	for _, b := range batches {
+		if b.JobID == j1.ID && b.Seq == 8 {
+			t.Fatal("fresh batch listed for retention")
+		}
+		if b.JobID == j1.ID && b.Seq == 7 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("old batch not listed: %+v", batches)
+	}
+	if err := st.MarkResultBatchPurged(ctx, j1.ID, 7); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range must(st.ListResultBatches(ctx, now.Add(-90*24*time.Hour), 100)) {
+		if b.JobID == j1.ID && b.Seq == 7 {
+			t.Fatal("purged batch still listed")
+		}
+	}
+	if err := st.MarkResultBatchPurged(ctx, j1.ID, 99); err != ErrNotFound {
+		t.Fatalf("purge missing: %v", err)
+	}
+	if err := st.RecordSupportBundle(ctx, apl.ID, "support/r.tar.gz", 10); err != nil {
+		t.Fatal(err)
+	}
+	sb := must(st.ListSupportBundles(ctx, time.Now().Add(time.Hour), 100))
+	if len(sb) == 0 {
+		t.Fatal("support bundles not listed")
+	}
+	if err := st.MarkSupportBundlePurged(ctx, sb[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(must(st.ListSupportBundles(ctx, time.Now().Add(time.Hour), 100))) != len(sb)-1 {
+		t.Fatal("purged support bundle still listed")
+	}
+
+	// Singleton locks.
+	release, ok, err := st.TryLock(ctx, "rollout")
+	if err != nil || !ok {
+		t.Fatalf("lock: %v %v", err, ok)
+	}
+	if _, ok2, _ := st.TryLock(ctx, "rollout"); ok2 {
+		t.Fatal("lock taken twice")
+	}
+	release3, ok3, _ := st.TryLock(ctx, "scheduler")
+	if !ok3 {
+		t.Fatal("unrelated lock refused")
+	}
+	release3()
+	release()
+	release2, ok4, _ := st.TryLock(ctx, "rollout")
+	if !ok4 {
+		t.Fatal("lock not released")
+	}
+	release2()
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }

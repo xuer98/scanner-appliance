@@ -33,7 +33,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -176,9 +175,14 @@ func run(args []string) error {
 	}
 	eng := &engine.Engine{NaabuPath: *naabuPath, OSP: osp.New(*ospSock), Log: log, ScanType: *scanType,
 		NVT:       nvt.New(filepath.Join(st.Dir, "nvt-cache"), osp.New(*ospSock), log),
-		BundleDir: filepath.Join(st.Dir, "bundle"), HTTPXPath: findEngineTool("httpx"), NucleiPath: findEngineTool("nuclei"), Split: s.Split}
+		BundleDir: filepath.Join(st.Dir, "bundle"), HTTPXPath: findEngineTool("httpx"), NucleiPath: findEngineTool("nuclei"), Split: s.Split,
+		NmapPath: findEngineTool("nmap")}
+	if eng.NmapPath != "" {
+		log.Info("nmap present: the fingerprint pass is available to jobs that carry it", "path", eng.NmapPath)
+	}
 	runner := &jobs.Runner{Store: st, Engine: eng, Spool: &spool.Spool{Dir: filepath.Join(st.Dir, "spool")}, Roots: roots, Log: log}
-	loop := &heartbeat.Loop{Store: st, Roots: roots, Version: version, Log: log, OSPSocket: *ospSock, Jobs: runner, Update: upd}
+	loop := &heartbeat.Loop{Store: st, Roots: roots, Version: version, Log: log, OSPSocket: *ospSock, Jobs: runner, Update: upd,
+		ToolPaths: map[string]string{"naabu": *naabuPath, "httpx": eng.HTTPXPath, "nuclei": eng.NucleiPath, "nmap": eng.NmapPath}}
 	loop.Run(ctx)
 	runner.StopAll("daemon shutting down")
 	runner.Wait()
@@ -190,31 +194,13 @@ func run(args []string) error {
 	return nil
 }
 
-// findEngineTool looks for an optional engine binary (httpx, nuclei) in
-// the engine directory, then $PATH; "" when absent.
-func findEngineTool(name string) string {
-	p := filepath.Join(heartbeat.EngineDir, platform.ExeName(name))
-	if _, err := os.Stat(p); err == nil {
-		return p
-	}
-	if p, err := exec.LookPath(name); err == nil {
-		return p
-	}
-	return ""
-}
+// findEngineTool looks for an optional engine binary (httpx, nuclei,
+// nmap) in the engine directory, then $PATH; "" when absent.
+func findEngineTool(name string) string { return heartbeat.FindTool(name) }
 
 // findNaabu prefers the image's engine directory (engine\ beside the
 // executable on Windows), then $PATH.
-func findNaabu() string {
-	p := filepath.Join(heartbeat.EngineDir, platform.ExeName("naabu"))
-	if _, err := os.Stat(p); err == nil {
-		return p
-	}
-	if p, err := exec.LookPath("naabu"); err == nil {
-		return p
-	}
-	return ""
-}
+func findNaabu() string { return heartbeat.FindTool("naabu") }
 
 func applySeed(ctx context.Context, log *slog.Logger, s *state.State, sd *seed.Seed) {
 	if sd.CPURL != "" {

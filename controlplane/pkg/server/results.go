@@ -104,11 +104,13 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, v1.ResultAck{Seq: seq, Duplicate: true, Hosts: len(batch.Hosts), Complete: job.Status == v1.JobDone})
 		return
 	}
-	sum2, err := s.cfg.Store.IngestHosts(r.Context(), job.SiteID, job.ID, batch.Hosts, batch.FeedVersion, now)
+	sum2, err := s.cfg.Store.IngestScan(r.Context(), store.ScanIngest{SiteID: job.SiteID, JobID: job.ID, Hosts: batch.Hosts, FeedVersion: batch.FeedVersion, At: now, Scope: jobScope(job)})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "ingest error", "store")
 		return
 	}
+	s.metrics.resultChunks.Add(1)
+	s.accumulate(job.ID, sum2)
 	if nvts := nvtsFrom(batch); len(nvts) > 0 {
 		if err := s.cfg.Store.UpsertNVTs(r.Context(), nvts); err != nil {
 			s.log.Warn("nvt mirror update failed", "err", err)
@@ -127,6 +129,7 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		complete = true
+		s.completeJob(r.Context(), job, batch.Stats, now)
 	} else if job.Status == v1.JobDispatched {
 		job.Status = v1.JobRunning
 		job.StartedAt = &now

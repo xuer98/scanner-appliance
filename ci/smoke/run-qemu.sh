@@ -24,6 +24,11 @@
 #   SMOKE_SERIAL_PORT              TCP port for the serial console (auto)
 #   SMOKE_KEEP=1                   keep the work directory and serial log
 #   SMOKE_SKIP_TTY=1               skip the expect-driven console test
+#   SMOKE_UEFI=1                   boot through OVMF instead of SeaBIOS (the
+#                                  hybrid image's UEFI loader, Phase 5; needs
+#                                  the ovmf package). Secure Boot itself needs
+#                                  a secboot firmware with enrolled keys and
+#                                  is exercised on Hyper-V, not here.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -128,6 +133,22 @@ qemu_args=(
 if [[ "$ACCEL" == "kvm" ]]; then
   qemu_args+=(-cpu host)
 fi
+if [[ "${SMOKE_UEFI:-0}" == "1" ]]; then
+  ovmf_code=""
+  for c in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/edk2/ovmf/OVMF_CODE.fd /usr/share/edk2/x64/OVMF_CODE.4m.fd /usr/share/qemu/edk2-x86_64-code.fd; do
+    [[ -s "$c" ]] && { ovmf_code="$c"; break; }
+  done
+  [[ -n "$ovmf_code" ]] || smoke_die "SMOKE_UEFI=1 but no OVMF firmware found (apt-get install ovmf)"
+  ovmf_vars="${ovmf_code/CODE/VARS}"
+  ovmf_vars="${ovmf_vars/code/vars}"
+  if [[ -s "$ovmf_vars" ]]; then
+    cp "$ovmf_vars" "$WORK/ovmf-vars.fd"
+  else
+    truncate -s "$(stat -c %s "$ovmf_code" 2>/dev/null || stat -f %z "$ovmf_code")" "$WORK/ovmf-vars.fd"
+  fi
+  qemu_args+=(-drive "if=pflash,format=raw,readonly=on,file=${ovmf_code}" -drive "if=pflash,format=raw,file=${WORK}/ovmf-vars.fd")
+  smoke_log "UEFI boot through $ovmf_code"
+fi
 
 smoke_log "booting $QCOW2 (accel=$ACCEL, serial on 127.0.0.1:$SERIAL_PORT)"
 qemu-system-x86_64 "${qemu_args[@]}" >"$WORK/qemu.out" 2>&1 &
@@ -159,5 +180,8 @@ cp_job_roundtrip "$APPLIANCE_ID"
 SMOKE_LAN_TARGETS="${SMOKE_LAN_TARGETS:-10.0.3.0/24}" cp_lan_roundtrip "$APPLIANCE_ID"
 cp_directive_roundtrip "$APPLIANCE_ID"
 cp_bundle_roundtrip "$APPLIANCE_ID"
+cp_pilot_roundtrip "$APPLIANCE_ID"
+cp_depth_roundtrip "$APPLIANCE_ID"
+cp_replace_roundtrip "$APPLIANCE_ID"
 
-smoke_log "PASS: appliance $APPLIANCE_ID enrolled, console OK, scan jobs done (incl. the no-egress segment), directives acked, bundles applied"
+smoke_log "PASS: appliance $APPLIANCE_ID enrolled, console OK, scan jobs done (incl. the no-egress segment), directives acked, bundles applied, pilot, depth and replacement operations OK"

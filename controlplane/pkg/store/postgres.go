@@ -139,14 +139,14 @@ func (p *Postgres) CreateAppliance(ctx context.Context, siteID string) (*Applian
 
 const applianceCols = `id, site_id, status, COALESCE(cert_serial,''), cert_not_after, version, bundle_version,
 	last_heartbeat_at, last_heartbeat, skew_s, ifaces, fingerprint, binary_hashes, enrolled_at, created_at,
-	canary, os, arch, feed_version, update_error, reboot_required`
+	canary, os, arch, feed_version, update_error, reboot_required, engine_down_since`
 
 func scanAppliance(row pgx.Row) (*Appliance, error) {
 	a := &Appliance{}
 	var hb, ifaces, fp, bh []byte
 	err := row.Scan(&a.ID, &a.SiteID, &a.Status, &a.CertSerial, &a.CertNotAfter, &a.Version, &a.BundleVersion,
 		&a.LastHeartbeatAt, &hb, &a.SkewS, &ifaces, &fp, &bh, &a.EnrolledAt, &a.CreatedAt,
-		&a.Canary, &a.OS, &a.Arch, &a.FeedVersion, &a.UpdateError, &a.RebootRequired)
+		&a.Canary, &a.OS, &a.Arch, &a.FeedVersion, &a.UpdateError, &a.RebootRequired, &a.EngineDownSince)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -215,8 +215,9 @@ func (p *Postgres) RecordHeartbeat(ctx context.Context, id string, at time.Time,
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	tag, err := tx.Exec(ctx, `UPDATE appliance SET last_heartbeat_at=$2, last_heartbeat=$3, version=$4, bundle_version=$5,
-		ifaces=$6, skew_s=$7, binary_hashes=$8, os=$9, arch=$10, feed_version=$11, update_error=$12, reboot_required=$13 WHERE id=$1`,
-		id, at, payload, hb.Version, hb.BundleVersion, ifaces, hb.SkewS, bh, hb.OS, hb.Arch, hb.FeedVersion, hb.UpdateError, hb.RebootRequired)
+		ifaces=$6, skew_s=$7, binary_hashes=$8, os=$9, arch=$10, feed_version=$11, update_error=$12, reboot_required=$13,
+		engine_down_since = CASE WHEN $14 THEN NULL ELSE COALESCE(engine_down_since, $2) END WHERE id=$1`,
+		id, at, payload, hb.Version, hb.BundleVersion, ifaces, hb.SkewS, bh, hb.OS, hb.Arch, hb.FeedVersion, hb.UpdateError, hb.RebootRequired, hb.Engine.Ready())
 	if err != nil {
 		return err
 	}

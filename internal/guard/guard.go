@@ -24,10 +24,67 @@ const (
 	CheckConcurrency = "concurrency"
 	CheckSafeChecks  = "safe_checks"
 	CheckExcludes    = "excludes"
+	// CheckDuration (Phase 5): a wide port range must fit max_duration_s at
+	// the job's packet rate for the hosts it is expected to find.
+	CheckDuration = "duration"
 )
 
 // DefaultMaxConcurrency applies when the site does not set one.
 const DefaultMaxConcurrency = 16
+
+// FullRangeThreshold is the port count above which the duration budget is
+// checked: the "full" option (65535) and explicit specs wider than the
+// standard preset. Standard scans stay unbudgeted, as they have been since
+// Phase 2 (discovery trims them to live hosts).
+const FullRangeThreshold = 2048
+
+// MaxAddressCount caps the address count of a target list.
+const MaxAddressCount = 1 << 24
+
+// AddressCount is the number of addresses in the target list (IPv4 and
+// IPv6 prefixes; an IPv6 prefix wider than /104 counts as MaxAddressCount).
+func AddressCount(targets []string) int {
+	ps, err := parsePrefixes(targets)
+	if err != nil {
+		return 0
+	}
+	total := 0
+	for _, p := range ps {
+		hostBits := p.Addr().BitLen() - p.Bits()
+		if hostBits >= 24 {
+			return MaxAddressCount
+		}
+		total += 1 << hostBits
+		if total >= MaxAddressCount {
+			return MaxAddressCount
+		}
+	}
+	return total
+}
+
+// EstimateSeconds is the time a port scan of ports × hosts takes at pps
+// packets per second, with naabu's one retry and warm-up folded in.
+func EstimateSeconds(hosts, ports, pps int) int64 {
+	if hosts <= 0 || ports <= 0 {
+		return 0
+	}
+	if pps <= 0 {
+		pps = 1
+	}
+	probes := int64(hosts) * int64(ports)
+	return probes*11/10/int64(pps) + 30
+}
+
+// FormatDuration renders seconds as "2h 15m" / "45m" / "20s".
+func FormatDuration(sec int64) string {
+	switch {
+	case sec >= 3600:
+		return fmt.Sprintf("%dh %02dm", sec/3600, (sec%3600)/60)
+	case sec >= 60:
+		return fmt.Sprintf("%dm", sec/60)
+	}
+	return fmt.Sprintf("%ds", sec)
+}
 
 // Failure is one failed guardrail.
 type Failure struct {
@@ -112,6 +169,18 @@ func Check(in Input) []Failure {
 	}
 	if !spec.SafeChecks && !in.Site.UnsafeOK {
 		add(CheckSafeChecks, "safe_checks=false requires the site to be flagged unsafe_ok")
+	}
+	if spec.HasModule(v1.ModulePortscan) {
+		if n := v1.PortCount(spec.Ports); n > FullRangeThreshold {
+			hosts := spec.ExpectedHosts
+			if hosts <= 0 {
+				hosts = AddressCount(spec.Targets)
+			}
+			if est := EstimateSeconds(hosts, n, spec.Rate.PPS); est > int64(spec.MaxDuration()) {
+				add(CheckDuration, "a %d-port scan of ~%d hosts at %d pps needs about %s, more than max_duration_s %d: raise rate.pps or the window, narrow the targets, run discovery first, or use ports=standard",
+					n, hosts, spec.Rate.PPS, FormatDuration(est), spec.MaxDuration())
+			}
+		}
 	}
 	return fails
 }

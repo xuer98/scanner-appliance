@@ -7,6 +7,7 @@ package tty
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/x509"
 	"fmt"
@@ -404,19 +405,42 @@ func (c *Console) enroll(ctx context.Context) error {
 	return c.pause(ctx)
 }
 
+// supportBundle builds the bundle first and shows what is in it, so the
+// vendor reviews the contents before anything leaves the site (PLAN §22,
+// Phase 4). Nothing is written to removable media.
 func (c *Console) supportBundle(ctx context.Context) error {
 	c.header("Support bundle")
-	c.printf("  Collects logs, network and daemon state (never the private key) and uploads it\n  to the control plane over mTLS. Nothing is written to removable media.\n\n")
-	ans, err := c.prompt(ctx, "Upload now? [y/N]: ")
+	c.printf("  Collects logs, network and daemon state and uploads them to the control plane\n  over mTLS. Never included: the private key, the enrollment code, proxy passwords.\n\n")
+	c.printf("  Building ... ")
+	var buf bytes.Buffer
+	bctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	err := support.Build(bctx, &buf, c.Store, c.Version)
+	cancel()
+	if err != nil {
+		c.printf("FAILED\n  %v\n", err)
+		return c.pause(ctx)
+	}
+	entries, err := support.List(buf.Bytes())
+	if err != nil {
+		c.printf("FAILED\n  %v\n", err)
+		return c.pause(ctx)
+	}
+	c.printf("ok (%d bytes compressed)\n\n  Contents:\n", buf.Len())
+	for _, e := range entries {
+		c.printf("    %-36s %8d bytes\n", e.Name, e.Size)
+	}
+	c.printf("\n")
+	ans, err := c.prompt(ctx, "Upload this bundle now? [y/N]: ")
 	if err != nil {
 		return err
 	}
 	if !strings.EqualFold(ans, "y") {
-		return nil
+		c.printf("  Not uploaded.\n")
+		return c.pause(ctx)
 	}
 	c.printf("  Uploading ... ")
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	ack, err := support.Upload(cctx, c.Store, c.Roots, c.Version)
+	ack, err := support.Send(cctx, c.Store, c.Roots, buf.Bytes())
 	cancel()
 	if err != nil {
 		c.printf("FAILED\n  %v\n", err)

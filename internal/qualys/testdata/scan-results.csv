@@ -1,0 +1,13 @@
+"Scan Results"
+
+"Launch Date:","09/20/2026 22:05:11"
+"Total Hosts:","3"
+"Active Hosts:","3"
+"Option Profile:","Initial Options"
+
+"IP","DNS","NetBIOS","OS","IP Status","QID","Title","Type","Severity","Port","Protocol","FQDN","SSL","CVE ID","Vendor Reference","Bugtraq ID","CVSS","CVSS Base","CVSS Temporal","CVSS3 Base","CVSS3 Temporal","Threat","Impact","Solution","Exploitability","Associated Malware","Results","PCI Vuln","Instance","Category"
+"10.30.9.20","wms-app-01.acme.local","WMS-APP-01","Windows Server 2008 R2","host scanned, found vuln","91534","Microsoft Windows Remote Desktop Services Remote Code Execution Vulnerability (BlueKeep)","Vuln","5","3389","tcp","","","CVE-2019-0708","KB4499175","108273","","9.8 (AV:N/AC:L/Au:N/C:C/I:C/A:C)","","9.8","9.4","RDP is vulnerable","RCE","Apply KB4499175","","","Vulnerable RDP detected","yes","","Windows"
+"10.30.9.20","wms-app-01.acme.local","WMS-APP-01","Windows Server 2008 R2","host scanned, found vuln","90007","SMBv1 Enabled","Practice","3","445","tcp","","","CVE-2017-0144, CVE-2017-0145","","","","5.0","","","","","","Disable SMBv1","","","SMBv1 dialect negotiated","no","","Windows"
+"10.30.9.20","wms-app-01.acme.local","WMS-APP-01","Windows Server 2008 R2","host scanned, found vuln","45038","Host Scan Time","Ig","1","","","","","","","","","","","","","","","","","","Scan duration: 245 seconds","no","","Information gathering"
+"10.30.9.50","fw-reno.acme.local","","FortiOS 7.2","host scanned, found vuln","44444","Fortinet FortiOS SSL-VPN Heap-Based Buffer Overflow Vulnerability","Vuln","5","443","tcp","","yes","CVE-2022-42475","FG-IR-22-398","","","","","9.8","","","","Upgrade FortiOS","","","Vulnerable version 7.2.2","yes","","Security Policy"
+"10.30.9.51","","PRINTER-01","HP JetDirect","host scanned, no vuln found","38170","SSL Certificate - Signature Verification Failed","Practice","2","443","tcp","","yes","","","","","","","","","","","","","","Self-signed certificate","no","","General remote services"

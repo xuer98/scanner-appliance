@@ -24,10 +24,13 @@ ARG BASE_IMAGE=debian:12-slim
 # Pinned scan-engine versions; bump here.
 ARG NAABU_VERSION=v2.3.6
 # Phase 3 web add-on (httpx + nuclei; templates arrive in the signed
-# bundle) is on by default; the fingerprinting add-on (WITH_FINGERPRINT_ADDON=1)
-# stays off until its legal review (PLAN 20 Phase 5).
+# bundle) is on by default. The Phase 5 fingerprint pass needs nmap, which
+# is NPSL-licensed (PLAN 21): WITH_NMAP=1 installs Debian's nmap package and
+# is only used for builds made after the legal sign-off is recorded on the
+# control plane (cp-api admin signoff nmap); the default image ships without
+# it and the daemon skips the pass with a warning.
 ARG WITH_WEB_ADDON=1
-ARG WITH_FINGERPRINT_ADDON=0
+ARG WITH_NMAP=0
 ARG HTTPX_VERSION=v1.7.1
 ARG NUCLEI_VERSION=v3.4.10
 # nuclei's sonic dependency (via gin) uses runtime internals that changed in
@@ -35,8 +38,6 @@ ARG NUCLEI_VERSION=v3.4.10
 # the go command) until nuclei ships a compatible sonic. Keep in sync with
 # ci/build-engine.sh.
 ARG ENGINE_GOTOOLCHAIN=go1.25.14
-ARG FINGERPRINTX_VERSION=v1.1.13
-ARG ZGRAB2_VERSION=v0.1.8
 
 # Greenbone release tags and tarball hashes: empty = the pins inside
 # packer/scripts/install-openvas.sh (the single source of truth); set to bump.
@@ -82,11 +83,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM ${GO_IMAGE} AS engine
 ARG NAABU_VERSION
 ARG WITH_WEB_ADDON
-ARG WITH_FINGERPRINT_ADDON
 ARG HTTPX_VERSION
 ARG NUCLEI_VERSION
-ARG FINGERPRINTX_VERSION
-ARG ZGRAB2_VERSION
 ARG ENGINE_GOTOOLCHAIN
 ENV GOBIN=/out GOFLAGS=-trimpath
 RUN apt-get update \
@@ -99,10 +97,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     && if [ "${WITH_WEB_ADDON}" = "1" ]; then \
          GOTOOLCHAIN=${ENGINE_GOTOOLCHAIN} CGO_ENABLED=0 go install -ldflags="-s -w" github.com/projectdiscovery/httpx/cmd/httpx@${HTTPX_VERSION} \
       && GOTOOLCHAIN=${ENGINE_GOTOOLCHAIN} CGO_ENABLED=0 go install -ldflags="-s -w" github.com/projectdiscovery/nuclei/v3/cmd/nuclei@${NUCLEI_VERSION}; \
-       fi \
-    && if [ "${WITH_FINGERPRINT_ADDON}" = "1" ]; then \
-         GOTOOLCHAIN=${ENGINE_GOTOOLCHAIN} CGO_ENABLED=0 go install -ldflags="-s -w" github.com/praetorian-inc/fingerprintx/cmd/fingerprintx@${FINGERPRINTX_VERSION} \
-      && GOTOOLCHAIN=${ENGINE_GOTOOLCHAIN} CGO_ENABLED=0 go install -ldflags="-s -w" github.com/zmap/zgrab2/cmd/zgrab2@${ZGRAB2_VERSION}; \
        fi
 
 # ---------------------------------------------------------------------------
@@ -157,6 +151,7 @@ RUN FEED_TARBALL="$(find /feed-src -maxdepth 1 -type f \( -name '*.tar' -o -name
 FROM ${BASE_IMAGE}
 ARG VERSION=dev
 ARG TARGETARCH
+ARG WITH_NMAP
 LABEL org.opencontainers.image.title="scanner-appliance" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.source="https://github.com/tprm/scanner-appliance" \
@@ -190,6 +185,13 @@ RUN IN_CONTAINER=1 OPENVAS_SKIP_BUILD=1 bash /usr/local/sbin/install-openvas.sh 
 # again with its own owner.
 COPY --from=feed --chown=openvas:openvas /var/lib/openvas/ /var/lib/openvas/
 COPY --from=feed --chown=redis:redis /var/lib/openvas/redis/ /var/lib/openvas/redis/
+
+# Phase 5 fingerprint pass: Debian's nmap (NPSL) only when asked for; the
+# daemon finds it on $PATH (/usr/bin/nmap) and reports it in engine.tools.
+RUN if [ "${WITH_NMAP}" = "1" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends nmap && rm -rf /var/lib/apt/lists/* \
+      && nmap --version | head -n1 > /etc/appliance/nmap-version; \
+    fi
 
 COPY --from=build /src/bin/applianced-linux-${TARGETARCH} /usr/local/bin/applianced
 COPY --from=engine /out/ /opt/engine/

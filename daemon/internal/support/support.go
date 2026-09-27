@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -145,3 +146,50 @@ func redactProxy(p string) string {
 }
 
 func hostname() string { h, _ := os.Hostname(); return h }
+
+// Entry describes one file of a bundle, for the console's review before
+// upload (PLAN §22: support bundle reviewable by the vendor).
+type Entry struct {
+	Name string
+	Size int64
+}
+
+// List returns the entries of a bundle produced by Build.
+func List(data []byte) ([]Entry, error) {
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	tr := tar.NewReader(gz)
+	var out []Entry
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Entry{Name: strings.TrimPrefix(h.Name, "support/"), Size: h.Size})
+	}
+}
+
+// Send uploads an already-built bundle.
+func Send(ctx context.Context, st *state.Store, roots *x509.CertPool, data []byte) (*v1.SupportBundleAck, error) {
+	s, err := st.Load()
+	if err != nil {
+		return nil, err
+	}
+	if s.ApplianceID == "" || s.CPURL == "" {
+		return nil, errors.New("not enrolled")
+	}
+	cert, err := st.Certificate()
+	if err != nil {
+		return nil, err
+	}
+	cl, err := cpclient.New(cpclient.Options{Roots: roots, ClientCert: cert, Proxy: s.Proxy})
+	if err != nil {
+		return nil, err
+	}
+	return cl.Support(ctx, s.CPURL, s.ApplianceID, bytes.NewReader(data))
+}

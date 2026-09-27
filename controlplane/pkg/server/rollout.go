@@ -39,7 +39,7 @@ func (s *Server) RunRollout(ctx context.Context, every time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := s.rolloutTick(ctx); err != nil {
+			if err := s.withLock(ctx, "rollout", func() error { return s.rolloutTick(ctx) }); err != nil {
 				s.log.Warn("rollout tick", "err", err)
 			}
 		}
@@ -253,12 +253,14 @@ func (s *Server) noteUpdateError(ctx context.Context, a *store.Appliance, hb *v1
 		if b, err := s.cfg.Store.GetBundle(ctx, version); err == nil && b.Status == v1.RolloutCanary {
 			_ = s.cfg.Store.SetBundleStatus(ctx, version, v1.RolloutHeld, reason)
 			s.log.Warn("bundle rollout held", "version", version, "reason", reason)
+			s.emit(ctx, EventRolloutHeld, a.SiteID, a.ID, "", map[string]any{"kind": "bundle", "version": version, "reason": reason})
 		}
 	case "daemon":
 		component := v1.ReleaseComponent(hb.OS, hb.Arch)
 		if r, err := s.cfg.Store.GetRelease(ctx, component, version); err == nil && r.Status == v1.RolloutCanary {
 			_ = s.cfg.Store.SetReleaseStatus(ctx, component, version, v1.RolloutHeld, reason)
 			s.log.Warn("release rollout held", "component", component, "version", version, "reason", reason)
+			s.emit(ctx, EventRolloutHeld, a.SiteID, a.ID, "", map[string]any{"kind": "daemon", "component": component, "version": version, "reason": reason})
 		}
 	}
 }

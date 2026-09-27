@@ -20,8 +20,33 @@ jobs:
   go:
     name: go vet / test / build
     runs-on: ubuntu-latest
+    # Phase 6: the store conformance suite runs against Postgres and the S3
+    # object store against an S3-compatible server that verifies SigV4
+    # signatures (SeaweedFS, started below; both skipped when unset).
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: cp
+          POSTGRES_PASSWORD: cp
+          POSTGRES_DB: cp
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cp -d cp" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://cp:cp@127.0.0.1:5432/cp?sslmode=disable
+      TEST_S3_ENDPOINT: http://127.0.0.1:8333
+      TEST_S3_BUCKET: cp-test
+      TEST_S3_ACCESS_KEY: ci-access
+      TEST_S3_SECRET_KEY: ci-secret-key
     steps:
       - uses: actions/checkout@v4
+
+      - name: S3-compatible object store for the S3Objects test (SeaweedFS with signature checks)
+        run: |
+          printf '%s\n' '{"identities":[{"name":"ci","credentials":[{"accessKey":"ci-access","secretKey":"ci-secret-key"}],"actions":["Admin","Read","Write","List","Tagging"]}]}' > "$RUNNER_TEMP/s3.json"
+          docker run -d --name s3 -p 8333:8333 -v "$RUNNER_TEMP/s3.json:/etc/s3.json:ro" chrislusf/seaweedfs:latest server -s3 -s3.config=/etc/s3.json
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:8333/ && break; sleep 1; done
 
       - uses: actions/setup-go@v5
         with:
@@ -36,6 +61,9 @@ jobs:
 
       - name: go vet
         run: go vet ./...
+
+      - name: OSS notices embedded in the transparency page match the image copy
+        run: cmp docker/oss-notices.txt controlplane/pkg/server/oss-notices.txt
 
       - name: Cross-compile check (vet builds the tests too)
         run: |
@@ -168,6 +196,21 @@ jobs:
           grep -q 'openssh-server' packer/http/preseed.cfg
           grep -q 'redis-server' packer/http/preseed.cfg
           ! grep -qw 'chrony' <(sed 's/#.*//' packer/http/preseed.cfg)
+          # Hybrid BIOS + UEFI boot (Phase 5): GPT, bios_grub partition, ESP at /boot/efi
+          grep -q 'default_label string gpt' packer/http/preseed.cfg
+          grep -q 'method{ biosgrub }' packer/http/preseed.cfg
+          grep -q 'mountpoint{ /boot/efi }' packer/http/preseed.cfg
+          grep -q 'grub-efi-amd64-signed shim-signed' packer/scripts/harden.sh
+      - name: with_nmap variable accepted
+        working-directory: packer
+        run: packer validate -var version=ci -var with_nmap=true -var iso_checksum=sha256:0000000000000000000000000000000000000000000000000000000000000000 base.pkr.hcl
+      - name: Hyper-V helper parses (PowerShell)
+        shell: pwsh
+        run: |
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/packer/hyperv/New-ApplianceVM.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
+          Write-Host "New-ApplianceVM.ps1 parses"
       - name: OVF template well-formed
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q libxml2-utils
@@ -218,6 +261,8 @@ jobs:
       - name: Build appliance image
         # Builds openvas from source (openvas stage); no feed tarball in CI, so
         # the feed stage yields an empty plugins dir and seed-feed.sh warns.
+        # WITH_NMAP=1 exercises the Phase 5 build flag (CI only; release
+        # images ship without nmap until the legal sign-off).
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -226,7 +271,9 @@ jobs:
           push: false
           load: true
           tags: scanner-appliance:ci
-          build-args: VERSION=ci-${{ github.sha }}
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+            WITH_NMAP=1
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: applianced version
@@ -237,4 +284,5 @@ jobs:
           docker run --rm --entrypoint /opt/ospd/bin/ospd-openvas scanner-appliance:ci --version
           docker run --rm --entrypoint /opt/engine/httpx scanner-appliance:ci -version
           docker run --rm --entrypoint /opt/engine/nuclei scanner-appliance:ci -version
-          docker run --rm --entrypoint cat scanner-appliance:ci /etc/appliance/openvas-settings.txt /var/lib/openvas/feed-info
+          docker run --rm --entrypoint nmap scanner-appliance:ci --version | head -n1
+          docker run --rm --entrypoint cat scanner-appliance:ci /etc/appliance/openvas-settings.txt /var/lib/openvas/feed-info /etc/appliance/nmap-version

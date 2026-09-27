@@ -1,4 +1,4 @@
-# Scanner appliance — build targets (Phase 1–3). Linux is the product; Windows is a daemon-only host build.
+# Scanner appliance — build targets (Phase 1–5). Linux is the product; Windows is a daemon-only host build.
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)
 CP_URL  ?= https://appliance.tprm.example.com
 LDFLAGS  = -s -w -X main.version=$(VERSION) -X main.defaultCPURL=$(CP_URL)
@@ -33,12 +33,12 @@ vet:
 	gofmt -l . | tee /dev/stderr | test -z "$$(cat)"
 
 lint:
-	shellcheck -x ci/*.sh ci/smoke/*.sh packer/scripts/*.sh packer/*.sh docker/*.sh
+	shellcheck -x ci/*.sh ci/smoke/*.sh packer/scripts/*.sh packer/*.sh packer/kvm/*.sh docker/*.sh
 
 dev-ca:           ## dev PKI under dev/pki (root, intermediate, keys)
 	@test -f dev/pki/root.pem || go run ./controlplane/cmd/cp-api ca init --dir dev/pki --org "TPRM Dev"
 
-dev-cp: dev-ca    ## run cp-api in-memory on :8443 (enroll) / :9443 (mTLS + admin), admin token "dev"
+dev-cp: dev-ca    ## run cp-api in-memory on :8443 (enroll) / :9443 (mTLS + admin), admin token "dev", vendor-owner token "owner"
 	go run ./controlplane/cmd/cp-api serve --dev --pki-dir dev/pki --object-dir dev/objects --public-url https://localhost:9443
 
 # NAABU=/path/to/naabu enables discovery/portscan jobs on a dev box; OSPD=/run/ospd/ospd.sock for openvas.
@@ -67,13 +67,16 @@ dev-tty: dev-ca   ## the console against the local daemon state
 	APPLIANCE_ROOT_CA=dev/pki/root.pem APPLIANCE_STATE_DIR=dev/state APPLIANCE_RUN_DIR=dev/run \
 	go run ./daemon/cmd/applianced tty
 
-ova: build-linux  ## qcow2 via packer, then OVA + VHDX (needs packer, qemu, kvm; run build-engine first for naabu)
-	cd packer && packer init base.pkr.hcl && packer build -var version=$(VERSION) base.pkr.hcl
+ova: build-linux  ## qcow2 via packer, then OVA + VHDX (needs packer, qemu, kvm; run build-engine first for naabu); WITH_NMAP=1 after the sign-off
+	cd packer && packer init base.pkr.hcl && packer build -var version=$(VERSION) -var with_nmap=$(if $(filter 1,$(WITH_NMAP)),true,false) base.pkr.hcl
 	./packer/build-ova.sh packer/output-appliance/appliance-$(VERSION).qcow2 $(VERSION)
 	./packer/build-vhdx.sh packer/output-appliance/appliance-$(VERSION).qcow2 $(VERSION)
 
+# WITH_NMAP=1 adds nmap for the Phase 5 fingerprint pass (NPSL): only for
+# builds made after `cp-api admin signoff nmap --reference ...` (PLAN §21).
+WITH_NMAP ?= 0
 docker: dev-ca    ## container images (appliance + cp-api)
-	docker build -f docker/Dockerfile --build-arg VERSION=$(VERSION) -t scanner-appliance:$(VERSION) .
+	docker build -f docker/Dockerfile --build-arg VERSION=$(VERSION) --build-arg WITH_NMAP=$(WITH_NMAP) -t scanner-appliance:$(VERSION) .
 	docker build -f docker/Dockerfile.cp-api --build-arg VERSION=$(VERSION) -t cp-api:$(VERSION) .
 
 clean:

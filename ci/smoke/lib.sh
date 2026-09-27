@@ -400,3 +400,138 @@ cp_lan_roundtrip() {
   smoke_log "split-network discovery of $SMOKE_LAN_TARGETS reported $hosts host(s)"
   (( hosts >= 1 )) || smoke_die "no hosts found on the no-egress segment $SMOKE_LAN_TARGETS"
 }
+
+# ---------------------------------------------------------------------------
+# Phase 4: pilot operations through the admin API (no engine needed): a
+# schedule that materializes its next occurrence, the calendar, the
+# fragile-device view, coverage, alerts, and the transparency page on the
+# enroll listener.
+#   CP_ENROLL_URL       base URL of the enroll listener (run-container: https://127.0.0.1:8443)
+#   SMOKE_SKIP_PILOT=1  skip
+# ---------------------------------------------------------------------------
+cp_pilot_roundtrip() {
+  local id="$1" site sched jid n score
+  if [[ "${SMOKE_SKIP_PILOT:-0}" == "1" ]]; then
+    smoke_log "SMOKE_SKIP_PILOT=1: not testing pilot operations"
+    return 0
+  fi
+  site="$(cp_api GET "/admin/appliances/${id}" | jq -er '.site_id')" || smoke_die "no site id"
+  # A schedule whose next window is far away: the job is queued, not run.
+  sched="$(cp_api POST /admin/schedules "$(jq -cn --arg a "$id" '{appliance_id: $a, name: "smoke weekly", mode: "discovery", targets: ["127.0.0.1/32"], cron: "0 3 * * 0", tz: "UTC", max_duration_s: 3600}')")" || smoke_die "create-schedule failed"
+  jid="$(jq -er '.next_job_id' <<<"$sched")" || smoke_die "schedule did not materialize: $sched"
+  [[ "$(cp_api GET "/admin/jobs/${jid}" | jq -r '.status')" == "queued" ]] || smoke_die "scheduled job not queued"
+  n="$(cp_api GET "/admin/sites/${site}/calendar?days=30" | jq 'length')"
+  (( n >= 2 )) || smoke_die "calendar shows $n entries"
+  smoke_log "schedule $(jq -r '.id' <<<"$sched") queued job $jid; calendar has $n entries"
+  cp_api PATCH "/admin/schedules/$(jq -r '.id' <<<"$sched")" '{"enabled":false}' >/dev/null || smoke_die "disable schedule failed"
+  [[ "$(cp_api GET "/admin/jobs/${jid}" | jq -r '.status')" == "cancelled" ]] || smoke_die "disabling did not cancel the queued job"
+  cp_api GET "/admin/sites/${site}/fragile" | jq -e '.fragile_ports | length > 0' >/dev/null || smoke_die "fragile view"
+  score="$(cp_api GET "/admin/sites/${site}/coverage" | jq -er '.score')" || smoke_die "coverage"
+  smoke_log "coverage score $score; alerts: $(cp_api GET /admin/alerts | jq -c '[.[].kind]')"
+  cp_api GET "/admin/sites/${site}/tuning" | jq -e '.findings >= 0' >/dev/null || smoke_die "tuning report"
+  if [[ -n "${CP_ENROLL_URL:-}" ]]; then
+    curl -fsSk "${CP_ENROLL_URL}/transparency" | grep -q 'what this appliance does' || smoke_die "transparency page"
+    smoke_log "transparency page served on ${CP_ENROLL_URL}"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Phase 5: the nmap sign-off gate (a fingerprint job is refused before the
+# sign-off and accepted after it; the pass runs when the image carries nmap
+# and is skipped with a warning otherwise), the full-range budget, the
+# onboarding checklist and the feed-gap report.
+#   SMOKE_SKIP_DEPTH=1     skip
+#   SMOKE_REQUIRE_NMAP=1   fail when the image has no nmap (built with WITH_NMAP=1)
+# ---------------------------------------------------------------------------
+cp_depth_roundtrip() {
+  local id="$1" site body resp jid warn n
+  if [[ "${SMOKE_SKIP_DEPTH:-0}" == "1" ]]; then
+    smoke_log "SMOKE_SKIP_DEPTH=1: not testing depth operations"
+    return 0
+  fi
+  resp="$(cp_api GET "/admin/appliances/${id}")" || smoke_die "get appliance"
+  site="$(jq -er '.site_id' <<<"$resp")" || smoke_die "no site id"
+  smoke_log "appliance reports engine tools: $(jq -c '.tools // []' <<<"$resp")"
+  if [[ "${SMOKE_REQUIRE_NMAP:-0}" == "1" ]]; then
+    jq -e '(.tools // []) | index("nmap")' <<<"$resp" >/dev/null || smoke_die "SMOKE_REQUIRE_NMAP=1 but the heartbeat's engine.tools has no nmap (image built without WITH_NMAP=1?)"
+  fi
+  body="$(jq -cn --arg a "$id" --arg t "$SMOKE_JOB_TARGETS" '{appliance_id: $a, mode: "inventory", targets: ($t | split(",") | map(select(length > 0))), modules: ["discovery","portscan","fingerprint"]}')"
+  if cp_api POST /admin/jobs "$body" >/dev/null 2>&1; then
+    smoke_die "a fingerprint job was accepted without the nmap sign-off"
+  fi
+  cp_api PUT /admin/signoffs/nmap '{"reference":"SMOKE-LEGAL-1","note":"smoke test"}' | jq -e '.approved' >/dev/null || smoke_die "signoff not recorded"
+  if [[ -n "${CP_ENROLL_URL:-}" ]]; then
+    curl -fsSk "${CP_ENROLL_URL}/transparency.json" | jq -e '.tools[] | select(.Name == "nmap") | .Role | test("enabled since")' >/dev/null || smoke_die "transparency page does not show the sign-off"
+  fi
+  if [[ "${SMOKE_SKIP_JOBS:-0}" != "1" ]]; then
+    resp="$(cp_api POST /admin/jobs "$body")" || smoke_die "fingerprint job refused after the sign-off"
+    jid="$(jq -er '.id' <<<"$resp")" || smoke_die "no job id in: $resp"
+    cp_api POST "/admin/jobs/${jid}/run-now" >/dev/null || smoke_die "run-now failed for $jid"
+    cp_wait_job "$jid"
+    resp="$(cp_api GET "/admin/jobs/${jid}")"
+    warn="$(jq -r '(.stats.warnings // []) | map(select(startswith("fingerprint:"))) | .[0] // ""' <<<"$resp")"
+    if [[ -n "$warn" ]]; then
+      [[ "${SMOKE_REQUIRE_NMAP:-0}" == "1" ]] && smoke_die "SMOKE_REQUIRE_NMAP=1 but: $warn"
+      smoke_log "fingerprint pass skipped on this image: $warn"
+    else
+      smoke_log "fingerprint pass ran on $(jq -r '.stats.fingerprinted // 0' <<<"$resp") host(s)"
+    fi
+  fi
+  # Full-range budget: a scan that cannot fit its window is refused with the reason.
+  body="$(jq -cn --arg a "$id" '{appliance_id: $a, mode: "discovery", targets: ["10.0.0.0/8"], ports: "full", modules: ["discovery","portscan"], window: {max_duration_s: 600}}')"
+  if cp_api POST /admin/jobs "$body" >/dev/null 2>&1; then
+    smoke_die "an over-budget full-range job was accepted"
+  fi
+  n="$(cp_api GET "/admin/sites/${site}/onboarding" | jq '.steps | length')"
+  (( n == 9 )) || smoke_die "onboarding checklist has $n steps"
+  cp_api GET "/admin/feed-gaps?site=${site}" | jq -e '.recommendation | length > 0' >/dev/null || smoke_die "feed-gap report"
+  cp_api DELETE /admin/signoffs/nmap | jq -e '.approved == false' >/dev/null || smoke_die "signoff not revoked"
+  smoke_log "depth operations OK: sign-off gate, full-range budget, onboarding ($n steps), feed-gap report"
+}
+
+# ---------------------------------------------------------------------------
+# Phase 6: the Qualys replacement path through the admin API: a Qualys
+# export imported as external evidence, the parity report, the site
+# summary / trend / CSV exports, a webhook (delivery to an unreachable
+# receiver is recorded as failed, which proves the pipeline), retention in
+# dry-run mode and the metrics endpoint.
+#   SMOKE_SKIP_REPLACE=1  skip
+# ---------------------------------------------------------------------------
+cp_replace_roundtrip() {
+  local id="$1" site root resp n hook
+  if [[ "${SMOKE_SKIP_REPLACE:-0}" == "1" ]]; then
+    smoke_log "SMOKE_SKIP_REPLACE=1: not testing the Qualys replacement path"
+    return 0
+  fi
+  root="$(smoke_repo_root)"
+  site="$(cp_api GET "/admin/appliances/${id}" | jq -er '.site_id')" || smoke_die "no site id"
+  # Raw CSV import (the sample export ships with the parser's tests).
+  local -a args=()
+  local a
+  while IFS= read -r a; do args+=("$a"); done < <(smoke_curl_args)
+  resp="$(curl "${args[@]}" -X POST -H 'Content-Type: text/csv' --data-binary "@${root}/internal/qualys/testdata/scan-results.csv" "${CP_ADMIN_URL}/admin/sites/${site}/external-scans/qualys")" || smoke_die "qualys import"
+  jq -e '.scanner == "qualys" and .hosts == 3 and .findings == 4' <<<"$resp" >/dev/null || smoke_die "qualys import response: $resp"
+  smoke_log "imported Qualys export: $(jq -c '{hosts, findings, findings_new, skipped}' <<<"$resp")"
+  resp="$(cp_api GET "/admin/sites/${site}/parity?days=30&min_severity=low")" || smoke_die "parity"
+  smoke_log "parity: $(jq -c '{hosts: .hosts.external, cves, detection_rate, verdict}' <<<"$resp")"
+  jq -e '.hosts.external == 3' <<<"$resp" >/dev/null || smoke_die "parity did not see the imported hosts"
+  resp="$(cp_api GET "/admin/sites/${site}/summary")" || smoke_die "summary"
+  jq -e '.open.critical >= 2 and .sla_days.critical > 0 and .risk_points > 0' <<<"$resp" >/dev/null || smoke_die "summary: $resp"
+  smoke_log "summary: $(jq -c '{open, overdue, risk_points, coverage_score}' <<<"$resp")"
+  n="$(cp_api GET "/admin/sites/${site}/trend?weeks=4" | jq 'length')"
+  (( n == 4 )) || smoke_die "trend has $n points"
+  n="$(curl "${args[@]}" "${CP_ADMIN_URL}/admin/sites/${site}/export/findings.csv?status=open" | wc -l | tr -d ' ')"
+  (( n >= 4 )) || smoke_die "findings export has $n lines"
+  n="$(curl "${args[@]}" "${CP_ADMIN_URL}/admin/sites/${site}/export/hosts.csv" | wc -l | tr -d ' ')"
+  (( n >= 4 )) || smoke_die "hosts export has $n lines"
+  smoke_log "exports OK (findings.csv, hosts.csv)"
+  hook="$(cp_api POST /admin/webhooks '{"url":"http://127.0.0.1:9/unreachable","secret":"smoke","events":["job.*","finding.*"]}')" || smoke_die "webhook add"
+  hook="$(jq -er '.id' <<<"$hook")"
+  resp="$(cp_api POST "/admin/webhooks/${hook}/test")" || smoke_die "webhook test"
+  jq -e '.ok == false and .attempts >= 1' <<<"$resp" >/dev/null || smoke_die "webhook test to an unreachable receiver should fail: $resp"
+  cp_api DELETE "/admin/webhooks/${hook}" >/dev/null || smoke_die "webhook delete"
+  resp="$(cp_api POST "/admin/retention/run?dry_run=1")" || smoke_die "retention"
+  jq -e '.dry_run == true' <<<"$resp" >/dev/null || smoke_die "retention: $resp"
+  curl "${args[@]}" "${CP_ADMIN_URL}/admin/metrics" | grep -q '^cp_findings_open{severity="critical"}' || smoke_die "metrics"
+  smoke_log "replacement path OK: import, parity, summary, trend, exports, webhook, retention (dry run: $(jq -c '{raw_result_batches, support_bundles}' <<<"$resp")), metrics"
+}

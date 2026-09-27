@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -100,5 +101,45 @@ func TestGuardrails(t *testing.T) {
 	}
 	if !Contains([]string{"10.30.5.0/28", "10.30.6.1"}, "10.30.5.9") || Contains([]string{"10.30.5.0/28"}, "10.30.5.16") {
 		t.Fatal("Contains")
+	}
+}
+
+func TestDurationBudget(t *testing.T) {
+	spec, site := base()
+	spec.Ports = v1.PortsFull
+	spec.Targets = []string{"10.30.5.0/24"}
+	spec.Rate.PPS = 300
+	// 254 addresses (no inventory hint) at 300 pps: ~17 h > 6 h default.
+	fails := Check(Input{Spec: spec, Site: site, Now: time.Now()})
+	if !names(fails)[CheckDuration] {
+		t.Fatalf("full range on a /24 without a hint accepted: %v", fails)
+	}
+	// The control plane's inventory hint brings it under budget.
+	spec.ExpectedHosts = 40
+	if fails := Check(Input{Spec: spec, Site: site, Now: time.Now()}); len(fails) != 0 {
+		t.Fatalf("40 hosts full range rejected: %v", fails)
+	}
+	// A wider window does too.
+	spec.ExpectedHosts = 0
+	spec.Window = &v1.Window{MaxDurationS: 24 * 3600}
+	if fails := Check(Input{Spec: spec, Site: site, Now: time.Now()}); len(fails) != 0 {
+		t.Fatalf("24 h window rejected: %v", fails)
+	}
+	// Standard ports are never budgeted, whatever the range.
+	spec.Window = nil
+	spec.Ports = v1.PortsStandard
+	spec.Targets = []string{"10.0.0.0/8"}
+	site.AllowedCIDRs = []string{"10.0.0.0/8"}
+	if fails := Check(Input{Spec: spec, Site: site, Now: time.Now()}); names(fails)[CheckDuration] {
+		t.Fatalf("standard scan budgeted: %v", fails)
+	}
+	if n := AddressCount([]string{"10.30.5.0/24", "10.30.6.1", "10.30.7.0/30"}); n != 261 {
+		t.Fatalf("AddressCount = %d", n)
+	}
+	if n := AddressCount([]string{"10.0.0.0/7"}); n != MaxAddressCount {
+		t.Fatalf("huge range = %d", n)
+	}
+	if s := FormatDuration(EstimateSeconds(254, 65535, 300)); !strings.HasPrefix(s, "16h") && !strings.HasPrefix(s, "17h") {
+		t.Fatalf("estimate: %s", s)
 	}
 }

@@ -69,6 +69,10 @@ type Loop struct {
 	Update *update.Manager
 	// Reboot is invoked in the maintenance slot when the OS requires it.
 	Reboot func() error
+	// ToolPaths names explicitly configured engine helpers (name → path)
+	// so the heartbeat's engine.tools reflects them (Phase 5); helpers in
+	// EngineDir or on $PATH are found without it.
+	ToolPaths map[string]string
 
 	client    *cpclient.Client
 	clientKey string // proxy + cert mtime; rebuild when it changes
@@ -325,6 +329,7 @@ func (l *Loop) build(st *state.State) v1.Heartbeat {
 	pctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	engine := osp.New(l.OSPSocket).Health(pctx)
 	cancel()
+	engine.Tools = availableTools(l.ToolPaths)
 	l.engine = engine
 	hb := v1.Heartbeat{
 		Engine:  engine,

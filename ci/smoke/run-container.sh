@@ -25,6 +25,8 @@
 #   SMOKE_KEEP=1       leave the stack running afterwards
 #   SMOKE_NO_BUILD=1   do not (re)build images
 #   SMOKE_SKIP_BUNDLE=1  skip the signature-bundle canary/delta test (Phase 3)
+#   WITH_NMAP=1        build the appliance image with nmap so the Phase 5
+#                      fingerprint pass runs (SMOKE_REQUIRE_NMAP=1 to insist)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -110,6 +112,9 @@ cp_wait_enrolled "$APPLIANCE_ID" "$SMOKE_TIMEOUT"
 cp_job_roundtrip "$APPLIANCE_ID"
 cp_directive_roundtrip "$APPLIANCE_ID"
 cp_bundle_roundtrip "$APPLIANCE_ID"
+CP_ENROLL_URL="https://127.0.0.1:${CP_ENROLL_PORT:-8443}" cp_pilot_roundtrip "$APPLIANCE_ID"
+CP_ENROLL_URL="https://127.0.0.1:${CP_ENROLL_PORT:-8443}" cp_depth_roundtrip "$APPLIANCE_ID"
+cp_replace_roundtrip "$APPLIANCE_ID"
 
 # The container path has no console; the TTY test lives in run-qemu.sh.
-smoke_log "PASS: container appliance $APPLIANCE_ID enrolled, scan jobs done, directives acked, bundles applied"
+smoke_log "PASS: container appliance $APPLIANCE_ID enrolled, scan jobs done, directives acked, bundles applied, pilot, depth and replacement operations OK"

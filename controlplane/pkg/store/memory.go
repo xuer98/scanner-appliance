@@ -21,7 +21,7 @@ type Memory struct {
 	revoked     map[string]string
 	attempts    []EnrollAttempt
 	heartbeats  map[string][]v1.Heartbeat
-	supportLogs []string
+	supportLogs []*SupportBundleRec
 
 	jobs     map[string]*Job
 	batches  map[string]*ResultBatchRec
@@ -34,6 +34,17 @@ type Memory struct {
 	bundles     map[string]*Bundle
 	bundleFiles map[string]BundleFileRec
 	releases    map[string]*Release
+
+	// Phase 4
+	siteChanges   map[string]*SiteChange
+	scopeRequests map[string]*ScopeRequest
+	schedules     map[string]*Schedule
+
+	// Phase 5
+	settings map[string]string
+
+	// Phase 6
+	locks map[string]bool
 }
 
 func NewMemory() *Memory {
@@ -192,6 +203,11 @@ func (m *Memory) RecordHeartbeat(_ context.Context, id string, at time.Time, hb 
 	}
 	a.OS, a.Arch, a.FeedVersion = hb.OS, hb.Arch, hb.FeedVersion
 	a.UpdateError, a.RebootRequired = hb.UpdateError, hb.RebootRequired
+	if hb.Engine.Ready() {
+		a.EngineDownSince = nil
+	} else if a.EngineDownSince == nil {
+		a.EngineDownSince = &t
+	}
 	m.heartbeats[id] = append(m.heartbeats[id], cp)
 	if len(m.heartbeats[id]) > 1000 {
 		m.heartbeats[id] = m.heartbeats[id][len(m.heartbeats[id])-1000:]
@@ -350,7 +366,7 @@ func (m *Memory) RecordSupportBundle(_ context.Context, applianceID, objectKey s
 	if _, ok := m.appliances[applianceID]; !ok {
 		return ErrNotFound
 	}
-	m.supportLogs = append(m.supportLogs, objectKey)
+	m.supportLogs = append(m.supportLogs, &SupportBundleRec{ID: int64(len(m.supportLogs) + 1), ApplianceID: applianceID, At: time.Now(), ObjectKey: objectKey})
 	return nil
 }
 
@@ -543,7 +559,11 @@ func (m *Memory) siteIndex(siteID string) *siteIndex {
 		}
 	}
 	sortHosts(hosts)
-	return newSiteIndex(siteID, hosts, findings)
+	ix := newSiteIndex(siteID, hosts, findings)
+	if s, ok := m.sites[siteID]; ok {
+		ix.setExcludes(s.VTExcludes)
+	}
+	return ix
 }
 
 func (m *Memory) commit(ix *siteIndex) {
@@ -555,7 +575,12 @@ func (m *Memory) commit(ix *siteIndex) {
 	}
 }
 
-func (m *Memory) IngestHosts(_ context.Context, siteID, jobID string, hosts []v1.Host, feedVersion string, at time.Time) (IngestSummary, error) {
+func (m *Memory) IngestHosts(ctx context.Context, siteID, jobID string, hosts []v1.Host, feedVersion string, at time.Time) (IngestSummary, error) {
+	return m.IngestScan(ctx, ScanIngest{SiteID: siteID, JobID: jobID, Hosts: hosts, FeedVersion: feedVersion, At: at})
+}
+
+func (m *Memory) IngestScan(_ context.Context, in ScanIngest) (IngestSummary, error) {
+	siteID, jobID, hosts, feedVersion, at, scope := in.SiteID, in.JobID, in.Hosts, in.FeedVersion, in.At, in.Scope
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.ensurePhase2()
@@ -563,7 +588,7 @@ func (m *Memory) IngestHosts(_ context.Context, siteID, jobID string, hosts []v1
 		return IngestSummary{}, ErrNotFound
 	}
 	ix := m.siteIndex(siteID)
-	sum, touched := ix.ingestAppliance(jobID, hosts, feedVersion, at)
+	sum, touched := ix.ingestAppliance(jobID, hosts, feedVersion, at, scope)
 	m.commit(ix)
 	if jobID != "" {
 		if m.jobHosts[jobID] == nil {

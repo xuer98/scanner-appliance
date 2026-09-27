@@ -79,3 +79,16 @@ func TestIdleReturnsToStatus(t *testing.T) {
 		t.Fatalf("idle handling:\n%s", out.String())
 	}
 }
+
+func TestSupportBundleIsReviewedBeforeUpload(t *testing.T) {
+	st := state.New(t.TempDir(), t.TempDir())
+	out := run(t, st, "5\nn\n")
+	for _, want := range []string{"Never included: the private key", "Contents:", "state.json", "meta.json", "Not uploaded."} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("support screen missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Uploading") {
+		t.Fatalf("uploaded without confirmation:\n%s", out)
+	}
+}

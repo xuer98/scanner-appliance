@@ -157,6 +157,13 @@ jobs:
           packer/build-ova.sh "dist-image/appliance-${VERSION}.qcow2" "$VERSION" dist-image
           packer/build-vhdx.sh "dist-image/appliance-${VERSION}.qcow2" "$VERSION" dist-image
           ls -l dist-image
+      - name: Hyper-V / KVM helpers (Phase 5 variants)
+        # New-ApplianceVM.ps1 (Generation 2, Secure Boot, WAN/LAN order) and
+        # create-vm.sh (virt-install, optional OVMF) travel with the images.
+        run: |
+          mkdir -p helpers
+          cp packer/hyperv/New-ApplianceVM.ps1 packer/kvm/create-vm.sh docs/DEPLOY.md helpers/
+          (cd helpers && zip -q "../dist-image/appliance-${VERSION}-hypervisor-helpers.zip" New-ApplianceVM.ps1 create-vm.sh DEPLOY.md)
       - uses: actions/upload-artifact@v4
         with:
           name: dist-image
@@ -164,6 +171,7 @@ jobs:
             dist-image/*.qcow2
             dist-image/*.ova
             dist-image/*.vhdx
+            dist-image/*-hypervisor-helpers.zip
           if-no-files-found: error
           compression-level: 0
 
@@ -361,6 +369,7 @@ jobs:
             dist/*.qcow2
             dist/*.ova
             dist/*.vhdx
+            dist/*-hypervisor-helpers.zip
             dist/*.sig
             dist/*.pem
             dist/*.sbom.spdx.json

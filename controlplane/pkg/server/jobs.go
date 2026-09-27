@@ -160,6 +160,10 @@ func (s *Server) handleJobStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "store error", "store")
 		return
 	}
+	if req.Status == v1.JobFailed || req.Status == v1.JobRejected {
+		s.metrics.jobsFailed.Add(1)
+		s.emit(r.Context(), EventJobFailed, job.SiteID, job.ApplianceID, job.ID, map[string]any{"status": job.Status, "reason": job.RejectReason, "phase": req.Phase, "mode": job.Spec.Mode})
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

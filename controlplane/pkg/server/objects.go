@@ -17,6 +17,8 @@ type ObjectStore interface {
 	Put(ctx context.Context, key string, r io.Reader) (int64, error)
 	// Get streams an object; ErrObjectNotFound when absent.
 	Get(ctx context.Context, key string) (io.ReadCloser, int64, error)
+	// Delete removes an object; a missing key is not an error (retention).
+	Delete(ctx context.Context, key string) error
 }
 
 // ErrObjectNotFound is returned by Get for a missing key.
@@ -71,8 +73,21 @@ func (d DirObjects) Get(_ context.Context, key string) (io.ReadCloser, int64, er
 	return f, fi.Size(), nil
 }
 
+func (d DirObjects) Delete(_ context.Context, key string) error {
+	if badKey(key) {
+		return fmt.Errorf("bad key")
+	}
+	err := os.Remove(filepath.Join(d.Root, filepath.FromSlash(key)))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 // DiscardObjects counts bytes and drops them (tests without downloads).
 type DiscardObjects struct{}
+
+func (DiscardObjects) Delete(context.Context, string) error { return nil }
 
 func (DiscardObjects) Put(_ context.Context, _ string, r io.Reader) (int64, error) {
 	return io.Copy(io.Discard, r)

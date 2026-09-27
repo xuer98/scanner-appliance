@@ -50,6 +50,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Fingerprint pass (Phase 5): nmap is NPSL-licensed and only installed when
+# the build asks for it (packer -var with_nmap=true), which is only done for
+# images built after the legal sign-off (PLAN 21). The daemon finds it on
+# $PATH and reports it in the heartbeat's engine.tools.
+# ---------------------------------------------------------------------------
+if [[ "${WITH_NMAP:-0}" == "1" ]]; then
+  log "installing nmap (fingerprint pass)"
+  apt-get update -q
+  apt-get install -y -q --no-install-recommends nmap
+  nmap --version | head -n1 >/etc/appliance-nmap-version.tmp
+  install -d -m 0755 /etc/appliance
+  mv /etc/appliance-nmap-version.tmp /etc/appliance/nmap-version
+else
+  log "nmap not installed (WITH_NMAP=0): the fingerprint module is skipped with a warning"
+fi
+
+# ---------------------------------------------------------------------------
 # Directories and static files
 # ---------------------------------------------------------------------------
 log "creating state and config directories"
@@ -91,8 +108,12 @@ Web add-on (Phase 3; not present in this image unless enabled)
   httpx            MIT               https://github.com/projectdiscovery/httpx
   nuclei           MIT               https://github.com/projectdiscovery/nuclei
   nuclei-templates MIT               https://github.com/projectdiscovery/nuclei-templates
-  fingerprintx     Apache-2.0        https://github.com/praetorian-inc/fingerprintx
-  zgrab2           Apache-2.0        https://github.com/zmap/zgrab2
+
+Fingerprint pass (Phase 5; only present in builds made after the legal
+sign-off, WITH_NMAP=1 / packer with_nmap=true)
+  nmap             NPSL-0.95         https://nmap.org/npsl/
+                   Debian 12 package; used for service/version and OS
+                   detection only (-sV/-O), never with NSE scripts.
 
 Platform
   open-vm-tools    GPL-2.0/LGPL      https://github.com/vmware/open-vm-tools

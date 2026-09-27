@@ -11,7 +11,7 @@ import (
 // KnownModes / KnownModules are the closed sets accepted on both sides.
 var (
 	KnownModes   = map[string]bool{ModeDiscovery: true, ModeInventory: true, ModeFull: true}
-	KnownModules = map[string]bool{ModuleDiscovery: true, ModulePortscan: true, ModuleOpenVAS: true, ModuleWeb: true}
+	KnownModules = map[string]bool{ModuleDiscovery: true, ModulePortscan: true, ModuleOpenVAS: true, ModuleWeb: true, ModuleFingerprint: true}
 )
 
 // DefaultsFor fills a spec's mode-dependent fields (PLAN §10.5, §11).
@@ -40,6 +40,9 @@ func (j *JobSpec) DefaultsFor(mode string) {
 	}
 	if j.HasModule(ModuleWeb) && j.Web == nil {
 		j.Web = DefaultWebParams()
+	}
+	if j.HasModule(ModuleFingerprint) && j.Fingerprint == nil {
+		j.Fingerprint = DefaultFingerprintParams()
 	}
 	if j.Ports == "" {
 		j.Ports = PortsStandard
@@ -109,8 +112,8 @@ func (j *JobSpec) ValidateShape() error {
 		}
 		seen[m] = true
 	}
-	if j.Mode == ModeDiscovery && (seen[ModuleOpenVAS] || seen[ModuleWeb]) {
-		return errors.New("discovery mode cannot run openvas or web modules")
+	if j.Mode == ModeDiscovery && (seen[ModuleOpenVAS] || seen[ModuleWeb] || seen[ModuleFingerprint]) {
+		return errors.New("discovery mode cannot run openvas, web or fingerprint modules")
 	}
 	if seen[ModuleOpenVAS] {
 		if j.OpenVAS == nil {
@@ -137,10 +140,24 @@ func (j *JobSpec) ValidateShape() error {
 			return errors.New("web module needs the portscan module (it targets the open HTTP ports)")
 		}
 	}
+	if seen[ModuleFingerprint] {
+		if j.Fingerprint == nil {
+			return errors.New("fingerprint module needs fingerprint params")
+		}
+		if j.Fingerprint.Intensity < 0 || j.Fingerprint.Intensity > MaxFingerprintIntensity {
+			return fmt.Errorf("fingerprint.intensity must be 0..%d", MaxFingerprintIntensity)
+		}
+		if !seen[ModulePortscan] {
+			return errors.New("fingerprint module needs the portscan module (it probes the open ports)")
+		}
+	}
 	if seen[ModulePortscan] {
 		if _, err := ParsePortSpec(j.Ports); err != nil {
 			return err
 		}
+	}
+	if j.ExpectedHosts < 0 || j.ExpectedHosts > MaxExpectedHosts {
+		return fmt.Errorf("expected_hosts must be 0..%d", MaxExpectedHosts)
 	}
 	if j.Rate.PPS < 1 || j.Rate.PPS > 100000 {
 		return errors.New("rate.pps must be 1..100000")
@@ -157,6 +174,33 @@ func (j *JobSpec) ValidateShape() error {
 		return fmt.Errorf("bad iface %q", j.Iface)
 	}
 	return nil
+}
+
+// MaxExpectedHosts bounds the control plane's live-host hint.
+const MaxExpectedHosts = 1 << 24
+
+// StandardPortCount is the nominal size of the "standard" preset (naabu's
+// top 1000 plus the warehouse/OT extras, most of which overlap).
+const StandardPortCount = 1024
+
+// PortCount is the number of TCP ports a port spec expands to; 0 for an
+// invalid spec. The full-range option (Phase 5) is 65535.
+func PortCount(spec string) int {
+	ranges, err := ParsePortSpec(spec)
+	if err != nil {
+		return 0
+	}
+	switch strings.TrimSpace(spec) {
+	case "", PortsStandard:
+		return StandardPortCount
+	case PortsFull:
+		return 65535
+	}
+	n := 0
+	for _, r := range ranges {
+		n += r.Hi - r.Lo + 1
+	}
+	return n
 }
 
 // PortRange is an inclusive TCP port range.

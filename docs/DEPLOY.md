@@ -112,7 +112,9 @@ a new code from the portal.
 
 These formats carry no OVF properties. Configuration comes from a small ISO
 labelled `APPLIANCE` that contains a `seed.yaml`, attached as a CD-ROM on
-first boot. Alternatively, type the code on the console.
+first boot. Alternatively, type the code on the console. The disk image
+boots both ways, BIOS and UEFI (with Secure Boot), so it runs on KVM with
+SeaBIOS or OVMF and on Hyper-V Generation 2.
 
 1. Create `seed.yaml`:
 
@@ -125,45 +127,50 @@ first boot. Alternatively, type the code on the console.
    split: true                                  # WAN and LAN on different networks
    ```
 
-2. Build the ISO (the volume label **must** be `APPLIANCE`):
+2. Build the ISO (the volume label **must** be `APPLIANCE`). The KVM helper
+   below does this for you; on a Windows host use `oscdimg` from the Windows
+   ADK:
 
    ```sh
    genisoimage -o seed.iso -V APPLIANCE -r -J seed.yaml
-   # Windows (Hyper-V host): use oscdimg from the Windows ADK
-   #   oscdimg -lAPPLIANCE -n seed\ seed.iso
+   # Windows (Hyper-V host): oscdimg -lAPPLIANCE -n seed\ seed.iso
    ```
 
-3. Create the VM and attach the ISO.
+3. Create the VM. The release ships `appliance-<version>-hypervisor-helpers.zip`
+   with the two helpers used below (they are also in the repository under
+   `packer/kvm` and `packer/hyperv`).
 
-   **KVM / libvirt** (BIOS boot, virtio devices, two NICs, serial console
-   available with `virsh console`):
+   **KVM / libvirt** (`create-vm.sh` wraps `virt-install`: virtio devices,
+   two NICs in WAN, LAN order, serial console, optional OVMF):
 
    ```sh
-   virt-install --name appliance --memory 8192 --vcpus 4 \
-     --disk path=/var/lib/libvirt/images/appliance-1.2.3.qcow2,format=qcow2,bus=virtio \
-     --disk path=/var/lib/libvirt/images/seed.iso,device=cdrom \
-     --network bridge=br-mgmt,model=virtio \
-     --network bridge=br-floor,model=virtio \
-     --os-variant debian12 --import --graphics none --noautoconsole
+   ./create-vm.sh --name appliance-reno --image /var/lib/libvirt/images/appliance-1.2.3.qcow2 \
+     --wan-bridge br-mgmt --lan-bridge br-floor --seed seed.yaml          # add --uefi for OVMF
+   virsh console appliance-reno                                          # the appliance console; Ctrl-] leaves
    ```
 
-   The first `--network` becomes `wan0`, the second `lan0`.
+   Without the helper: `virt-install --import --osinfo debian12 --memory 8192 --vcpus 4`
+   with the qcow2 on a virtio bus, the seed ISO as a CD-ROM, and one
+   `--network bridge=…,model=virtio` per adapter (the first becomes `wan0`,
+   the second `lan0`).
 
-   **Hyper-V** (Generation 1, two network adapters):
+   **Hyper-V** (`New-ApplianceVM.ps1`, run in an elevated PowerShell on the
+   host; creates a **Generation 2** VM with Secure Boot on the *Microsoft
+   UEFI Certificate Authority* template, static memory, time synchronisation
+   and automatic checkpoints off, WAN and LAN adapters with static MACs so
+   the guest names them deterministically):
 
    ```powershell
-   New-VM -Name appliance -Generation 1 -MemoryStartupBytes 8GB `
-     -VHDPath C:\VMs\appliance-1.2.3.vhdx -SwitchName Management
-   Set-VMProcessor appliance -Count 4
-   Add-VMNetworkAdapter -VMName appliance -SwitchName Floor
-   Set-VMDvdDrive -VMName appliance -Path C:\VMs\seed.iso
-   Start-VM appliance
+   .\New-ApplianceVM.ps1 -Name appliance-reno -VhdxPath C:\VMs\appliance-1.2.3.vhdx `
+       -WanSwitch Management -LanSwitch Floor -SeedIso C:\VMs\seed.iso -Start
    ```
 
-   On Hyper-V the adapter order is not tied to a PCI bus; check the Status
-   screen after boot to confirm which adapter became `wan0` and swap the
-   virtual switches if needed. Disable Hyper-V time synchronisation for the VM
-   (Integration Services).
+   Without the helper: `New-VM -Generation 2` with the VHDX, `Set-VMFirmware
+   -SecureBootTemplate MicrosoftUEFICertificateAuthority`, one adapter per
+   switch added in WAN, LAN order (the appliance orders Hyper-V adapters by
+   MAC address, which Hyper-V hands out in creation order), and
+   `Disable-VMIntegrationService -Name "Time Synchronization"`. Generation 1
+   VMs still work (BIOS loader); Generation 2 is preferred.
 
 4. Power on. The seed is consumed on the first successful enrollment; the ISO
    can then be detached.
@@ -231,6 +238,21 @@ subnets behind a router on the `lan0` segment, tell us the ranges and the
 router address and we push them to the appliance as static routes; nothing
 needs to change on your side.
 
+## Scope changes and the fragile-device list
+
+The ranges we scan are the ones your owner attested. Adding or removing a
+range is a scope request that your owner approves in the portal; nothing
+changes until then, and every change is logged with its version. We ask the
+owner to re-attest the scope quarterly.
+
+Devices with printer, PLC or SNMP ports open are discovered but kept away
+from vulnerability tests until you tell us they can take it; the portal
+shows the list and who cleared what. Findings you dispute are reviewed as
+false positives and, once codified, no longer reported for your site.
+
+Before deploying, your team can read what the appliance does, with which
+tools, and what it collects at `https://<our FQDN>/transparency` (no login).
+
 ## What updates itself
 
 | What | How | Your involvement |
@@ -270,7 +292,8 @@ There is no shell and no login; the menu is the whole interface.
 | Status shows *control plane unreachable* | Egress to the FQDN on TCP 443 from `wan0`; proxy address and credentials; proxy SSL inspection exemption |
 | Enrollment fails with *invalid code* | Code expired (14 days), already used, or mistyped three times — request a new one in the portal |
 | No IP on `wan0` | DHCP on that port group, or set a static address via the Network screen |
-| Adapters swapped (`wan0` in the floor segment) | Swap the port groups / virtual switches; on VMware the first adapter is always `wan0` |
+| Adapters swapped (`wan0` in the floor segment) | Swap the port groups / virtual switches; on VMware and KVM the first adapter is always `wan0`, on Hyper-V the adapter with the lower MAC address |
+| Hyper-V Generation 2 VM does not boot | Secure Boot template must be *Microsoft UEFI Certificate Authority* (not *Microsoft Windows*); the helper script sets it |
 | Clock warning in Status | Outbound HTTPS to the FQDN is also used to set the time; check the proxy |
 | Portal shows *stale* | The appliance has not sent a heartbeat for three intervals; check power state and egress |
 | Status shows *engine not ready* for more than 15 minutes after boot | The engine is loading its vulnerability-test cache (normal for a few minutes on first boot). If it persists: the VM has less than 8 GB RAM, or the `/var/lib/openvas` volume (Docker) is not writable |
@@ -290,12 +313,15 @@ six hours) and a mode:
 |------|--------|-------------|
 | `discovery` | host discovery only (ICMP/ARP/TCP-SYN probes) | first scan of a new site; builds the exclusion list |
 | `inventory` | discovery, port scan, then detection checks limited to service/product/OS detection and a small set of high-value families | weekly |
-| `full` | discovery, port scan, then every unauthenticated remote check family | monthly or on request |
+| `full` | discovery, port scan, then every unauthenticated remote check family; after our legal review of nmap, also a service/OS fingerprint pass on the open ports | monthly or on request |
 
 The appliance only accepts a job that is signed by our control plane, is
 inside the ranges attested for your site, is within its window, and is
 under the agreed packet-rate and concurrency caps; anything else is
-rejected and shown in the portal with the reason. Denial-of-service and
+rejected and shown in the portal with the reason. The port scan covers the
+top ~1000 ports plus warehouse and industrial ports; a scan of all 65535
+ports can be agreed for specific hosts and is only accepted when it fits
+the scan window at the agreed packet rate. Denial-of-service and
 brute-force checks are never run. Devices that answer on printer or
 industrial-controller ports (9100, 515, 631, 161, 502, 44818 by default)
 are discovered and port-scanned but kept out of the vulnerability checks

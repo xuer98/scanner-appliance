@@ -25,13 +25,15 @@ func (p *Postgres) GetVendor(ctx context.Context, id string) (*Vendor, error) {
 	return v, err
 }
 
-const siteCols = `id, vendor_id, name, allowed_cidrs::text[], excludes::text[], fragile_ports, max_pps, max_concurrency, tz, unsafe_ok, allow_public, lan_routes`
+const siteCols = `id, vendor_id, name, allowed_cidrs::text[], excludes::text[], fragile_ports, max_pps, max_concurrency, tz, unsafe_ok, allow_public, lan_routes,
+	fragile_cleared, fragile_hosts, vt_excludes, version, attested_at, attested_by`
 
 func scanSite(row pgx.Row) (*Site, error) {
 	s := &Site{}
 	var cidrs, excludes []string
 	var routes []byte
-	err := row.Scan(&s.ID, &s.VendorID, &s.Name, &cidrs, &excludes, &s.FragilePorts, &s.MaxPPS, &s.MaxConcurrency, &s.TZ, &s.UnsafeOK, &s.AllowPublic, &routes)
+	err := row.Scan(&s.ID, &s.VendorID, &s.Name, &cidrs, &excludes, &s.FragilePorts, &s.MaxPPS, &s.MaxConcurrency, &s.TZ, &s.UnsafeOK, &s.AllowPublic, &routes,
+		&s.FragileCleared, &s.FragileHosts, &s.VTExcludes, &s.Version, &s.AttestedAt, &s.AttestedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -76,17 +78,25 @@ func (p *Postgres) UpdateSite(ctx context.Context, s *Site) error {
 		routes = []v1.LANRoute{}
 	}
 	rj, _ := json.Marshal(routes)
-	return execOne(p.pool.Exec(ctx, `UPDATE site SET allowed_cidrs=$2::cidr[], excludes=$3::cidr[], fragile_ports=$4, max_pps=$5, max_concurrency=$6, tz=$7, unsafe_ok=$8, allow_public=$9, lan_routes=$10 WHERE id=$1`,
-		s.ID, cidrs, excl, fr, s.MaxPPS, s.MaxConcurrency, s.TZ, s.UnsafeOK, s.AllowPublic, rj))
+	nonNil := func(v []string) []string {
+		if v == nil {
+			return []string{}
+		}
+		return v
+	}
+	return execOne(p.pool.Exec(ctx, `UPDATE site SET allowed_cidrs=$2::cidr[], excludes=$3::cidr[], fragile_ports=$4, max_pps=$5, max_concurrency=$6, tz=$7, unsafe_ok=$8, allow_public=$9, lan_routes=$10,
+		fragile_cleared=$11, fragile_hosts=$12, vt_excludes=$13, version=$14, attested_at=$15, attested_by=$16 WHERE id=$1`,
+		s.ID, cidrs, excl, fr, s.MaxPPS, s.MaxConcurrency, s.TZ, s.UnsafeOK, s.AllowPublic, rj,
+		nonNil(s.FragileCleared), nonNil(s.FragileHosts), nonNil(s.VTExcludes), s.Version, s.AttestedAt, s.AttestedBy))
 }
 
-const jobCols = `id, site_id, appliance_id, status, spec, scheduled_for, dispatched_at, started_at, finished_at, progress_pct, phase, reject_reason, batches, stats, created_at`
+const jobCols = `id, site_id, appliance_id, status, spec, scheduled_for, dispatched_at, started_at, finished_at, progress_pct, phase, reject_reason, batches, stats, created_at, schedule_id`
 
 func scanJob(row pgx.Row) (*Job, error) {
 	j := &Job{}
 	var spec, stats []byte
 	err := row.Scan(&j.ID, &j.SiteID, &j.ApplianceID, &j.Status, &spec, &j.ScheduledFor, &j.DispatchedAt, &j.StartedAt, &j.FinishedAt,
-		&j.ProgressPct, &j.Phase, &j.RejectReason, &j.Batches, &stats, &j.CreatedAt)
+		&j.ProgressPct, &j.Phase, &j.RejectReason, &j.Batches, &stats, &j.CreatedAt, &j.ScheduleID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -113,9 +123,9 @@ func (p *Postgres) CreateJob(ctx context.Context, j *Job) error {
 	if j.Stats != nil {
 		stats, _ = json.Marshal(j.Stats)
 	}
-	err := p.pool.QueryRow(ctx, `INSERT INTO job(id, site_id, appliance_id, status, spec, scheduled_for, progress_pct, phase, stats)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING created_at`,
-		j.ID, j.SiteID, j.ApplianceID, j.Status, spec, j.ScheduledFor, j.ProgressPct, j.Phase, stats).Scan(&j.CreatedAt)
+	err := p.pool.QueryRow(ctx, `INSERT INTO job(id, site_id, appliance_id, status, spec, scheduled_for, progress_pct, phase, stats, schedule_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING created_at`,
+		j.ID, j.SiteID, j.ApplianceID, j.Status, spec, j.ScheduledFor, j.ProgressPct, j.Phase, stats, j.ScheduleID).Scan(&j.CreatedAt)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 		return ErrNotFound
@@ -218,13 +228,14 @@ func scanHost(row pgx.Row) (*Host, error) {
 	return h, nil
 }
 
-const findingCols = `id, host_id, source, state, nvt_oid, name, family, severity, cvss, cve, qod, port, proto, solution, evidence, feed_version, first_seen, last_seen, template_id`
+const findingCols = `id, host_id, source, state, nvt_oid, name, family, severity, cvss, cve, qod, port, proto, solution, evidence, feed_version, first_seen, last_seen, template_id, review, reviewed_at, reviewed_by, review_reason, status, fixed_at, reopened_at, reopens, scope, external_id`
 
 func scanFinding(row pgx.Row) (*Finding, error) {
 	f := &Finding{}
 	var ev []byte
 	var cvss float32
-	err := row.Scan(&f.ID, &f.HostID, &f.Source, &f.State, &f.NVTOID, &f.Name, &f.Family, &f.Severity, &cvss, &f.CVE, &f.QoD, &f.Port, &f.Proto, &f.Solution, &ev, &f.FeedVersion, &f.FirstSeen, &f.LastSeen, &f.TemplateID)
+	err := row.Scan(&f.ID, &f.HostID, &f.Source, &f.State, &f.NVTOID, &f.Name, &f.Family, &f.Severity, &cvss, &f.CVE, &f.QoD, &f.Port, &f.Proto, &f.Solution, &ev, &f.FeedVersion, &f.FirstSeen, &f.LastSeen, &f.TemplateID, &f.Review, &f.ReviewedAt, &f.ReviewedBy, &f.ReviewReason,
+		&f.Status, &f.FixedAt, &f.ReopenedAt, &f.Reopens, &f.Scope, &f.ExternalID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -279,7 +290,8 @@ func loadFindings(ctx context.Context, q querier, sql string, args ...any) ([]*F
 func (p *Postgres) loadSiteIndex(ctx context.Context, tx pgx.Tx, siteID string) (*siteIndex, error) {
 	// Serialize ingests per site: correlation reads and rewrites the site's rows.
 	var locked string
-	if err := tx.QueryRow(ctx, `SELECT id FROM site WHERE id=$1 FOR UPDATE`, siteID).Scan(&locked); err != nil {
+	var vtExcludes []string
+	if err := tx.QueryRow(ctx, `SELECT id, vt_excludes FROM site WHERE id=$1 FOR UPDATE`, siteID).Scan(&locked, &vtExcludes); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -293,7 +305,9 @@ func (p *Postgres) loadSiteIndex(ctx context.Context, tx pgx.Tx, siteID string) 
 	if err != nil {
 		return nil, err
 	}
-	return newSiteIndex(siteID, hosts, findings), nil
+	ix := newSiteIndex(siteID, hosts, findings)
+	ix.setExcludes(vtExcludes)
+	return ix, nil
 }
 
 func findingColsPrefixed(prefix string) string {
@@ -354,11 +368,18 @@ func (p *Postgres) commitIndex(ctx context.Context, tx pgx.Tx, ix *siteIndex) er
 		if cve == nil {
 			cve = []string{}
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO finding(`+findingCols+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+		status := f.Status
+		if status == "" {
+			status = v1.FindingOpen
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO finding(`+findingCols+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
 			ON CONFLICT (id) DO UPDATE SET source=EXCLUDED.source, state=EXCLUDED.state, nvt_oid=EXCLUDED.nvt_oid, name=EXCLUDED.name, family=EXCLUDED.family,
 			severity=EXCLUDED.severity, cvss=EXCLUDED.cvss, cve=EXCLUDED.cve, qod=EXCLUDED.qod, port=EXCLUDED.port, proto=EXCLUDED.proto, solution=EXCLUDED.solution,
-			evidence=EXCLUDED.evidence, feed_version=EXCLUDED.feed_version, last_seen=EXCLUDED.last_seen, template_id=EXCLUDED.template_id`,
-			f.ID, f.HostID, f.Source, f.State, f.NVTOID, f.Name, f.Family, f.Severity, float32(f.CVSS), cve, f.QoD, f.Port, f.Proto, f.Solution, ev, f.FeedVersion, f.FirstSeen, f.LastSeen, f.TemplateID); err != nil {
+			evidence=EXCLUDED.evidence, feed_version=EXCLUDED.feed_version, last_seen=EXCLUDED.last_seen, template_id=EXCLUDED.template_id,
+			review=EXCLUDED.review, reviewed_at=EXCLUDED.reviewed_at, reviewed_by=EXCLUDED.reviewed_by, review_reason=EXCLUDED.review_reason,
+			status=EXCLUDED.status, fixed_at=EXCLUDED.fixed_at, reopened_at=EXCLUDED.reopened_at, reopens=EXCLUDED.reopens, scope=EXCLUDED.scope, external_id=EXCLUDED.external_id`,
+			f.ID, f.HostID, f.Source, f.State, f.NVTOID, f.Name, f.Family, f.Severity, float32(f.CVSS), cve, f.QoD, f.Port, f.Proto, f.Solution, ev, f.FeedVersion, f.FirstSeen, f.LastSeen, f.TemplateID,
+			f.Review, f.ReviewedAt, f.ReviewedBy, f.ReviewReason, status, f.FixedAt, f.ReopenedAt, f.Reopens, f.Scope, f.ExternalID); err != nil {
 			return err
 		}
 	}
@@ -387,6 +408,11 @@ func nonNilPackages(p []v1.AgentPackage) []v1.AgentPackage {
 }
 
 func (p *Postgres) IngestHosts(ctx context.Context, siteID, jobID string, hosts []v1.Host, feedVersion string, at time.Time) (IngestSummary, error) {
+	return p.IngestScan(ctx, ScanIngest{SiteID: siteID, JobID: jobID, Hosts: hosts, FeedVersion: feedVersion, At: at})
+}
+
+func (p *Postgres) IngestScan(ctx context.Context, in ScanIngest) (IngestSummary, error) {
+	siteID, jobID, hosts, feedVersion, at := in.SiteID, in.JobID, in.Hosts, in.FeedVersion, in.At
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return IngestSummary{}, err
@@ -396,7 +422,7 @@ func (p *Postgres) IngestHosts(ctx context.Context, siteID, jobID string, hosts 
 	if err != nil {
 		return IngestSummary{}, err
 	}
-	sum, touched := ix.ingestAppliance(jobID, hosts, feedVersion, at)
+	sum, touched := ix.ingestAppliance(jobID, hosts, feedVersion, at, in.Scope)
 	if err := p.commitIndex(ctx, tx, ix); err != nil {
 		return IngestSummary{}, err
 	}

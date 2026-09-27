@@ -187,6 +187,12 @@ variable "openvas_with_mqtt" {
   description = "Install mosquitto on 127.0.0.1 for openvas. Only if the pinned release refuses to run without a broker."
 }
 
+variable "with_nmap" {
+  type        = bool
+  default     = false
+  description = "Install Debian's nmap for the Phase 5 fingerprint pass (NPSL, PLAN 21). Only for images built after the legal sign-off is recorded on the control plane."
+}
+
 locals {
   output_dir    = var.output_dir != "" ? var.output_dir : "${path.root}/output-${var.version}"
   daemon_binary = var.daemon_binary != "" ? var.daemon_binary : "${path.root}/../bin/applianced-linux-amd64"
@@ -291,6 +297,7 @@ build {
     environment_vars = [
       "APPLIANCE_VERSION=${var.version}",
       "GRUB_PASSWORD=${var.grub_password}",
+      "WITH_NMAP=${var.with_nmap ? "1" : "0"}",
       "DEBIAN_FRONTEND=noninteractive",
     ]
     scripts = [

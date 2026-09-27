@@ -169,7 +169,6 @@ func TestPhase2(t *testing.T) {
 	s.EnrollURL = c.enroll.URL
 	s.PendingCode = created.Code
 	s.IntervalOverrideS = 1
-	heartbeat.MinInterval = time.Second
 	_ = st.Save(s)
 	ospc := osp.New(fake.Socket)
 	eng := &engine.Engine{NaabuPath: labNaabu(t), OSP: ospc, NVT: nvt.New(filepath.Join(st.Dir, "nvt-cache"), ospc, nil), Log: slog.Default(),
@@ -320,3 +319,6 @@ func TestPhase2(t *testing.T) {
 		t.Fatalf("console:\n%s", out.String())
 	}
 }
+
+// tlsConfig trusts the e2e control plane's root.
+func (c *cp) tlsConfig() *tls.Config { return &tls.Config{RootCAs: c.roots} }

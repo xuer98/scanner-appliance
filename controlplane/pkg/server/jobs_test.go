@@ -226,7 +226,8 @@ func TestJobDispatchAndResults(t *testing.T) {
 	var j3 v1.AdminJobView
 	h.admin("POST", "/admin/jobs", v1.AdminJobRequest{ApplianceID: created.ApplianceID, Mode: "discovery", Targets: []string{"10.30.7.0/24"}}, &j3)
 	cidrs := []string{"10.30.5.0/24"}
-	if st := h.admin("PATCH", "/admin/sites/"+job.SiteID, v1.AdminSiteUpdate{AllowedCIDRs: &cidrs}, nil); st != 200 {
+	h.srv.cfg.VendorOwnerToken = ownerTok // scope changes need the vendor owner (PLAN §16)
+	if st := h.adminAs(ownerTok, "PATCH", "/admin/sites/"+job.SiteID, v1.AdminSiteUpdate{AllowedCIDRs: &cidrs}, nil); st != 200 {
 		t.Fatalf("site update: %d", st)
 	}
 	h.heartbeat(v1.Heartbeat{Version: "test", State: "idle", Engine: v1.EngineHealth{OSPDUp: true, VTCacheLoaded: true}})

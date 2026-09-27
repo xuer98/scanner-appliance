@@ -178,6 +178,39 @@ sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=1/' /etc/default/grub
 grep -q '^GRUB_TIMEOUT_STYLE=' /etc/default/grub || echo 'GRUB_TIMEOUT_STYLE=hidden' >>/etc/default/grub
 update-grub
 
+# ---------------------------------------------------------------------------
+# Hybrid boot (Phase 5, PLAN 4.1 Hyper-V/KVM variants). The installer ran in
+# BIOS mode and put grub-pc into the bios_grub partition; add the UEFI
+# loader so the same disk boots on Hyper-V Generation 2 (UEFI, Secure Boot
+# with the "Microsoft UEFI Certificate Authority" template), KVM with OVMF
+# and VMware EFI firmware:
+#   EFI/debian/ - shim (Microsoft-signed) + Debian-signed GRUB + the stub
+#                 grub.cfg the signed image looks for at that fixed path
+#   EFI/BOOT/   - the removable-media fallback every firmware tries first,
+#                 because no NVRAM boot entry survives an image copy
+# --no-nvram keeps this build VM's firmware variables untouched. The
+# preseed created the ESP as a plain FAT32 partition (partman-efi is not
+# available to a BIOS-mode installer); the ESP flag is set here.
+# ---------------------------------------------------------------------------
+log "installing the UEFI boot loader (hybrid BIOS + UEFI)"
+apt-get install -y -q --no-install-recommends grub-efi-amd64-bin grub-efi-amd64-signed shim-signed parted
+esp_dev="$(findmnt -no SOURCE /boot/efi 2>/dev/null || true)"
+if [[ -z "$esp_dev" ]]; then
+  echo "/boot/efi is not mounted: the preseed must create the EFI system partition" >&2
+  exit 1
+fi
+esp_disk="/dev/$(lsblk -no PKNAME "$esp_dev")"
+esp_part="$(cat "/sys/class/block/$(basename "$esp_dev")/partition")"
+parted -s "$esp_disk" set "$esp_part" esp on
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=debian --uefi-secure-boot --no-nvram
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --uefi-secure-boot --no-nvram --removable
+grub-install --target=i386-pc "$esp_disk"
+update-grub
+for f in /boot/efi/EFI/BOOT/BOOTX64.EFI /boot/efi/EFI/debian/grubx64.efi /boot/efi/EFI/debian/shimx64.efi /boot/efi/EFI/debian/grub.cfg; do
+  [[ -s "$f" ]] || { echo "UEFI loader incomplete: $f missing" >&2; exit 1; }
+done
+log "UEFI loader installed on $esp_dev (ESP flag set on $esp_disk partition $esp_part)"
+
 systemctl mask rescue.target emergency.target rescue.service emergency.service
 # Also block the debug shell and the sysrq keys.
 systemctl mask debug-shell.service 2>/dev/null || true
@@ -216,9 +249,12 @@ sysctl -q -p /etc/sysctl.d/90-appliance.conf || true
 #     for any physical NIC that did not end up as wan0/lan0 (unknown PCI slots,
 #     Hyper-V vmbus devices which have no PCI path). It calls
 #     /usr/local/sbin/appliance-nicname which sorts all physical NICs by their
-#     sysfs device path (== PCI enumeration order; on Hyper-V the vmbus GUID,
-#     which is stable per adapter) and hands out wan0 to the first and lan0 to
-#     the second, skipping a name that is already taken.
+#     sysfs device path (== PCI enumeration order) and hands out wan0 to the
+#     first and lan0 to the second, skipping a name that is already taken.
+#     Hyper-V vmbus adapters carry random instance GUIDs, so they are sorted
+#     by MAC address instead: Hyper-V hands out dynamic MACs in the order the
+#     adapters were added, and packer/hyperv/New-ApplianceVM.ps1 assigns
+#     static ones in WAN, LAN order.
 #
 # Hot-plugged or additional NICs keep their kernel/predictable name and are
 # ignored by the daemon. The daemon's netcfg module may later rewrite the
@@ -313,7 +349,11 @@ for d in /sys/class/net/*; do
   n="${d##*/}"
   [ -e "$d/device" ] || continue                 # skip virtual devices
   [ "$(cat "$d/type" 2>/dev/null)" = "1" ] || continue  # ethernet only
-  list="${list}$(readlink -f "$d/device") ${n}
+  key="$(readlink -f "$d/device")"
+  case "$key" in
+    *VMBUS*|*vmbus*) key="vmbus-$(cat "$d/address" 2>/dev/null)" ;;  # Hyper-V: order by MAC, not by random GUID
+  esac
+  list="${list}${key} ${n}
 "
 done
 

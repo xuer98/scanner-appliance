@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<KNOWLEDGE_BASE_VULN_LIST_OUTPUT>
+  <RESPONSE>
+    <DATETIME>2026-09-21T06:00:00Z</DATETIME>
+    <VULN_LIST>
+      <VULN>
+        <QID>91534</QID>
+        <VULN_TYPE>Vulnerability</VULN_TYPE>
+        <SEVERITY_LEVEL>5</SEVERITY_LEVEL>
+        <TITLE><![CDATA[Microsoft Windows Remote Desktop Services Remote Code Execution Vulnerability (BlueKeep)]]></TITLE>
+        <CATEGORY>Windows</CATEGORY>
+        <CVE_LIST><CVE><ID><![CDATA[CVE-2019-0708]]></ID><URL><![CDATA[https://cve.example/CVE-2019-0708]]></URL></CVE></CVE_LIST>
+        <CVSS><BASE>10.0</BASE><TEMPORAL>8.7</TEMPORAL></CVSS>
+        <CVSS_V3><BASE>9.8</BASE><TEMPORAL>9.4</TEMPORAL></CVSS_V3>
+        <SOLUTION><![CDATA[Apply KB4499175]]></SOLUTION>
+      </VULN>
+      <VULN>
+        <QID>90007</QID>
+        <VULN_TYPE>Potential Vulnerability</VULN_TYPE>
+        <SEVERITY_LEVEL>3</SEVERITY_LEVEL>
+        <TITLE><![CDATA[SMBv1 Enabled]]></TITLE>
+        <CVE_LIST><CVE><ID>CVE-2017-0144</ID></CVE><CVE><ID>CVE-2017-0145</ID></CVE></CVE_LIST>
+        <CVSS><BASE>5.0</BASE></CVSS>
+        <SOLUTION><![CDATA[Disable SMBv1]]></SOLUTION>
+      </VULN>
+    </VULN_LIST>
+  </RESPONSE>
+</KNOWLEDGE_BASE_VULN_LIST_OUTPUT>

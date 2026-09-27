@@ -51,6 +51,16 @@ type SiteConfig struct {
 	// LANRoutes are extra routes for multi-subnet floors in split-network
 	// mode (PLAN §15), written to lan0's networkd unit by the daemon.
 	LANRoutes []LANRoute `json:"lan_routes,omitempty"`
+	// Phase 4 fragile-device policy (PLAN §10.6): hosts a human cleared for
+	// openvas although a fragile port is open, and hosts always kept away
+	// from openvas whatever their ports. VTExcludes are NVT OIDs or nuclei
+	// template ids whose findings are suppressed on this site (false
+	// positives codified during the pilot). Version increments on every
+	// policy or scope change so results can be tied to the policy in force.
+	FragileCleared []string `json:"fragile_cleared,omitempty"`
+	FragileHosts   []string `json:"fragile_hosts,omitempty"`
+	VTExcludes     []string `json:"vt_excludes,omitempty"`
+	Version        int      `json:"version,omitempty"`
 }
 
 // LANRoute is one static route reachable through a gateway on lan0's subnet.
@@ -140,6 +150,9 @@ type EngineHealth struct {
 	OpenVASVersion string `json:"openvas_version,omitempty"`
 	OSPDVersion    string `json:"ospd_version,omitempty"`
 	Error          string `json:"error,omitempty"`
+	// Tools lists the engine helpers present on the appliance (naabu,
+	// httpx, nuclei, nmap); the portal shows which add-ons a build carries.
+	Tools []string `json:"tools,omitempty"`
 }
 
 // Ready reports whether the engine can run an openvas scan right now.
@@ -237,6 +250,11 @@ const (
 	ModulePortscan  = "portscan"
 	ModuleOpenVAS   = "openvas"
 	ModuleWeb       = "web"
+	// ModuleFingerprint (Phase 5, PLAN §10.2 "Later"): an nmap -sV / -O pass
+	// over the open ports after detection. nmap is NPSL-licensed, so the
+	// control plane refuses the module until the legal sign-off is recorded
+	// (AdminSignoffRequest) and the appliance skips it when nmap is absent.
+	ModuleFingerprint = "fingerprint"
 )
 
 // Port presets for the portscan module; anything else is an explicit
@@ -276,6 +294,24 @@ type WebParams struct {
 func DefaultWebParams() *WebParams {
 	return &WebParams{MinSeverity: SeverityMedium, ExcludeTags: []string{"dos", "fuzz", "intrusive"}}
 }
+
+// FingerprintParams configures the nmap pass (Phase 5): service/version
+// detection on the TCP ports the port scan found (--version-intensity
+// Intensity, 0..9) and, with OSDetection, TCP/IP stack OS fingerprinting.
+// No NSE scripts are ever run. Nil when the module is off.
+type FingerprintParams struct {
+	OSDetection bool `json:"os_detection"`
+	Intensity   int  `json:"intensity"`
+}
+
+// DefaultFingerprintParams: OS detection on, a middling probe intensity
+// (nmap's own default is 7; fragile hosts never reach this phase anyway).
+func DefaultFingerprintParams() *FingerprintParams {
+	return &FingerprintParams{OSDetection: true, Intensity: 5}
+}
+
+// MaxFingerprintIntensity is nmap's upper bound for --version-intensity.
+const MaxFingerprintIntensity = 9
 
 // KnownSeverities is the closed severity set.
 var KnownSeverities = map[string]bool{SeverityCritical: true, SeverityHigh: true, SeverityMedium: true, SeverityLow: true, SeverityInfo: true}
@@ -332,6 +368,13 @@ type JobSpec struct {
 	Iface       string         `json:"iface"`
 	IssuedAt    int64          `json:"issued_at"`
 	Sig         string         `json:"sig"`
+	// Phase 5 (omitted when unused so older appliances re-encode the same
+	// signed bytes): the nmap pass parameters, and the number of live hosts
+	// the control plane expects inside Targets (from the site inventory;
+	// 0 = unknown, the guardrails then count addresses). The full-range
+	// port option is budgeted against it (internal/guard CheckDuration).
+	Fingerprint   *FingerprintParams `json:"fingerprint,omitempty"`
+	ExpectedHosts int                `json:"expected_hosts,omitempty"`
 }
 
 // JobsResponse is the body of GET /v1/appliances/{id}/jobs when a job is
@@ -453,6 +496,10 @@ type ScanStats struct {
 	// Warnings are non-fatal conditions such as a skipped web phase
 	// because httpx/nuclei or templates were missing.
 	Warnings []string `json:"warnings,omitempty"`
+	// Suppressed counts findings dropped by the site's VT exclusions.
+	Suppressed int `json:"suppressed,omitempty"`
+	// Fingerprinted counts hosts the nmap pass covered (Phase 5).
+	Fingerprinted int `json:"fingerprinted,omitempty"`
 }
 
 // ResultBatch is one uploaded chunk of a job's normalized results. Chunks
@@ -525,7 +572,23 @@ type AdminApplianceView struct {
 	OS          string `json:"os,omitempty"`
 	Arch        string `json:"arch,omitempty"`
 	UpdateError string `json:"update_error,omitempty"`
+	// Phase 4: derived health for the portal (PLAN §8.4): online, stale (no
+	// heartbeat for 3 intervals), silent (24 h, alerted), degraded (engine
+	// not ready for 15 min), never (no heartbeat yet).
+	Health          string     `json:"health"`
+	EngineDownSince *time.Time `json:"engine_down_since,omitempty"`
+	// Phase 5: engine helpers the appliance reported (engine.tools).
+	Tools []string `json:"tools,omitempty"`
 }
+
+// Appliance health values.
+const (
+	HealthOnline   = "online"
+	HealthStale    = "stale"
+	HealthSilent   = "silent"
+	HealthDegraded = "degraded"
+	HealthNever    = "never"
+)
 
 // AdminApplianceUpdate patches mutable appliance attributes.
 type AdminApplianceUpdate struct {
@@ -555,6 +618,239 @@ type AdminSiteView struct {
 	VendorTier int        `json:"vendor_tier"`
 	Name       string     `json:"name"`
 	Config     SiteConfig `json:"config"`
+	// Phase 4: scope attestation by the vendor owner (PLAN §19.2) and the
+	// number of scope requests awaiting approval.
+	AttestedAt     *time.Time `json:"attested_at,omitempty"`
+	AttestedBy     string     `json:"attested_by,omitempty"`
+	PendingScope   int        `json:"pending_scope_requests"`
+	AttestionStale bool       `json:"attestation_stale"`
+}
+
+// ---- Phase 4: pilot operations (PLAN §10.6, §16, §17.4, §19, §22) ----
+
+// Roles carried by admin bearer tokens. The vendor owner is the only role
+// that can approve a scope change or attest the scope (PLAN §16).
+const (
+	RoleOperator    = "operator"
+	RoleVendorOwner = "vendor-owner"
+)
+
+// AdminScopeRequest asks for a change of the site's allowed CIDRs.
+type AdminScopeRequest struct {
+	AllowedCIDRs []string `json:"allowed_cidrs"`
+	Reason       string   `json:"reason"`
+}
+
+type AdminScopeRequestView struct {
+	ID           string     `json:"id"`
+	SiteID       string     `json:"site_id"`
+	Status       string     `json:"status"` // pending | approved | rejected
+	AllowedCIDRs []string   `json:"allowed_cidrs"`
+	Reason       string     `json:"reason"`
+	RequestedAt  time.Time  `json:"requested_at"`
+	RequestedBy  string     `json:"requested_by"`
+	DecidedAt    *time.Time `json:"decided_at,omitempty"`
+	DecidedBy    string     `json:"decided_by,omitempty"`
+	Decision     string     `json:"decision,omitempty"`
+}
+
+// Scope request states.
+const (
+	ScopePending  = "pending"
+	ScopeApproved = "approved"
+	ScopeRejected = "rejected"
+)
+
+// AdminDecision carries the reason for an approval/rejection.
+type AdminDecision struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+// AdminSiteChangeView is one audit-log entry (versioned policy, PLAN §10.6).
+type AdminSiteChangeView struct {
+	ID      string    `json:"id"`
+	SiteID  string    `json:"site_id"`
+	Version int       `json:"version"`
+	At      time.Time `json:"at"`
+	Actor   string    `json:"actor"`
+	Kind    string    `json:"kind"` // scope | policy | exclusion | attest | fragile
+	Field   string    `json:"field"`
+	Old     string    `json:"old,omitempty"`
+	New     string    `json:"new,omitempty"`
+	Reason  string    `json:"reason,omitempty"`
+}
+
+// AdminFragileRequest changes the fragile-device policy for one host.
+type AdminFragileRequest struct {
+	IP     string `json:"ip"`
+	Action string `json:"action"` // clear | unclear | mark | unmark
+	Reason string `json:"reason"`
+}
+
+// AdminFragileHostView is one host under the fragile-device policy.
+type AdminFragileHostView struct {
+	IP           string `json:"ip"`
+	Hostname     string `json:"hostname,omitempty"`
+	FragilePorts []int  `json:"fragile_ports"`
+	Excluded     bool   `json:"excluded"` // kept away from openvas by the policy in force
+	Reason       string `json:"reason"`   // "port 9100", "policy", "cleared"
+	Cleared      bool   `json:"cleared"`
+	Marked       bool   `json:"marked"`
+	LastSeen     string `json:"last_seen,omitempty"`
+}
+
+type AdminFragileView struct {
+	SiteID       string                 `json:"site_id"`
+	Version      int                    `json:"version"`
+	FragilePorts []int                  `json:"fragile_ports"`
+	Cleared      []string               `json:"cleared"`
+	Marked       []string               `json:"marked"`
+	Hosts        []AdminFragileHostView `json:"hosts"`
+}
+
+// AdminExclusionRequest adds a VT exclusion (NVT OID or nuclei template id).
+type AdminExclusionRequest struct {
+	VT     string `json:"vt"`
+	Reason string `json:"reason"`
+}
+
+// AdminTuningReport is the false-positive review of PLAN §20 Phase 4.
+type AdminTuningReport struct {
+	SiteID            string              `json:"site_id"`
+	Findings          int                 `json:"findings"`
+	Reviewed          int                 `json:"reviewed"`
+	FalsePositives    int                 `json:"false_positives"`
+	Accepted          int                 `json:"accepted"`
+	FalsePositiveRate float64             `json:"false_positive_rate"`
+	Suspected         int                 `json:"suspected"`
+	BySeverity        map[string]int      `json:"by_severity"`
+	ByDetector        []AdminDetectorStat `json:"by_detector"`
+	Exclusions        []string            `json:"exclusions"`
+}
+
+type AdminDetectorStat struct {
+	Detector       string `json:"detector"` // NVT OID or nuclei:<template>
+	Name           string `json:"name"`
+	Findings       int    `json:"findings"`
+	FalsePositives int    `json:"false_positives"`
+	Suspected      int    `json:"suspected"`
+	Excluded       bool   `json:"excluded"`
+}
+
+// AdminScheduleRequest creates or updates a recurring scan (PLAN §17.4 job
+// calendar). The control plane creates one job per occurrence.
+type AdminScheduleRequest struct {
+	ApplianceID  string   `json:"appliance_id"`
+	Name         string   `json:"name"`
+	Mode         string   `json:"mode"`
+	Targets      []string `json:"targets"`
+	Excludes     []string `json:"excludes,omitempty"`
+	Ports        string   `json:"ports,omitempty"`
+	Cron         string   `json:"cron"`
+	TZ           string   `json:"tz,omitempty"`
+	MaxDurationS int      `json:"max_duration_s,omitempty"`
+	Enabled      *bool    `json:"enabled,omitempty"`
+	// Modules overrides the mode's default module set (Phase 5: e.g. an
+	// inventory schedule with the fingerprint pass); empty = mode default.
+	Modules []string `json:"modules,omitempty"`
+}
+
+type AdminScheduleView struct {
+	ID             string     `json:"id"`
+	SiteID         string     `json:"site_id"`
+	ApplianceID    string     `json:"appliance_id"`
+	Name           string     `json:"name"`
+	Mode           string     `json:"mode"`
+	Targets        []string   `json:"targets"`
+	Excludes       []string   `json:"excludes"`
+	Ports          string     `json:"ports"`
+	Modules        []string   `json:"modules"`
+	Cron           string     `json:"cron"`
+	TZ             string     `json:"tz"`
+	MaxDurationS   int        `json:"max_duration_s"`
+	Enabled        bool       `json:"enabled"`
+	NextOccurrence *time.Time `json:"next_occurrence,omitempty"`
+	NextJobID      string     `json:"next_job_id,omitempty"`
+	LastJobID      string     `json:"last_job_id,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+}
+
+// AdminCalendarEntry is one row of the site's job calendar: a past or
+// current job, or a computed future occurrence of a schedule.
+type AdminCalendarEntry struct {
+	At           time.Time `json:"at"`
+	Kind         string    `json:"kind"` // job | occurrence
+	ScheduleID   string    `json:"schedule_id,omitempty"`
+	ScheduleName string    `json:"schedule_name,omitempty"`
+	JobID        string    `json:"job_id,omitempty"`
+	Mode         string    `json:"mode"`
+	Status       string    `json:"status,omitempty"`
+	RejectReason string    `json:"reject_reason,omitempty"`
+	Targets      []string  `json:"targets"`
+}
+
+// AdminCoverage is the coverage input to the vendor score (PLAN §12.3,
+// §8.4): 0-100 with the reasons behind it.
+type AdminCoverage struct {
+	SiteID     string            `json:"site_id,omitempty"`
+	VendorID   string            `json:"vendor_id,omitempty"`
+	Score      int               `json:"score"`
+	Appliance  CoverageAppliance `json:"appliance"`
+	Freshness  CoverageFreshness `json:"freshness"`
+	Hosts      CoverageHosts     `json:"hosts"`
+	Findings   CoverageFindings  `json:"findings"`
+	Attested   *time.Time        `json:"attested_at,omitempty"`
+	Reasons    []string          `json:"reasons"`
+	Sites      []AdminCoverage   `json:"sites,omitempty"` // vendor roll-up
+	ComputedAt time.Time         `json:"computed_at"`
+	Weights    map[string]int    `json:"weights"`
+	Components map[string]int    `json:"components"`
+	Meta       map[string]any    `json:"-"`
+}
+
+type CoverageAppliance struct {
+	Count    int    `json:"count"`
+	Health   string `json:"health"` // best health among the site's appliances
+	Online   int    `json:"online"`
+	Degraded int    `json:"degraded"`
+	Silent   int    `json:"silent"`
+}
+
+type CoverageFreshness struct {
+	LastDiscovery *time.Time `json:"last_discovery,omitempty"`
+	LastInventory *time.Time `json:"last_inventory,omitempty"`
+	LastFull      *time.Time `json:"last_full,omitempty"`
+	InventoryAgeH float64    `json:"inventory_age_h"`
+	Overdue       bool       `json:"overdue"`
+}
+
+type CoverageHosts struct {
+	Total         int     `json:"total"`
+	ApplianceSeen int     `json:"appliance_seen"`
+	AgentSeen     int     `json:"agent_seen"`
+	Both          int     `json:"both"`
+	Agentless     int     `json:"agentless"`
+	AgentFraction float64 `json:"agent_fraction"`
+}
+
+type CoverageFindings struct {
+	Open             int            `json:"open"`
+	NetworkReachable int            `json:"network_reachable"`
+	Suspected        int            `json:"suspected"`
+	FalsePositives   int            `json:"false_positives"`
+	BySeverity       map[string]int `json:"by_severity"`
+}
+
+// AdminAlert is one condition the portal should surface (PLAN §8.4 "alert
+// at 24 h silent" and friends).
+type AdminAlert struct {
+	Kind        string     `json:"kind"` // silent | stale | degraded | update_error | rollout_held | scope_pending | scan_overdue | attestation_stale
+	Severity    string     `json:"severity"`
+	SiteID      string     `json:"site_id,omitempty"`
+	ApplianceID string     `json:"appliance_id,omitempty"`
+	Subject     string     `json:"subject"`
+	Detail      string     `json:"detail"`
+	Since       *time.Time `json:"since,omitempty"`
 }
 
 type AdminSiteUpdate struct {
@@ -663,6 +959,9 @@ type AdminJobRequest struct {
 	AllowPublic  bool           `json:"allow_public,omitempty"`
 	Iface        string         `json:"iface,omitempty"`
 	ScheduledFor *time.Time     `json:"scheduled_for,omitempty"`
+	// Fingerprint (Phase 5) enables the nmap pass with these parameters;
+	// after the legal sign-off full-mode jobs include it by default.
+	Fingerprint *FingerprintParams `json:"fingerprint,omitempty"`
 }
 
 type AdminJobView struct {
@@ -681,6 +980,7 @@ type AdminJobView struct {
 	Batches      int        `json:"batches"`
 	Stats        *ScanStats `json:"stats,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
+	ScheduleID   string     `json:"schedule_id,omitempty"`
 }
 
 // Evidence is one observation backing a finding (PLAN §12.3: a finding
@@ -698,6 +998,15 @@ const (
 	FindingConfirmed       = "confirmed"
 	FindingNetworkObserved = "network_observed"
 	FindingSuspected       = "suspected"
+
+	// Review states set by a human (Phase 4, PLAN §22): orthogonal to the
+	// detection state above. "" means unreviewed.
+	ReviewFalsePositive = "false_positive"
+	ReviewAccepted      = "accepted"
+
+	// ExposureMultiplier weights network-reachable findings in the vendor
+	// score (PLAN §12.3).
+	ExposureMultiplier = 1.5
 )
 
 // Host source values (PLAN §12.2).
@@ -727,6 +1036,53 @@ type AdminFindingView struct {
 	FeedVersion string     `json:"feed_version,omitempty"`
 	FirstSeen   time.Time  `json:"first_seen"`
 	LastSeen    time.Time  `json:"last_seen"`
+	// Phase 4: human review and scoring hints for the portal.
+	Review             string     `json:"review,omitempty"`
+	ReviewedAt         *time.Time `json:"reviewed_at,omitempty"`
+	ReviewedBy         string     `json:"reviewed_by,omitempty"`
+	ReviewReason       string     `json:"review_reason,omitempty"`
+	NetworkReachable   bool       `json:"network_reachable"`
+	ExposureMultiplier float64    `json:"exposure_multiplier"`
+	// Phase 6: lifecycle (open until a covering rescan no longer observes
+	// it, then fixed; reopened when it returns), the scan scope that can
+	// resolve it, the external scanner's id (Qualys QID) and SLA ageing.
+	Status     string     `json:"status"`
+	FixedAt    *time.Time `json:"fixed_at,omitempty"`
+	ReopenedAt *time.Time `json:"reopened_at,omitempty"`
+	Reopens    int        `json:"reopens,omitempty"`
+	Scope      string     `json:"scope,omitempty"`
+	ExternalID string     `json:"external_id,omitempty"`
+	DaysOpen   int        `json:"days_open"`
+	SLADays    int        `json:"sla_days,omitempty"`
+	Overdue    bool       `json:"overdue"`
+}
+
+// AdminFindingDetail is the portal's finding page: the finding, its host
+// and the mirrored VT metadata (PLAN §17.4).
+type AdminFindingDetail struct {
+	Finding AdminFindingView `json:"finding"`
+	Host    AdminHostView    `json:"host"`
+	NVT     *AdminNVTView    `json:"nvt,omitempty"`
+}
+
+type AdminNVTView struct {
+	OID         string   `json:"oid"`
+	Name        string   `json:"name"`
+	Family      string   `json:"family"`
+	CVSS        float64  `json:"cvss"`
+	CVEs        []string `json:"cves"`
+	QoD         int      `json:"qod"`
+	Solution    string   `json:"solution,omitempty"`
+	FeedVersion string   `json:"feed_version"`
+}
+
+// AdminFindingReview marks a finding as a false positive or accepted risk
+// (or reopens it with an empty review). Codify adds the detector id (NVT
+// OID / nuclei template) to the site's VT exclusions.
+type AdminFindingReview struct {
+	Review string `json:"review"`
+	Reason string `json:"reason"`
+	Codify bool   `json:"codify,omitempty"`
 }
 
 type AdminHostView struct {
@@ -781,4 +1137,277 @@ type AdminAgentInventoryResponse struct {
 	Hosts   int `json:"hosts"`
 	Merged  int `json:"merged"`
 	Created int `json:"created"`
+}
+
+// ---- Phase 5: depth (PLAN §20 Phase 5, §21) ----
+
+// SignoffNmap is the only tool sign-off the control plane records: nmap is
+// NPSL-licensed and is shipped and run only after legal review (PLAN §21).
+const SignoffNmap = "nmap"
+
+// AdminSignoffRequest records (PUT) the legal sign-off for a tool.
+type AdminSignoffRequest struct {
+	Reference string `json:"reference"` // ticket or contract reference of the review
+	Note      string `json:"note,omitempty"`
+}
+
+// AdminSignoffView is the recorded sign-off; Approved is false when none
+// exists (the fingerprint module is then refused).
+type AdminSignoffView struct {
+	Tool      string     `json:"tool"`
+	Approved  bool       `json:"approved"`
+	Reference string     `json:"reference,omitempty"`
+	Note      string     `json:"note,omitempty"`
+	By        string     `json:"by,omitempty"`
+	At        *time.Time `json:"at,omitempty"`
+}
+
+// AdminOnboardingView tracks a site through the PLAN §19.2 flow so the
+// portal can show what is left before a site counts as onboarded.
+type AdminOnboardingView struct {
+	SiteID   string           `json:"site_id"`
+	Complete bool             `json:"complete"`
+	Steps    []OnboardingStep `json:"steps"`
+	Next     string           `json:"next,omitempty"`
+}
+
+// OnboardingStep is one item of the checklist.
+type OnboardingStep struct {
+	Key    string `json:"key"`
+	Title  string `json:"title"`
+	Done   bool   `json:"done"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// AdminFeedGapReport is the data behind the Enterprise Feed evaluation
+// (docs/ENTERPRISE-FEED.md): how much of what the appliances see is an
+// enterprise product the community feed covers thinly, and how many open
+// ports carry no identification at all.
+type AdminFeedGapReport struct {
+	SiteID            string              `json:"site_id,omitempty"`
+	Hosts             int                 `json:"hosts"`
+	OpenPorts         int                 `json:"open_ports"`
+	IdentifiedPorts   int                 `json:"identified_ports"`
+	UnidentifiedPorts int                 `json:"unidentified_ports"`
+	EnterpriseHosts   int                 `json:"enterprise_hosts"`
+	HostsNoFindings   int                 `json:"hosts_without_findings"`
+	Enterprise        []AdminFeedGapEntry `json:"enterprise"`
+	Recommendation    string              `json:"recommendation"`
+	ComputedAt        time.Time           `json:"computed_at"`
+}
+
+// AdminFeedGapEntry aggregates one enterprise vendor.
+type AdminFeedGapEntry struct {
+	Vendor   string   `json:"vendor"`
+	Hosts    int      `json:"hosts"`
+	Ports    int      `json:"ports"`
+	Findings int      `json:"findings"`
+	Examples []string `json:"examples"`
+}
+
+// ---- Phase 6: Qualys replacement (finding lifecycle, external scanners,
+// summaries and exports, webhooks, operations) ----
+
+// Finding lifecycle status. A finding is open from first observation; a
+// later scan whose scope covers it that observes the host without it marks
+// it fixed; an observation after that reopens it (Qualys: Active / Fixed /
+// Re-Opened).
+const (
+	FindingOpen  = "open"
+	FindingFixed = "fixed"
+)
+
+// Scopes name the kind of scan that can resolve a finding: the openvas
+// config that first detected it, the web add-on, or an external scanner.
+const (
+	ScopeInventory = "inventory"
+	ScopeFull      = "full"
+	ScopeWeb       = "web"
+)
+
+// SourceExternal marks a host only an external scanner has seen.
+const SourceExternal = "external"
+
+// ExternalScanRequest imports findings from a scanner outside the
+// appliance (Qualys during the migration) as a third evidence source,
+// correlated with appliance and agent findings by CVE.
+type ExternalScanRequest struct {
+	Scanner   string         `json:"scanner"` // e.g. "qualys"
+	ScannedAt *time.Time     `json:"scanned_at,omitempty"`
+	Hosts     []ExternalHost `json:"hosts"`
+}
+
+type ExternalHost struct {
+	IP       string            `json:"ip"`
+	Hostname string            `json:"hostname,omitempty"`
+	OS       string            `json:"os,omitempty"`
+	Findings []ExternalFinding `json:"findings"`
+}
+
+type ExternalFinding struct {
+	ID        string     `json:"id"` // the scanner's detection id (Qualys QID)
+	Name      string     `json:"name"`
+	Type      string     `json:"type,omitempty"` // confirmed | potential | info
+	Severity  string     `json:"severity"`
+	CVSS      float64    `json:"cvss,omitempty"`
+	CVE       []string   `json:"cve"`
+	Port      int        `json:"port,omitempty"`
+	Proto     string     `json:"proto,omitempty"`
+	Status    string     `json:"status,omitempty"` // new | active | fixed | reopened
+	FirstSeen *time.Time `json:"first_seen,omitempty"`
+	LastSeen  *time.Time `json:"last_seen,omitempty"`
+	Evidence  string     `json:"evidence,omitempty"`
+	Solution  string     `json:"solution,omitempty"`
+}
+
+type ExternalScanResponse struct {
+	Scanner      string `json:"scanner"`
+	Hosts        int    `json:"hosts"`
+	HostsCreated int    `json:"hosts_created"`
+	HostsMerged  int    `json:"hosts_merged"`
+	Findings     int    `json:"findings"`
+	FindingsNew  int    `json:"findings_new"`
+	Fixed        int    `json:"findings_fixed"`
+	Skipped      int    `json:"skipped"`
+}
+
+// AdminParityReport compares an external scanner with the appliance on
+// one site over host×CVE pairs seen since Since (docs/MIGRATION.md).
+type AdminParityReport struct {
+	SiteID        string                  `json:"site_id"`
+	Scanner       string                  `json:"scanner"`
+	Since         time.Time               `json:"since"`
+	MinSeverity   string                  `json:"min_severity"`
+	Hosts         ParityHosts             `json:"hosts"`
+	CVEs          ParityCounts            `json:"cves"`
+	BySeverity    map[string]ParityCounts `json:"by_severity"`
+	NoCVE         map[string]int          `json:"findings_without_cve"`
+	ExternalOnly  []ParityItem            `json:"external_only"`
+	ApplianceOnly []ParityItem            `json:"appliance_only"`
+	DetectionRate float64                 `json:"detection_rate"` // both / (both + external only)
+	Verdict       string                  `json:"verdict"`
+	ComputedAt    time.Time               `json:"computed_at"`
+}
+
+type ParityHosts struct {
+	External      int      `json:"external"`
+	Appliance     int      `json:"appliance"`
+	Both          int      `json:"both"`
+	ExternalOnly  []string `json:"external_only"`
+	ApplianceOnly []string `json:"appliance_only"`
+}
+
+type ParityCounts struct {
+	Both          int `json:"both"`
+	ExternalOnly  int `json:"external_only"`
+	ApplianceOnly int `json:"appliance_only"`
+}
+
+type ParityItem struct {
+	CVE        string `json:"cve"`
+	Name       string `json:"name"`
+	Severity   string `json:"severity"`
+	Hosts      int    `json:"hosts"`
+	Detector   string `json:"detector,omitempty"`
+	ExternalID string `json:"external_id,omitempty"`
+}
+
+// AdminSummary is the vulnerability summary a report starts from: open
+// findings by severity, SLA ageing, recent movement, risk points and the
+// top open findings; the vendor form rolls its sites up.
+type AdminSummary struct {
+	SiteID         string           `json:"site_id,omitempty"`
+	VendorID       string           `json:"vendor_id,omitempty"`
+	Name           string           `json:"name,omitempty"`
+	Hosts          SummaryHosts     `json:"hosts"`
+	Open           map[string]int   `json:"open"`
+	Overdue        map[string]int   `json:"overdue"`
+	NewLast30      int              `json:"new_last_30d"`
+	FixedLast30    int              `json:"fixed_last_30d"`
+	ReopenedLast30 int              `json:"reopened_last_30d"`
+	MeanAgeDays    float64          `json:"mean_age_days"`
+	OldestDays     int              `json:"oldest_days"`
+	RiskPoints     int              `json:"risk_points"`
+	Coverage       int              `json:"coverage_score"`
+	SLADays        map[string]int   `json:"sla_days"`
+	Top            []SummaryFinding `json:"top"`
+	LastInventory  *time.Time       `json:"last_inventory,omitempty"`
+	LastFull       *time.Time       `json:"last_full,omitempty"`
+	Sites          []AdminSummary   `json:"sites,omitempty"`
+	ComputedAt     time.Time        `json:"computed_at"`
+}
+
+type SummaryHosts struct {
+	Total            int `json:"total"`
+	NetworkVisible   int `json:"network_visible"`
+	WithOpenFindings int `json:"with_open_findings"`
+}
+
+type SummaryFinding struct {
+	ID       string   `json:"id"`
+	HostID   string   `json:"host_id"`
+	HostIP   string   `json:"host_ip"`
+	Name     string   `json:"name"`
+	Severity string   `json:"severity"`
+	CVSS     float64  `json:"cvss"`
+	CVE      []string `json:"cve"`
+	DaysOpen int      `json:"days_open"`
+	Overdue  bool     `json:"overdue"`
+}
+
+// AdminTrendPoint is one week of the finding trend.
+type AdminTrendPoint struct {
+	WeekStart      time.Time      `json:"week_start"`
+	Open           int            `json:"open"`
+	New            int            `json:"new"`
+	Fixed          int            `json:"fixed"`
+	OpenBySeverity map[string]int `json:"open_by_severity"`
+}
+
+// Webhooks: signed outbound events for ticketing and chat integrations.
+type AdminWebhookRequest struct {
+	URL     string   `json:"url"`
+	Secret  string   `json:"secret,omitempty"`
+	Events  []string `json:"events"` // exact names or prefixes ending in "*"; empty = all
+	Enabled *bool    `json:"enabled,omitempty"`
+}
+
+type AdminWebhookView struct {
+	ID           string                `json:"id"`
+	URL          string                `json:"url"`
+	Events       []string              `json:"events"`
+	Enabled      bool                  `json:"enabled"`
+	HasSecret    bool                  `json:"has_secret"`
+	CreatedAt    time.Time             `json:"created_at"`
+	LastDelivery *AdminWebhookDelivery `json:"last_delivery,omitempty"`
+}
+
+type AdminWebhookDelivery struct {
+	ID       string    `json:"id"`
+	Event    string    `json:"event"`
+	At       time.Time `json:"at"`
+	Status   int       `json:"status"`
+	Attempts int       `json:"attempts"`
+	OK       bool      `json:"ok"`
+	Error    string    `json:"error,omitempty"`
+}
+
+// WebhookEvent is the body a webhook receives.
+type WebhookEvent struct {
+	ID          string    `json:"id"`
+	Event       string    `json:"event"`
+	At          time.Time `json:"at"`
+	SiteID      string    `json:"site_id,omitempty"`
+	ApplianceID string    `json:"appliance_id,omitempty"`
+	JobID       string    `json:"job_id,omitempty"`
+	Data        any       `json:"data"`
+}
+
+// AdminRetentionResult reports one retention pass.
+type AdminRetentionResult struct {
+	DryRun         bool      `json:"dry_run"`
+	Before         time.Time `json:"before"`
+	RawBatches     int       `json:"raw_result_batches"`
+	SupportBundles int       `json:"support_bundles"`
+	Errors         int       `json:"errors"`
 }

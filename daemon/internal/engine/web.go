@@ -257,8 +257,22 @@ func (r *run) nuclei(ctx context.Context, work, templates string, urls []string)
 	}
 	args := []string{"-l", list, "-silent", "-jsonl", "-no-color", "-disable-update-check", "-no-interactsh",
 		"-templates", templates, "-severity", strings.Join(sevs, ","), "-exclude-tags", strings.Join(excl, ","),
+	}
+	var exclIDs []string
+	for _, x := range r.site.VTExcludes {
+		x = strings.TrimSpace(x)
+		if strings.HasPrefix(x, "nuclei:") {
+			exclIDs = append(exclIDs, strings.TrimPrefix(x, "nuclei:"))
+		} else if x != "" && !strings.HasPrefix(x, "1.3.6.1.4.1.25623.") {
+			exclIDs = append(exclIDs, x)
+		}
+	}
+	if len(exclIDs) > 0 {
+		args = append(args, "-exclude-id", strings.Join(exclIDs, ","))
+	}
+	args = append(args,
 		"-timeout", "10", "-retries", "1", "-concurrency", strconv.Itoa(clamp(r.spec.Rate.PerHostParallel*5, 5, 25)),
-		"-bulk-size", strconv.Itoa(clamp(r.spec.Rate.PerHostParallel*5, 5, 25)), "-rate-limit", strconv.Itoa(clamp(r.spec.Rate.PPS/2, 10, 500))}
+		"-bulk-size", strconv.Itoa(clamp(r.spec.Rate.PerHostParallel*5, 5, 25)), "-rate-limit", strconv.Itoa(clamp(r.spec.Rate.PPS/2, 10, 500)))
 	out, err := r.e.runTool(ctx, r.e.NucleiPath, "nuclei", args)
 	if err != nil {
 		return err

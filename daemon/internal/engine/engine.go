@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	v1 "github.com/tprm/scanner-appliance/api/v1"
@@ -22,6 +23,7 @@ const (
 	PhaseOpenVAS   = "openvas"
 	PhaseWeb       = "web"
 	PhaseFinalize  = "finalize"
+	// PhaseFingerprint (nmap, Phase 5) is declared in nmap.go.
 )
 
 // ErrStopped is returned when the job context is cancelled (stop_all).
@@ -78,6 +80,11 @@ type Engine struct {
 	NucleiPath  string
 	Split       bool
 	OpenVASConf string
+
+	// Phase 5. NmapPath enables the fingerprint pass ("" skips it with a
+	// warning); Privileged overrides the raw-socket check in tests.
+	NmapPath   string
+	Privileged func() bool
 }
 
 func (e *Engine) init() {
@@ -206,6 +213,13 @@ func (r *run) phases(ctx context.Context) error {
 		}
 		r.progress(PhaseOpenVAS, 100)
 	}
+	if spec.HasModule(v1.ModuleFingerprint) {
+		r.progress(PhaseFingerprint, 0)
+		if err := r.timed(PhaseFingerprint, func() error { return r.fingerprint(ctx) }); err != nil {
+			return r.abort(ctx, err)
+		}
+		r.progress(PhaseFingerprint, 100)
+	}
 	if spec.HasModule(v1.ModuleWeb) {
 		r.progress(PhaseWeb, 0)
 		if err := r.timed(PhaseWeb, func() error { return r.web(ctx) }); err != nil {
@@ -274,6 +288,9 @@ func (r *run) portscan(ctx context.Context, discovered bool) error {
 	if err != nil {
 		return err
 	}
+	if err := r.checkBudget(ctx, len(targets), discovered); err != nil {
+		return err
+	}
 	args := append(r.e.naabuArgs(r.spec, r.site, targets), portscanArgs...)
 	args = append(args, pa...)
 	if discovered {
@@ -298,6 +315,76 @@ func (r *run) portscan(ctx context.Context, discovered bool) error {
 	}
 	r.log.Info("portscan", "hosts", len(r.order), "open_ports", r.stats.OpenPorts)
 	return nil
+}
+
+// checkBudget refuses a wide port range (the Phase 5 full-range option)
+// that cannot finish inside the time left of max_duration_s, now that the
+// live-host count is known. The control plane made the same estimate from
+// its inventory at dispatch (internal/guard CheckDuration); this is the
+// appliance's own check with real numbers, made before a single probe of
+// the port scan leaves. Standard scans are not budgeted.
+func (r *run) checkBudget(ctx context.Context, hosts int, discovered bool) error {
+	n := v1.PortCount(r.spec.Ports)
+	if n <= guard.FullRangeThreshold || !discovered {
+		return nil
+	}
+	est := guard.EstimateSeconds(hosts, n, r.spec.Rate.PPS)
+	left := int64(r.spec.MaxDuration()) - int64(r.e.Now().Sub(r.start)/time.Second)
+	if dl, ok := ctx.Deadline(); ok {
+		if until := int64(dl.Sub(r.e.Now()) / time.Second); until < left {
+			left = until
+		}
+	}
+	if est > left {
+		return fmt.Errorf("%w: a %d-port scan of %d live hosts at %d pps needs about %s with %s left of max_duration_s %d; raise rate.pps or the window, narrow the targets, or use ports=standard",
+			ErrBudget, n, hosts, r.spec.Rate.PPS, guard.FormatDuration(est), guard.FormatDuration(left), r.spec.MaxDuration())
+	}
+	return nil
+}
+
+// fragileExcludes reports whether hosts with a fragile port open are kept
+// away from the heavier phases: the openvas params' switch, on by default
+// when a job carries no openvas params (portscan + fingerprint only).
+func (r *run) fragileExcludes() bool {
+	return r.spec.OpenVAS == nil || r.spec.OpenVAS.FragilePortsExclude
+}
+
+// fragileDecision applies the site's fragile-device policy (PLAN §10.6,
+// Phase 4): a host on the site's fragile list is never handed to openvas; a
+// host a human cleared is scanned although a fragile port is open; any
+// other host with a fragile port open is skipped until cleared.
+func (r *run) fragileDecision(h *hostAgg, fragile []int) (skip bool, note string) {
+	if guard.Contains(r.site.FragileHosts, h.ip) {
+		return true, "fragile:policy"
+	}
+	if !r.fragileExcludes() {
+		return false, ""
+	}
+	fp := fragilePort(h, fragile)
+	if fp == 0 {
+		return false, ""
+	}
+	if guard.Contains(r.site.FragileCleared, h.ip) {
+		return false, "fragile:cleared:" + strconv.Itoa(fp)
+	}
+	return true, "fragile:" + strconv.Itoa(fp)
+}
+
+// vtExcluded reports whether a finding's detector is suppressed on this site.
+func (r *run) vtExcluded(f v1.Finding) bool {
+	for _, x := range r.site.VTExcludes {
+		x = strings.TrimSpace(x)
+		if x == "" {
+			continue
+		}
+		if f.NVTOID != "" && x == f.NVTOID {
+			return true
+		}
+		if f.ID != "" && (x == f.ID || x == "nuclei:"+f.ID) {
+			return true
+		}
+	}
+	return false
 }
 
 func fragilePort(h *hostAgg, fragile []int) int {
@@ -330,9 +417,9 @@ func (r *run) openvas(ctx context.Context) (map[string]*nvt.Meta, error) {
 			h.notes = append(h.notes, "openvas:skipped-no-open-ports")
 			continue
 		}
-		if r.spec.OpenVAS.FragilePortsExclude {
-			if fp := fragilePort(h, fragile); fp != 0 {
-				h.notes = append(h.notes, "fragile:"+strconv.Itoa(fp))
+		if skip, note := r.fragileDecision(h, fragile); note != "" {
+			h.notes = append(h.notes, note)
+			if skip {
 				r.stats.FragileExcluded++
 				continue
 			}
@@ -483,11 +570,25 @@ func (r *run) emitAll(ctx context.Context, final bool, meta map[string]*nvt.Meta
 	ips := append([]string{}, r.order...)
 	sort.Strings(ips)
 	hosts := make([]v1.Host, 0, len(ips))
+	suppressed := 0
 	for _, ip := range ips {
-		hosts = append(hosts, r.hosts[ip].finalize(meta))
+		h := r.hosts[ip].finalize(meta)
+		if len(r.site.VTExcludes) > 0 && len(h.Findings) > 0 {
+			kept := h.Findings[:0]
+			for _, f := range h.Findings {
+				if r.vtExcluded(f) {
+					suppressed++
+					continue
+				}
+				kept = append(kept, f)
+			}
+			h.Findings = kept
+		}
+		hosts = append(hosts, h)
 	}
 	if final {
 		r.stats.Findings = 0
+		r.stats.Suppressed = suppressed
 		for _, h := range hosts {
 			r.stats.Findings += len(h.Findings)
 		}
