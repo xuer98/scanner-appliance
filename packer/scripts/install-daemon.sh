@@ -80,7 +80,7 @@ Open source notices - Scanner Appliance
 =======================================
 
 This appliance is built on Debian GNU/Linux 12 (https://www.debian.org) and
-ships the following third-party components. Full licence texts are
+ships the following third-party components. Full license texts are
 available at the URLs below and on the transparency page in the portal.
 
 Detection engine (Greenbone Community Edition)
@@ -104,12 +104,12 @@ section 6).
 Discovery and port scanning
   naabu            MIT               https://github.com/projectdiscovery/naabu
 
-Web add-on (Phase 3; not present in this image unless enabled)
+Web add-on (not present in this image unless enabled)
   httpx            MIT               https://github.com/projectdiscovery/httpx
   nuclei           MIT               https://github.com/projectdiscovery/nuclei
   nuclei-templates MIT               https://github.com/projectdiscovery/nuclei-templates
 
-Fingerprint pass (Phase 5; only present in builds made after the legal
+Fingerprint pass (only present in builds made after the legal
 sign-off, WITH_NMAP=1 / packer with_nmap=true)
   nmap             NPSL-0.95         https://nmap.org/npsl/
                    Debian 12 package; used for service/version and OS
@@ -119,7 +119,7 @@ Platform
   open-vm-tools    GPL-2.0/LGPL      https://github.com/vmware/open-vm-tools
   htpdate          GPL-2.0           https://github.com/twekkel/htpdate
 
-Debian package licences: /usr/share/doc/<package>/copyright.
+Debian package licenses: /usr/share/doc/<package>/copyright.
 The complete SBOM for this image is published alongside the release.
 EOF
 fi

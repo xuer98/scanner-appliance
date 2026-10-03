@@ -16,9 +16,8 @@ import (
 	"time"
 )
 
-// S3Objects is an ObjectStore on any S3-compatible service (AWS S3,
-// MinIO, Ceph RGW), signed with Signature Version 4 in the standard
-// library so the control plane keeps its two dependencies (Phase 6).
+// S3Objects is an ObjectStore signed with Signature Version 4 in the standard
+// library so the control plane keeps its two dependencies.
 // Objects are bounded (a result chunk is at most 16 MiB, a support bundle
 // 64 MiB), so Put buffers the body to sign its hash.
 type S3Objects struct {
