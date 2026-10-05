@@ -6,11 +6,11 @@ The vendor deploys an image, enters one enrollment code, and the appliance is on
 
 [PLAN.md](PLAN.md) is the design specification. This README describes what is built, how to run it and how to operate it. Three guides go deeper:
 
-| Guide | Audience |
-|-------|----------|
-| [docs/DEPLOY.md](docs/DEPLOY.md) | the vendor team hosting the appliance: VMware, Hyper-V, KVM, Docker, Windows host |
-| [docs/MIGRATION.md](docs/MIGRATION.md) | the team replacing a Qualys scanner at a site: parallel run, parity report, switch |
-| [docs/ENTERPRISE-FEED.md](docs/ENTERPRISE-FEED.md) | the Greenbone Enterprise Feed evaluation and how the coverage gap is measured |
+| Guide                                              | Audience                                                                           |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [docs/DEPLOY.md](docs/DEPLOY.md)                   | the vendor team hosting the appliance: VMware, Hyper-V, KVM, Docker, Windows host  |
+| [docs/MIGRATION.md](docs/MIGRATION.md)             | the team replacing a Qualys scanner at a site: parallel run, parity report, switch |
+| [docs/ENTERPRISE-FEED.md](docs/ENTERPRISE-FEED.md) | the Greenbone Enterprise Feed evaluation and how the coverage gap is measured      |
 
 ## Contents
 
@@ -55,14 +55,14 @@ The vendor deploys an image, enters one enrollment code, and the appliance is on
 
 All six phases are implemented. The Go code is covered by tests; the image build and the hypervisor variants are written and validated but have not run on real hosts. What remains is operational: building the image, and running it at real sites.
 
-| Plan phase ([PLAN §20](PLAN.md#20-phasing)) | Scope | State |
-|---|---|---|
-| 1 Foundation | image, console, enrollment, mTLS, heartbeat, directives | built and tested; the VM image build is pending a KVM runner |
-| 2 Scan loop | jobs, guardrails, naabu, openvas over OSP, results ingest, correlation | built and tested |
-| 3 Operations | feed bundles, daemon self-update, canary rollout, split network, web add-on, OS updates | built and tested |
-| 4 Pilot | fragile-device policy, finding review, scope approval, schedules, coverage, transparency page | built and tested; the live pilot is an operational step |
-| 5 Depth | nmap fingerprint pass, full-range ports, Hyper-V and KVM variants, Enterprise Feed evaluation | built and tested; needs the legal sign-off and hypervisor runs |
-| 6 Qualys replacement (added after the plan) | Qualys imports, parity report, finding lifecycle, SLA, summaries, exports, webhooks, S3, retention, metrics | built and tested; the parallel run is an operational step |
+| Plan phase ([PLAN §20](PLAN.md#20-phasing)) | Scope                                                                                                       | State                                                          |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 1 Foundation                                | image, console, enrollment, mTLS, heartbeat, directives                                                     | built and tested; the VM image build is pending a KVM runner   |
+| 2 Scan loop                                 | jobs, guardrails, naabu, openvas over OSP, results ingest, correlation                                      | built and tested                                               |
+| 3 Operations                                | feed bundles, daemon self-update, canary rollout, split network, web add-on, OS updates                     | built and tested                                               |
+| 4 Pilot                                     | fragile-device policy, finding review, scope approval, schedules, coverage, transparency page               | built and tested; the live pilot is an operational step        |
+| 5 Depth                                     | nmap fingerprint pass, full-range ports, Hyper-V and KVM variants, Enterprise Feed evaluation               | built and tested; needs the legal sign-off and hypervisor runs |
+| 6 Qualys replacement (added after the plan) | Qualys imports, parity report, finding lifecycle, SLA, summaries, exports, webhooks, S3, retention, metrics | built and tested; the parallel run is an operational step      |
 
 Verified by:
 
@@ -108,39 +108,39 @@ Linux is the product, as a VM image and as a container. The daemon also builds a
 
 Paths are relative to `daemon/` unless they start with a slash.
 
-| Area | What it does | Where |
-|------|--------------|-------|
-| Enrollment and identity | Seed resolution (OVF → volume → env → console), P-256 key and CSR, code exchange for a client certificate, renewal at two thirds of the certificate lifetime, wipe | `internal/{seed,enroll,pki,state}` |
-| Heartbeat and directives | mTLS loop with jitter and backoff, clock-skew correction, directive dispatch and ack. Every beat carries engine health, the tools the build carries, the running job and any update error | `internal/heartbeat` |
-| Job loop | Polls `GET /v1/appliances/{id}/jobs` after every heartbeat, verifies the job signature and its freshness, runs the shared guardrails and reports `running` / `rejected` / `failed` / `done`. Honors `stop_all` and `run_job_now` | `internal/jobs` |
-| Engine | naabu discovery (`-sn`) and port scan; openvas over OSP with the port list pinned from naabu and `alive_test=consider alive`; fragile-device exclusion; `max_duration_s` deadline; per-phase progress; normalization into the PLAN §12.1 result model (service, product and CPE from detection VTs, OS guess from host details, findings with QoD) | `internal/engine` |
-| OSP client, NVT metadata | `get_version`, `get_vts`, `start_scan`, `get_scans` with `pop_results`, `stop_scan`, `delete_scan`; redis and ospd supervision in the container. VT metadata (name, family, CVEs, CVSS from the feed's vectors, QoD, solution) is fetched lazily and cached per feed version | `internal/osp`, `internal/nvt` |
-| Fingerprint pass | nmap service and OS detection on open ports, after the legal sign-off | `internal/engine/nmap.go` |
-| Web add-on | httpx on HTTP-looking ports, nuclei with the bundled HTTP templates | `internal/engine/web.go` |
-| Sealed spool | Every result chunk is encrypted to the control plane's spool public key before it touches disk (ECDH P-256, HKDF, AES-GCM, stdlib only). Upload is chunked and resumable, keyed on `(job, seq)` | `internal/spool`, `/internal/seal` |
-| Updater | Bundle deltas, daemon self-update and VT reload, each with rollback | `internal/update` |
-| Console | Status, Network, Proxy, Enroll, Support bundle, Wipe; fixed input grammar; 5-minute idle return. Shows engine state, the current job and the spool backlog, and lists a support bundle's contents before asking to upload | `internal/tty`, `internal/support` |
-| Network and OS | Split-network scanning on `lan0`, site routes in lan0's networkd unit, security updates from the control plane's apt mirror | `internal/netcfg`, `internal/enroll/apt.go` |
-| Platforms | Linux is the product. On Windows, macOS and BSD the Linux-only pieces report themselves unavailable | `internal/platform` |
+| Area                     | What it does                                                                                                                                                                                                                                                                                                                                       | Where                                       |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Enrollment and identity  | Seed resolution (OVF → volume → env → console), P-256 key and CSR, code exchange for a client certificate, renewal at two thirds of the certificate lifetime, wipe                                                                                                                                                                                 | `internal/{seed,enroll,pki,state}`          |
+| Heartbeat and directives | mTLS loop with jitter and backoff, clock-skew correction, directive dispatch and ack. Every beat carries engine health, the tools the build carries, the running job and any update error                                                                                                                                                          | `internal/heartbeat`                        |
+| Job loop                 | Polls `GET /v1/appliances/{id}/jobs` after every heartbeat, verifies the job signature and its freshness, runs the shared guardrails and reports `running` / `rejected` / `failed` / `done`. Honors `stop_all` and `run_job_now`                                                                                                                   | `internal/jobs`                             |
+| Engine                   | naabu discovery (`-sn`) and port scan; openvas over OSP with the port list pinned from naabu and `alive_test=consider alive`; fragile-device exclusion; `max_duration_s` deadline; per-phase progress; normalization into the PLAN §12.1 result model (service, product and CPE from detection VTs, OS guess from host details, findings with QoD) | `internal/engine`                           |
+| OSP client, NVT metadata | `get_version`, `get_vts`, `start_scan`, `get_scans` with `pop_results`, `stop_scan`, `delete_scan`; redis and ospd supervision in the container. VT metadata (name, family, CVEs, CVSS from the feed's vectors, QoD, solution) is fetched lazily and cached per feed version                                                                       | `internal/osp`, `internal/nvt`              |
+| Fingerprint pass         | nmap service and OS detection on open ports, after the legal sign-off                                                                                                                                                                                                                                                                              | `internal/engine/nmap.go`                   |
+| Web add-on               | httpx on HTTP-looking ports, nuclei with the bundled HTTP templates                                                                                                                                                                                                                                                                                | `internal/engine/web.go`                    |
+| Sealed spool             | Every result chunk is encrypted to the control plane's spool public key before it touches disk (ECDH P-256, HKDF, AES-GCM, stdlib only). Upload is chunked and resumable, keyed on `(job, seq)`                                                                                                                                                    | `internal/spool`, `/internal/seal`          |
+| Updater                  | Bundle deltas, daemon self-update and VT reload, each with rollback                                                                                                                                                                                                                                                                                | `internal/update`                           |
+| Console                  | Status, Network, Proxy, Enroll, Support bundle, Wipe; fixed input grammar; 5-minute idle return. Shows engine state, the current job and the spool backlog, and lists a support bundle's contents before asking to upload                                                                                                                          | `internal/tty`, `internal/support`          |
+| Network and OS           | Split-network scanning on `lan0`, site routes in lan0's networkd unit, security updates from the control plane's apt mirror                                                                                                                                                                                                                        | `internal/netcfg`, `internal/enroll/apt.go` |
+| Platforms                | Linux is the product. On Windows, macOS and BSD the Linux-only pieces report themselves unavailable                                                                                                                                                                                                                                                | `internal/platform`                         |
 
 ### The control plane (`controlplane/`)
 
 Paths are relative to `controlplane/` unless they start with a slash.
 
-| Area | What it does | Where |
-|------|--------------|-------|
-| CA and enrollment | Internal CA, enrollment codes, the enroll listener and the mTLS listener, revocation by serial | `pkg/ca`, `pkg/codes`, `pkg/server/server.go` |
-| Jobs | Server-side guardrails, signing at dispatch, scan windows. Recurring schedules materialize one job per occurrence ahead of time, roll forward after a run and cancel on disable. The calendar shows past jobs with rejection reasons and future occurrences | `pkg/server/{jobs,admin_jobs,schedules}.go` |
-| Ingest and correlation | Sealed chunks are opened, parsed with a strict schema and size limits, stored, deduplicated on `(job, seq)` and merged with agent inventory. VT metadata is mirrored | `pkg/server/results.go`, `pkg/store/correlate.go` |
-| Finding lifecycle | `open` → `fixed` → reopened, decided by scan scope. Review as false positive or accepted, codified exclusions, SLA ageing by severity and vendor tier | `pkg/store/correlate.go`, `pkg/server/{replace,pilot}.go` |
-| Site governance | Scope requests only the vendor-owner token can approve, quarterly attestation, a versioned and audited fragile-device policy that travels with every job | `pkg/server/pilot.go` |
-| Coverage and alerts | Coverage score per site and vendor with reasons, appliance health, alerts, the onboarding checklist | `pkg/server/{coverage,depth}.go` |
-| Other scanners | Qualys scan-results CSV, host-list-detection XML and KnowledgeBase XML imported as a third evidence source correlated by CVE. The parity report scores the appliance against them | `/internal/qualys`, `pkg/server/replace.go` |
-| Reporting | Site and vendor summaries, weekly trend, CSV exports, signed webhooks | `pkg/server/{replace,webhooks}.go` |
-| Fleet updates | Signed bundles and per-platform releases, canary rollout with a hold on failure, the apt mirror under `/apt/` | `pkg/server/{bundles,rollout}.go`, `/internal/bundle` |
-| Gates and evaluation | The nmap legal sign-off, the full-range duration budget, the Enterprise Feed gap report | `pkg/server/depth.go`, `/internal/guard` |
-| Transparency page | `GET /transparency` and `/transparency.json` on both listeners, no credentials: scan phases, tool versions and licenses, scan configs, never-selectable families, guardrails, data collected and never collected, updates, the closed directive set, OSS notices | `pkg/server/transparency.go` |
-| Operations | Postgres or in-memory store behind one interface, directory or S3 object store, retention, Prometheus metrics, advisory locks so several instances share one database | `pkg/store`, `pkg/server/{objects,s3,retention,metrics}.go` |
+| Area                   | What it does                                                                                                                                                                                                                                                     | Where                                                       |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| CA and enrollment      | Internal CA, enrollment codes, the enroll listener and the mTLS listener, revocation by serial                                                                                                                                                                   | `pkg/ca`, `pkg/codes`, `pkg/server/server.go`               |
+| Jobs                   | Server-side guardrails, signing at dispatch, scan windows. Recurring schedules materialize one job per occurrence ahead of time, roll forward after a run and cancel on disable. The calendar shows past jobs with rejection reasons and future occurrences      | `pkg/server/{jobs,admin_jobs,schedules}.go`                 |
+| Ingest and correlation | Sealed chunks are opened, parsed with a strict schema and size limits, stored, deduplicated on `(job, seq)` and merged with agent inventory. VT metadata is mirrored                                                                                             | `pkg/server/results.go`, `pkg/store/correlate.go`           |
+| Finding lifecycle      | `open` → `fixed` → reopened, decided by scan scope. Review as false positive or accepted, codified exclusions, SLA ageing by severity and vendor tier                                                                                                            | `pkg/store/correlate.go`, `pkg/server/{replace,pilot}.go`   |
+| Site governance        | Scope requests only the vendor-owner token can approve, quarterly attestation, a versioned and audited fragile-device policy that travels with every job                                                                                                         | `pkg/server/pilot.go`                                       |
+| Coverage and alerts    | Coverage score per site and vendor with reasons, appliance health, alerts, the onboarding checklist                                                                                                                                                              | `pkg/server/{coverage,depth}.go`                            |
+| Other scanners         | Qualys scan-results CSV, host-list-detection XML and KnowledgeBase XML imported as a third evidence source correlated by CVE. The parity report scores the appliance against them                                                                                | `/internal/qualys`, `pkg/server/replace.go`                 |
+| Reporting              | Site and vendor summaries, weekly trend, CSV exports, signed webhooks                                                                                                                                                                                            | `pkg/server/{replace,webhooks}.go`                          |
+| Fleet updates          | Signed bundles and per-platform releases, canary rollout with a hold on failure, the apt mirror under `/apt/`                                                                                                                                                    | `pkg/server/{bundles,rollout}.go`, `/internal/bundle`       |
+| Gates and evaluation   | The nmap legal sign-off, the full-range duration budget, the Enterprise Feed gap report                                                                                                                                                                          | `pkg/server/depth.go`, `/internal/guard`                    |
+| Transparency page      | `GET /transparency` and `/transparency.json` on both listeners, no credentials: scan phases, tool versions and licenses, scan configs, never-selectable families, guardrails, data collected and never collected, updates, the closed directive set, OSS notices | `pkg/server/transparency.go`                                |
+| Operations             | Postgres or in-memory store behind one interface, directory or S3 object store, retention, Prometheus metrics, advisory locks so several instances share one database                                                                                            | `pkg/store`, `pkg/server/{objects,s3,retention,metrics}.go` |
 
 ### Shared code
 
@@ -150,14 +150,14 @@ Paths are relative to `controlplane/` unless they start with a slash.
 
 ### Images, CI and smoke tests
 
-| Piece | Where | State |
-|-------|-------|-------|
-| Packer qemu build → qcow2 → OVA and VHDX: preseed, `harden.sh`, `install-openvas.sh`, `seed-feed.sh`, `cleanup.sh`, OVF. The disk is GPT with a BIOS boot partition and an EFI system partition, with shim and signed GRUB next to the BIOS loader | `packer/` | validated with `packer validate`; not built yet |
-| Hypervisor helpers: `New-ApplianceVM.ps1` for Hyper-V Generation 2 and `create-vm.sh` for KVM, shipped as `*-hypervisor-helpers.zip` | `packer/hyperv`, `packer/kvm` | written |
-| Container images: the appliance (the daemon is PID 1 and supervises redis and ospd-openvas; naabu; optional web add-on and nmap) and cp-api, plus a compose dev stack | `docker/` | built and smoke-tested locally on arm64 without a VT feed |
-| CI: race tests, cross-compile vet, a native Windows test job (advisory), the engine build, shellcheck, `packer validate`, preseed hybrid-boot checks, a PowerShell parse of the Hyper-V helper, the container build with nmap, store conformance on Postgres and the S3 store against SeaweedFS | `.github/workflows/ci.yml` | written |
-| Release: build (linux amd64 and arm64, windows amd64) → image and helpers → sign and SBOM → manifest → smoke → publish. Daily bundle: feed sync → bundle build → publish to the canary group | `.github/workflows/{release,bundle}.yml` | written |
-| Smoke tests: a QEMU boot with an expect-driven console, and a compose-based container run | `ci/smoke/` | the container run passes locally; the QEMU run needs the KVM runner |
+| Piece                                                                                                                                                                                                                                                                                           | Where                                    | State                                                               |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------- |
+| Packer qemu build → qcow2 → OVA and VHDX: preseed, `harden.sh`, `install-openvas.sh`, `seed-feed.sh`, `cleanup.sh`, OVF. The disk is GPT with a BIOS boot partition and an EFI system partition, with shim and signed GRUB next to the BIOS loader                                              | `packer/`                                | validated with `packer validate`; not built yet                     |
+| Hypervisor helpers: `New-ApplianceVM.ps1` for Hyper-V Generation 2 and `create-vm.sh` for KVM, shipped as `*-hypervisor-helpers.zip`                                                                                                                                                            | `packer/hyperv`, `packer/kvm`            | written                                                             |
+| Container images: the appliance (the daemon is PID 1 and supervises redis and ospd-openvas; naabu; optional web add-on and nmap) and cp-api, plus a compose dev stack                                                                                                                           | `docker/`                                | built and smoke-tested locally on arm64 without a VT feed           |
+| CI: race tests, cross-compile vet, a native Windows test job (advisory), the engine build, shellcheck, `packer validate`, preseed hybrid-boot checks, a PowerShell parse of the Hyper-V helper, the container build with nmap, store conformance on Postgres and the S3 store against SeaweedFS | `.github/workflows/ci.yml`               | written                                                             |
+| Release: build (linux amd64 and arm64, windows amd64) → image and helpers → sign and SBOM → manifest → smoke → publish. Daily bundle: feed sync → bundle build → publish to the canary group                                                                                                    | `.github/workflows/{release,bundle}.yml` | written                                                             |
+| Smoke tests: a QEMU boot with an expect-driven console, and a compose-based container run                                                                                                                                                                                                       | `ci/smoke/`                              | the container run passes locally; the QEMU run needs the KVM runner |
 
 ## Quick start
 
@@ -213,11 +213,11 @@ cp-api admin hosts site_… | findings site_… | host host_… | finding fnd_�
 cp-api admin agent-inventory site_… inventory.json     # hand over agent-track data for correlation
 ```
 
-| Mode | Modules by default | Typical cadence |
-|------|--------------------|-----------------|
-| `discovery` | host discovery | any time; the first contact with a site |
-| `inventory` | discovery, port scan, openvas with the `inventory` config | weekly |
-| `full` | discovery, port scan, openvas with the `full` config, the web add-on, and the fingerprint pass once it is approved | monthly |
+| Mode        | Modules by default                                                                                                 | Typical cadence                         |
+| ----------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| `discovery` | host discovery                                                                                                     | any time; the first contact with a site |
+| `inventory` | discovery, port scan, openvas with the `inventory` config                                                          | weekly                                  |
+| `full`      | discovery, port scan, openvas with the `full` config, the web add-on, and the fingerprint pass once it is approved | monthly                                 |
 
 - **Scan windows.** A job waits for its window (`--cron`, `--tz`, `--max-duration`). A missed window rolls to the next cron start. `--now` and `run-now` drop the window.
 - **Ports.** `standard` is naabu's top 1000 plus enterprise and OT extras. `full` is all 65535 TCP ports and is budgeted, see [Fingerprinting and full-range scans](#fingerprinting-and-full-range-scans). An explicit list also works.
@@ -314,20 +314,20 @@ The principle is to run both scanners for two cycles, measure, then switch. The 
 
 Imported findings appear with source `qualys` on the same hosts, matched by hostname and then IP. A CVE the appliance also found becomes one finding with two evidence entries in state `confirmed`. Informational rows are skipped.
 
-| Status | Set when |
-|--------|----------|
-| `open` | first observed by any scanner |
-| `fixed` | a later scan whose scope covers the finding observed the host without it: inventory findings by an inventory or full scan, full-only findings by a full scan, web findings by a job with the web module. Hosts the fragile policy kept away from detection never resolve findings |
-| reopened (`open`, `reopens` + 1) | observed again after being fixed |
+| Status                           | Set when                                                                                                                                                                                                                                                                          |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `open`                           | first observed by any scanner                                                                                                                                                                                                                                                     |
+| `fixed`                          | a later scan whose scope covers the finding observed the host without it: inventory findings by an inventory or full scan, full-only findings by a full scan, web findings by a job with the web module. Hosts the fragile policy kept away from detection never resolve findings |
+| reopened (`open`, `reopens` + 1) | observed again after being fixed                                                                                                                                                                                                                                                  |
 
 Agent-backed findings close through the agent track, and Qualys-only findings close through a `Fixed` row in a later import. Findings reviewed as false positives or accepted never count as overdue.
 
 | Severity | SLA, Tier 1-2 | SLA, Tier 3-4 |
-|----------|---------------|---------------|
-| critical | 15 days | 30 days |
-| high | 30 days | 60 days |
-| medium | 90 days | 180 days |
-| low | 180 days | 360 days |
+| -------- | ------------- | ------------- |
+| critical | 15 days       | 30 days       |
+| high     | 30 days       | 60 days       |
+| medium   | 90 days       | 180 days      |
+| low      | 180 days      | 360 days      |
 
 Override the base values with `cp-api serve --sla critical=10,high=20`. Summaries give open and overdue counts by severity, what was new, fixed and reopened in 30 days, mean and oldest age, risk points, coverage, top findings and the last scans. The trend is weekly.
 
@@ -380,11 +380,11 @@ make docker VERSION=1.0.0                        # container images; add WITH_NM
 
 The workflows expect these secrets and runners:
 
-| Workflow | Needs |
-|----------|-------|
-| release | `APPLIANCE_ROOT_CA_PEM`, `APPLIANCE_RELEASE_PUB_PEM` (embedded into the daemon; without it appliances refuse bundles and self-updates), `RELEASE_KEY_PEM`, `COSIGN_KEY` and `COSIGN_PASSWORD`, `FEED_TARBALL_URL`, `STAGING_CP_ADMIN_URL`, `STAGING_CP_ADMIN_TOKEN`, `STAGING_CP_URL_FOR_GUEST`, optional `STAGING_CP_CA_PEM` |
-| release, image and smoke jobs | a self-hosted runner labelled `kvm` with qemu, genisoimage, expect and jq |
-| daily bundle | `CP_ADMIN_URL`, `CP_ADMIN_TOKEN`, `CP_ROOT_CA_PEM`, `RELEASE_KEY_PEM`, optional `FEED_GPG_KEYRING_B64`; variables `FEED_SOURCE` and `NUCLEI_TEMPLATES_REF` |
+| Workflow                      | Needs                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| release                       | `APPLIANCE_ROOT_CA_PEM`, `APPLIANCE_RELEASE_PUB_PEM` (embedded into the daemon; without it appliances refuse bundles and self-updates), `RELEASE_KEY_PEM`, `COSIGN_KEY` and `COSIGN_PASSWORD`, `FEED_TARBALL_URL`, `STAGING_CP_ADMIN_URL`, `STAGING_CP_ADMIN_TOKEN`, `STAGING_CP_URL_FOR_GUEST`, optional `STAGING_CP_CA_PEM` |
+| release, image and smoke jobs | a self-hosted runner labelled `kvm` with qemu, genisoimage, expect and jq                                                                                                                                                                                                                                                     |
+| daily bundle                  | `CP_ADMIN_URL`, `CP_ADMIN_TOKEN`, `CP_ROOT_CA_PEM`, `RELEASE_KEY_PEM`, optional `FEED_GPG_KEYRING_B64`; variables `FEED_SOURCE` and `NUCLEI_TEMPLATES_REF`                                                                                                                                                                    |
 
 ## Testing
 
@@ -398,14 +398,14 @@ ci/smoke/run-qemu.sh packer/output-appliance/appliance-1.0.0.qcow2   # the built
 
 The end-to-end tests run the real daemon loop, runner and engine against the real server in one process. The scanners are POSIX shell-script fakes, so these tests skip on Windows.
 
-| Test | Covers |
-|------|--------|
-| `TestPhase1` | enroll → online → directives → support bundle → wipe |
+| Test         | Covers                                                                                                                                                                                                                                                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TestPhase1` | enroll → online → directives → support bundle → wipe                                                                                                                                                                                                                                                                        |
 | `TestPhase2` | a `discovery` and an `inventory` job against a lab subnet with a fake naabu and a scripted fake ospd: the seeded CVE-2019-0708 is detected with QoD 97, the host is correlated with agent inventory into one `both` host with a `confirmed` finding, and `stop_all` halts an in-flight OSP scan and flushes partial results |
-| `TestPhase3` | a feed delta applies without a reboot; the canary gets bundles and releases first; a failing bundle is rolled back on the appliance and held on the control plane; a daemon self-update is confirmed by the new version's heartbeat |
-| `TestPhase4` | the fragile policy reaches the appliance and a cleared host is scanned; a codified false positive is suppressed by the next scan; a schedule runs a job in its window; coverage, alerts and the transparency page |
-| `TestPhase5` | the fingerprint pass runs only after the sign-off and enriches the inventory; the full-range option is budgeted at dispatch and on the appliance; the heartbeat reports the tools; the onboarding checklist |
-| `TestPhase6` | a real scan opens a finding; a Qualys export merges with it and the parity report scores the appliance; a rescan closes the finding and the webhook receiver gets the events; summary, export and metrics |
+| `TestPhase3` | a feed delta applies without a reboot; the canary gets bundles and releases first; a failing bundle is rolled back on the appliance and held on the control plane; a daemon self-update is confirmed by the new version's heartbeat                                                                                         |
+| `TestPhase4` | the fragile policy reaches the appliance and a cleared host is scanned; a codified false positive is suppressed by the next scan; a schedule runs a job in its window; coverage, alerts and the transparency page                                                                                                           |
+| `TestPhase5` | the fingerprint pass runs only after the sign-off and enriches the inventory; the full-range option is budgeted at dispatch and on the appliance; the heartbeat reports the tools; the onboarding checklist                                                                                                                 |
+| `TestPhase6` | a real scan opens a finding; a Qualys export merges with it and the parity report scores the appliance; a rescan closes the finding and the webhook receiver gets the events; summary, export and metrics                                                                                                                   |
 
 `TestPhase3` logs `VT reload failed; rolling back` and `bundle rollout held` on purpose: it publishes a broken delta to prove the rollback and the canary hold.
 
@@ -416,31 +416,31 @@ Two suites need a service and skip without it:
 
 Both smoke tests enroll an appliance, dispatch a `discovery` job (and an `inventory` job when the engine is healthy), exercise directives, publish a synthetic bundle to the appliance as canary and then a delta, and run the site-governance, sign-off, full-range budget, onboarding, feed-gap and Qualys-replacement round trips. The QEMU run also drives the console over serial and scans the no-egress 10.0.3.0/24 leg in split-network mode.
 
-| Variable | Effect |
-|----------|--------|
-| `SMOKE_SKIP_ENGINE=1` | do not require a loaded VT cache (an image built without a feed) |
-| `SMOKE_KEEP=1` | leave the stack or the VM running afterwards |
-| `SMOKE_NO_BUILD=1` | do not rebuild the container images |
-| `SMOKE_SKIP_BUNDLE=1` | skip the bundle canary and delta test |
-| `SMOKE_BUNDLE_FEED=1` | add a two-VT feed to the synthetic bundle, for a real engine |
+| Variable                              | Effect                                                              |
+| ------------------------------------- | ------------------------------------------------------------------- |
+| `SMOKE_SKIP_ENGINE=1`                 | do not require a loaded VT cache (an image built without a feed)    |
+| `SMOKE_KEEP=1`                        | leave the stack or the VM running afterwards                        |
+| `SMOKE_NO_BUILD=1`                    | do not rebuild the container images                                 |
+| `SMOKE_SKIP_BUNDLE=1`                 | skip the bundle canary and delta test                               |
+| `SMOKE_BUNDLE_FEED=1`                 | add a two-VT feed to the synthetic bundle, for a real engine        |
 | `WITH_NMAP=1`, `SMOKE_REQUIRE_NMAP=1` | build the image with nmap and insist that the fingerprint pass runs |
-| `SMOKE_UEFI=1`, `SMOKE_SKIP_TTY=1` | QEMU only: boot through OVMF; skip the console test |
+| `SMOKE_UEFI=1`, `SMOKE_SKIP_TTY=1`    | QEMU only: boot through OVMF; skip the console test                 |
 
 The smoke run embeds the dev CA in the daemon build. Restore the placeholders afterwards with `git checkout daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem`.
 
 ## Running the daemon on Windows
 
-`applianced-windows-amd64.exe` is a supported build of the daemon for a Windows host: a lab VM, a jump box, a site without a hypervisor slot. It is the daemon, not the appliance. It enrolls, heartbeats, acks directives, uploads support bundles and runs `discovery` and port-scan jobs with naabu. There is no openvas on Windows, so `inventory` and `full` jobs are held by the control plane (*engine not ready*) and, if forced, rejected by the daemon with `engine`.
+`applianced-windows-amd64.exe` is a supported build of the daemon for a Windows host: a lab VM, a jump box, a site without a hypervisor slot. It is the daemon, not the appliance. It enrolls, heartbeats, acks directives, uploads support bundles and runs `discovery` and port-scan jobs with naabu. There is no openvas on Windows, so `inventory` and `full` jobs are held by the control plane (_engine not ready_) and, if forced, rejected by the daemon with `engine`.
 
-| | Linux appliance | Windows host |
-|---|---|---|
-| State | `/var/lib/appliance`, `/run/appliance`, `/etc/appliance` | `%ProgramData%\TPRM Appliance\{state,run,etc}` (`APPLIANCE_STATE_DIR` and `APPLIANCE_RUN_DIR` override) |
-| Engine | `/opt/engine/naabu` and ospd-openvas | `engine\naabu.exe` beside the executable, or `APPLIANCE_NAABU`; no ospd |
-| Seed | OVF → volume → env → console | env (`APPLIANCE_CODE`, `APPLIANCE_CP_URL`, `APPLIANCE_PROXY`) or `--seed-file` |
-| Host metrics | `/proc` | kernel32 (uptime, free memory, free disk); no load average |
-| Machine identity | `/etc/machine-id` | `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid` |
-| Wipe | state deleted, `systemctl poweroff` | state deleted, `shutdown /s /t 0` |
-| Network, time, console | systemd-networkd, htpdate, tty1 | not applicable: the Network screen reports unsupported; `applianced tty` is a plain stdin menu |
+|                        | Linux appliance                                          | Windows host                                                                                            |
+| ---------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| State                  | `/var/lib/appliance`, `/run/appliance`, `/etc/appliance` | `%ProgramData%\TPRM Appliance\{state,run,etc}` (`APPLIANCE_STATE_DIR` and `APPLIANCE_RUN_DIR` override) |
+| Engine                 | `/opt/engine/naabu` and ospd-openvas                     | `engine\naabu.exe` beside the executable, or `APPLIANCE_NAABU`; no ospd                                 |
+| Seed                   | OVF → volume → env → console                             | env (`APPLIANCE_CODE`, `APPLIANCE_CP_URL`, `APPLIANCE_PROXY`) or `--seed-file`                          |
+| Host metrics           | `/proc`                                                  | kernel32 (uptime, free memory, free disk); no load average                                              |
+| Machine identity       | `/etc/machine-id`                                        | `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`                                                      |
+| Wipe                   | state deleted, `systemctl poweroff`                      | state deleted, `shutdown /s /t 0`                                                                       |
+| Network, time, console | systemd-networkd, htpdate, tty1                          | not applicable: the Network screen reports unsupported; `applianced tty` is a plain stdin menu          |
 
 ```powershell
 # naabu: the Windows build from https://github.com/projectdiscovery/naabu/releases (v2.3.6). Host discovery and SYN

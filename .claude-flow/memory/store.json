@@ -962,6 +962,627 @@
       "lastAccessed": "2026-10-05T13:45:40.773Z",
       "accessCount": 0,
       "expiresAt": "2026-11-04T13:45:40.773Z"
+    },
+    "cmd-1791230867431": {
+      "key": "cmd-1791230867431",
+      "value": "{\"command\":\"echo \\\"=== bundle download: any window or throttle?\\\"; grep -rn -i -E 'throttle|bandwidth|bytes per|rate ?limit|off-peak|update window|maintenance window' daemon/internal/update/*.go controlplane/pkg/server/*.go 2>/dev/null | grep -v _test | cut -c1-200 | head -10 || true; echo \\\"(end)\\\"; echo \\\"=== how the appliance fetches bundle files\\\"; grep -n -E 'func \\\\(m \\\\*Manager\\\\) (applyBundle|fetch|download|Apply)[A-Za-z]*' daemon/internal/update/*.go | head -8; echo \\\"=== ospd socket flags in the VM unit\\\"; grep -n -E 'unix-socket|--port|--bind-address|ExecStart=.*ospd' packer/scripts/install-openvas.sh | cut -c1-200 | head -6\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T20:07:47.431Z",
+      "lastAccessed": "2026-10-05T20:07:47.431Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T20:07:47.431Z"
+    },
+    "cmd-1791230867475": {
+      "key": "cmd-1791230867475",
+      "value": "{\"command\":\"echo \\\"=== README: transport and topology statements\\\"; grep -n -i -E 'outbound|inbound|no listening|mTLS|one appliance per site|unix socket|gvmd|portal' README.md | cut -c1-230 | head -24; echo \\\"=== PLAN: hub/sensor design choices\\\"; grep -n -i -E 'gvmd|GSA|outbound|inbound|tunnel|wireguard|vpn' PLAN.md | cut -c1-200 | head -20\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T20:07:47.475Z",
+      "lastAccessed": "2026-10-05T20:07:47.475Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T20:07:47.475Z"
+    },
+    "cmd-1791230869235": {
+      "key": "cmd-1791230869235",
+      "value": "{\"command\":\"docker ps --format '{{.Names}}\\\\t{{.Status}}' | grep -E 'scanner-' ; set -a && . docker/.env && set +a && APL=$(python3 -c 'import json; print(json.load(open(\\\"dev/lab/appliance.json\\\"))[\\\"appliance_id\\\"])') && curl -s --max-time 10 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/appliances/$APL\\\" | python3 -c 'import json,sys; d=json.load(sys.stdin); e=(d.get(\\\"last_heartbeat\\\") or {}).get(\\\"engine\\\") or {}; print(\\\"appliance:\\\", d.get(\\\"status\\\"), \\\"online:\\\", d.get(\\\"online\\\")); print(\\\"engine: ospd_up=%s vt_cache_loaded=%s feed=%s openvas=%s\\\" % (e.get(\\\"ospd_up\\\"), e.get(\\\"vt_cache_loaded\\\"), e.get(\\\"feed_version\\\"), e.get(\\\"openvas_version\\\")))'; echo \\\"--- jobs on this control plane\\\"; dev/lab/cp jobs 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d), \\\"jobs\\\")' 2>/dev/null || echo \\\"could not list jobs\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T20:07:49.235Z",
+      "lastAccessed": "2026-10-05T20:07:49.235Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T20:07:49.235Z"
+    },
+    "cmd-1791231022969": {
+      "key": "cmd-1791231022969",
+      "value": "{\"command\":\"echo \\\"=== containers\\\"; docker ps --format '{{.Names}}\\\\t{{.Status}}' | grep -E 'scanner-'; echo \\\"=== target addresses\\\"; for c in nginx tomcat redis httpd; do printf '%s\\\\t%s\\\\n' \\\"$c\\\" \\\"$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' scanner-lab-$c-1)\\\"; done; echo \\\"=== memory\\\"; docker stats --no-stream --format '{{.Name}}\\\\t{{.MemUsage}}' | grep -E 'scanner-'; echo \\\"=== engine\\\"; set -a && . docker/.env && set +a && APL=$(python3 -c 'import json; print(json.load(open(\\\"dev/lab/appliance.json\\\"))[\\\"appliance_id\\\"])') && curl -s --max-time 10 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/appliances/$APL\\\" | python3 -c 'import json,sys; d=json.load(sys.stdin); e=(d.get(\\\"last_heartbeat\\\") or {}).get(\\\"engine\\\") or {}; print(d.get(\\\"appliance_id\\\"), d.get(\\\"status\\\"), \\\"online:\\\", d.get(\\\"online\\\")); print(\\\"ospd_up=%s vt_cache_loaded=%s feed=%s\\\" % (e.get(\\\"ospd_up\\\"), e.get(\\\"vt_cache_loaded\\\"), e.get(\\\"feed_version\\\")))'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T20:10:22.969Z",
+      "lastAccessed": "2026-10-05T20:10:22.969Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T20:10:22.969Z"
+    },
+    "cmd-1791231030513": {
+      "key": "cmd-1791231030513",
+      "value": "{\"command\":\"dev/lab/cp create-job --appliance apl_06GGRJKKP85W1AGRNT5FZY0YV8 --mode full --targets 172.18.0.4,172.18.0.5,172.18.0.6,172.18.0.7 --now > dev/lab/job.json; python3 -c 'import json; d=json.load(open(\\\"dev/lab/job.json\\\")); s=d.get(\\\"spec\\\",{}); print(\\\"job:\\\", d.get(\\\"id\\\"), \\\"status:\\\", d.get(\\\"status\\\")); print(\\\"modules:\\\", s.get(\\\"modules\\\"), \\\"ports:\\\", s.get(\\\"ports\\\"), \\\"rate:\\\", s.get(\\\"rate\\\")); print(\\\"openvas:\\\", s.get(\\\"openvas\\\")); print(\\\"web:\\\", s.get(\\\"web\\\")); print(\\\"safe_checks:\\\", s.get(\\\"safe_checks\\\"))' || cat dev/lab/job.json\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T20:10:30.513Z",
+      "lastAccessed": "2026-10-05T20:10:30.513Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T20:10:30.513Z"
+    },
+    "cmd-1791231584445": {
+      "key": "cmd-1791231584445",
+      "value": "{\"command\":\"set -a && . docker/.env && set +a && J=job_06GGVC3JVWY9BHTYNAN4Z7806M && get() { curl -s --max-time 10 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/jobs/$J\\\"; } && last=\\\"\\\" && for i in $(seq 1 54); do cur=$(get | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[\\\"status\\\"], d.get(\\\"phase\\\",\\\"\\\"), str(d.get(\\\"progress_pct\\\",0))+\\\"%\\\", \\\"batches=\\\"+str(d.get(\\\"batches\\\",0)), d.get(\\\"reject_reason\\\",\\\"\\\"))' 2>/dev/null); if [ \\\"$cur\\\" != \\\"$last\\\" ]; then echo \\\"$(date +%H:%M:%S) $cur\\\"; last=\\\"$cur\\\"; fi; case \\\"$cur\\\" in queued*|dispatched*|running*) sleep 10;; *) break;; esac; done; echo \\\"--- appliance log (job lines)\\\"; docker logs --since 12m scanner-appliance-appliance-1 2>&1 | grep -v -E 'mqtt|MQTT' | grep -E 'level=|OSPD' | tail -25 | cut -c1-330\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T20:19:44.445Z",
+      "lastAccessed": "2026-10-05T20:19:44.445Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T20:19:44.445Z"
+    },
+    "cmd-1791231622129": {
+      "key": "cmd-1791231622129",
+      "value": "{\"command\":\"set -a && . docker/.env && set +a && api() { curl -s --max-time 20 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443$1\\\"; } && SITE=$(python3 -c 'import json; print(json.load(open(\\\"dev/lab/appliance.json\\\"))[\\\"site_id\\\"])') && echo \\\"=== job\\\" && api /admin/jobs/job_06GGVC3JVWY9BHTYNAN4Z7806M | python3 -c '\\nimport json,sys\\nd=json.load(sys.stdin)\\nprint(\\\"status:\\\", d.get(\\\"status\\\"), \\\"| phase:\\\", d.get(\\\"phase\\\",\\\"\\\"), \\\"| progress:\\\", d.get(\\\"progress_pct\\\"), \\\"| batches:\\\", d.get(\\\"batches\\\"))\\nprint(\\\"started:\\\", d.get(\\\"started_at\\\"), \\\"| finished:\\\", d.get(\\\"finished_at\\\"))\\ns=d.get(\\\"stats\\\") or {}\\nprint(\\\"stats:\\\", {k:s.get(k) for k in (\\\"hosts_alive\\\",\\\"hosts_scanned\\\",\\\"fragile_excluded\\\",\\\"open_ports\\\",\\\"findings\\\",\\\"duration_s\\\")})\\nprint(\\\"phase seconds:\\\", s.get(\\\"phase_duration_s\\\"))\\nprint(\\\"warnings:\\\", s.get(\\\"warnings\\\") or s.get(\\\"rejected\\\") or [])\\n' && echo \\\"=== findings (counts only)\\\" && api \\\"/admin/sites/$SITE/findings\\\" | python3 -c '\\nimport json,sys,collections\\nd=json.load(sys.stdin)\\nfs=d if isinstance(d,list) else (d.get(\\\"findings\\\") or d.get(\\\"items\\\") or [])\\nprint(\\\"total:\\\", len(fs))\\ndef sev(f):\\n    s=(f.get(\\\"severity\\\") or \\\"\\\").lower()\\n    if s: return s\\n    c=f.get(\\\"cvss\\\") or 0\\n    return \\\"critical\\\" if c>=9 else \\\"high\\\" if c>=7 else \\\"medium\\\" if c>=4 else \\\"low\\\" if c>0 else \\\"info\\\"\\norder=[\\\"critical\\\",\\\"high\\\",\\\"medium\\\",\\\"low\\\",\\\"info\\\"]\\nc=collections.Counter(sev(f) for f in fs)\\nprint(\\\"by severity:\\\", {k:c[k] for k in order if c[k]} , {k:v for k,v in c.items() if k not in order})\\nprint(\\\"by status:\\\", dict(collections.Counter((f.get(\\\"status\\\") or \\\"?\\\") for f in fs)))\\nsrc=collections.Counter()\\nfor f in fs:\\n    ev=f.get(\\\"evidence\\\") or []\\n    for e in ev: src[e.get(\\\"source\\\",\\\"?\\\")]+=1\\n    if not ev: src[f.get(\\\"source\\\",\\\"?\\\")]+=1\\nprint(\\\"by source:\\\", dict(src))\\nhosts=collections.Counter((f.get(\\\"host_ip\\\") or f.get(\\\"ip\\\") or f.get(\\\"host_id\\\") or \\\"?\\\") for f in fs)\\nprint(\\\"hosts with findings:\\\", len(hosts), \\\"| per host:\\\", sorted(hosts.values(), reverse=True))\\nprint(\\\"with a CVE:\\\", sum(1 for f in fs if f.get(\\\"cve\\\")), \\\"| fields:\\\", sorted(fs[0].keys()) if fs else [])\\n'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T20:20:22.129Z",
+      "lastAccessed": "2026-10-05T20:20:22.129Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T20:20:22.129Z"
+    },
+    "cmd-1791231630550": {
+      "key": "cmd-1791231630550",
+      "value": "{\"command\":\"echo \\\"now (UTC): $(date -u +%H:%M:%S)\\\"; docker logs --since 2026-10-05T20:16:00Z scanner-appliance-appliance-1 2>&1 | grep -v -i mqtt | grep -E 'level=(INFO|WARN|ERROR)|OSPD' | cut -c1-300 | tail -30; echo \\\"--- processes in the appliance\\\"; docker exec scanner-appliance-appliance-1 sh -c 'ps -eo pid,etime,pcpu,rss,args --sort=-pcpu | head -12' | cut -c1-200\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T20:20:30.550Z",
+      "lastAccessed": "2026-10-05T20:20:30.550Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T20:20:30.550Z"
+    },
+    "cmd-1791237806094": {
+      "key": "cmd-1791237806094",
+      "value": "{\"command\":\"set -a && . docker/.env && set +a && echo \\\"now (UTC): $(date -u +%H:%M:%S)\\\" && curl -s --max-time 20 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/jobs/job_06GGVC3JVWY9BHTYNAN4Z7806M\\\" | python3 -c '\\nimport json,sys\\nd=json.load(sys.stdin)\\nprint(\\\"status:\\\", d.get(\\\"status\\\"), \\\"| phase:\\\", d.get(\\\"phase\\\",\\\"\\\"), \\\"| progress:\\\", d.get(\\\"progress_pct\\\"), \\\"| batches:\\\", d.get(\\\"batches\\\"))\\nprint(\\\"started:\\\", d.get(\\\"started_at\\\"), \\\"| finished:\\\", d.get(\\\"finished_at\\\"), \\\"| reject:\\\", d.get(\\\"reject_reason\\\",\\\"\\\"))\\ns=d.get(\\\"stats\\\") or {}\\nprint(\\\"stats:\\\", {k:s.get(k) for k in (\\\"hosts_alive\\\",\\\"hosts_scanned\\\",\\\"fragile_excluded\\\",\\\"open_ports\\\",\\\"findings\\\",\\\"duration_s\\\")})\\nprint(\\\"phase seconds:\\\", s.get(\\\"phase_duration_s\\\"))\\n'; echo \\\"--- appliance log since the engine finished (daemon lines only)\\\"; docker logs --since 2026-10-05T20:16:00Z scanner-appliance-appliance-1 2>&1 | grep -E 'level=(INFO|WARN|ERROR)' | cut -c1-260 | tail -30; echo \\\"--- line count by kind since 20:16\\\"; docker logs --since 2026-10-05T20:16:00Z scanner-appliance-appliance-1 2>&1 | awk '/mqtt|MQTT/{m++;next} /level=/{d++;next} /OSPD/{o++;next} {x++} END{printf \\\"mqtt=%d daemon=%d ospd=%d other=%d\\\\n\\\", m,d,o,x}'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:03:26.094Z",
+      "lastAccessed": "2026-10-05T22:03:26.094Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:03:26.094Z"
+    },
+    "cmd-1791237835405": {
+      "key": "cmd-1791237835405",
+      "value": "{\"command\":\"set -a && . docker/.env && set +a && api() { curl -s --max-time 30 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443$1\\\"; } && SITE=$(python3 -c 'import json; print(json.load(open(\\\"dev/lab/appliance.json\\\"))[\\\"site_id\\\"])') && api \\\"/admin/sites/$SITE/findings\\\" > dev/lab/findings.json && api \\\"/admin/sites/$SITE/hosts\\\" > dev/lab/hosts.json && python3 - <<'EOF'\\nimport json, collections\\nraw = json.load(open(\\\"dev/lab/findings.json\\\"))\\nfs = raw if isinstance(raw, list) else (raw.get(\\\"findings\\\") or raw.get(\\\"items\\\") or [])\\nhraw = json.load(open(\\\"dev/lab/hosts.json\\\"))\\nhs = hraw if isinstance(hraw, list) else (hraw.get(\\\"hosts\\\") or [])\\nprint(\\\"findings:\\\", len(fs), \\\"| hosts:\\\", len(hs))\\nprint(\\\"finding fields:\\\", sorted(fs[0].keys()) if fs else [])\\nprint(\\\"host fields:\\\", sorted(hs[0].keys()) if hs else [])\\ndef sev(f):\\n    s = (f.get(\\\"severity\\\") or \\\"\\\").lower()\\n    if s: return s\\n    c = f.get(\\\"cvss\\\") or 0\\n    return \\\"critical\\\" if c >= 9 else \\\"high\\\" if c >= 7 else \\\"medium\\\" if c >= 4 else \\\"low\\\" if c > 0 else \\\"info\\\"\\norder = [\\\"critical\\\", \\\"high\\\", \\\"medium\\\", \\\"low\\\", \\\"info\\\"]\\nc = collections.Counter(sev(f) for f in fs)\\nprint(\\\"by severity:\\\", {k: c[k] for k in order if c[k]}, {k: v for k, v in c.items() if k not in order})\\nprint(\\\"by status:\\\", dict(collections.Counter(f.get(\\\"status\\\") or \\\"?\\\" for f in fs)))\\nsrc = collections.Counter()\\nfor f in fs:\\n    ev = f.get(\\\"evidence\\\") or []\\n    for e in ev: src[e.get(\\\"source\\\", \\\"?\\\")] += 1\\n    if not ev: src[f.get(\\\"source\\\", \\\"?\\\")] += 1\\nprint(\\\"by source:\\\", dict(src))\\nprint(\\\"with at least one CVE:\\\", sum(1 for f in fs if f.get(\\\"cve\\\")), \\\"| distinct CVEs:\\\", len({x for f in fs for x in (f.get(\\\"cve\\\") or [])}))\\nqods = [f.get(\\\"qod\\\") or max([e.get(\\\"qod\\\") or 0 for e in (f.get(\\\"evidence\\\") or [])] or [0]) for f in fs]\\nprint(\\\"QoD min/median/max:\\\", min(qods), sorted(qods)[len(qods)//2], max(qods))\\nipof = {h.get(\\\"id\\\"): h.get(\\\"ip\\\") for h in hs}\\nper = collections.defaultdict(collections.Counter)\\nfor f in fs:\\n    ip = f.get(\\\"host_ip\\\") or f.get(\\\"ip\\\") or ipof.get(f.get(\\\"host_id\\\")) or \\\"?\\\"\\n    per[ip][sev(f)] += 1\\nprint(\\\"--- per host\\\")\\nfor h in sorted(hs, key=lambda h: h.get(\\\"ip\\\") or \\\"\\\"):\\n    ip = h.get(\\\"ip\\\")\\n    ports = sorted(p.get(\\\"port\\\") for p in (h.get(\\\"ports\\\") or []))\\n    svc = {p.get(\\\"port\\\"): (p.get(\\\"service\\\") or p.get(\\\"product\\\") or \\\"\\\") for p in (h.get(\\\"ports\\\") or [])}\\n    print(\\\" \\\", ip, \\\"| mac:\\\", h.get(\\\"mac\\\") or h.get(\\\"macs\\\"), \\\"| os:\\\", h.get(\\\"os_guess\\\") or h.get(\\\"os\\\") or \\\"-\\\", \\\"| ports:\\\", ports, \\\"|\\\", {k: per[ip][k] for k in order if per[ip][k]})\\n    print(\\\"     services:\\\", {k: v for k, v in svc.items() if v})\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:03:55.405Z",
+      "lastAccessed": "2026-10-05T22:03:55.405Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:03:55.405Z"
+    },
+    "cmd-1791237877972": {
+      "key": "cmd-1791237877972",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport json, collections\\nfs = json.load(open(\\\"dev/lab/findings.json\\\"))\\nfs = fs if isinstance(fs, list) else (fs.get(\\\"findings\\\") or fs.get(\\\"items\\\") or [])\\nhs = json.load(open(\\\"dev/lab/hosts.json\\\"))\\nhs = hs if isinstance(hs, list) else (hs.get(\\\"hosts\\\") or [])\\nipof = {h[\\\"id\\\"]: h[\\\"ip\\\"] for h in hs}\\ns = lambda v, w: str(\\\"-\\\" if v is None else (round(v, 1) if isinstance(v, float) else v)).rjust(w)\\nprint(\\\"exposure_multiplier:\\\", dict(collections.Counter(str(f.get(\\\"exposure_multiplier\\\")) for f in fs)), \\\"| state:\\\", dict(collections.Counter(str(f.get(\\\"state\\\")) for f in fs)))\\nprint(\\\"findings with no port:\\\", sum(1 for f in fs if not f.get(\\\"port\\\")), \\\"| with no cvss:\\\", sum(1 for f in fs if f.get(\\\"cvss\\\") is None), \\\"| names holding an HTML entity:\\\", sum(1 for f in fs if \\\"&\\\" in (f.get(\\\"name\\\") or \\\"\\\") and \\\";\\\" in (f.get(\\\"name\\\") or \\\"\\\")))\\nprint(\\\"cvss values that are not 1-decimal:\\\", sum(1 for f in fs if f.get(\\\"cvss\\\") is not None and round(f[\\\"cvss\\\"], 1) != f[\\\"cvss\\\"]), \\\"of\\\", len(fs))\\nfor ip in sorted(set(ipof.values())):\\n    rows = [f for f in fs if ipof.get(f.get(\\\"host_id\\\")) == ip]\\n    rows.sort(key=lambda f: (-(f.get(\\\"cvss\\\") or 0), -(f.get(\\\"qod\\\") or 0)))\\n    hi = [f for f in rows if (f.get(\\\"qod\\\") or 0) >= 70]\\n    print(f\\\"--- {ip}: {len(rows)} findings, {len(hi)} with QoD>=70\\\")\\n    show = rows if len(rows) <= 4 else (hi[:5] if hi else []) + [f for f in rows if f not in hi][:3]\\n    for f in show:\\n        print(\\\"   cvss\\\", s(f.get(\\\"cvss\\\"), 4), \\\"qod\\\", s(f.get(\\\"qod\\\"), 3), \\\"port\\\", s(f.get(\\\"port\\\"), 5), \\\"cves\\\", s(len(f.get(\\\"cve\\\") or []), 2), \\\" \\\", (f.get(\\\"name\\\") or \\\"\\\")[:86])\\nprint(\\\"--- host port details\\\")\\nfor h in sorted(hs, key=lambda h: h[\\\"ip\\\"]):\\n    for p in h.get(\\\"ports\\\") or []:\\n        print(\\\"  \\\", h[\\\"ip\\\"], {k: v for k, v in p.items() if v not in (None, \\\"\\\", [], {})})\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:04:37.972Z",
+      "lastAccessed": "2026-10-05T22:04:37.972Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:04:37.972Z"
+    },
+    "cmd-1791237908890": {
+      "key": "cmd-1791237908890",
+      "value": "{\"command\":\"echo \\\"=== how run progress reaches the control plane\\\"; grep -rn --include='*.go' -E 'func \\\\(r \\\\*run\\\\) progress|func \\\\(r \\\\*Runner\\\\) (report|Progress|Current)|JobStatusRequest\\\\{|ProgressPct|RunningJob|running_job' daemon/internal api/v1 controlplane/pkg/server | grep -v _test | cut -c1-230 | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:05:08.890Z",
+      "lastAccessed": "2026-10-05T22:05:08.890Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:05:08.890Z"
+    },
+    "cmd-1791237908978": {
+      "key": "cmd-1791237908978",
+      "value": "{\"command\":\"echo \\\"=== SLA defaults and computation\\\"; grep -rn --include='*.go' -E 'sla_days|SLADays|ExposureMultiplier|exposure_multiplier|critical=15|\\\"critical\\\": *[0-9]+|DefaultSLA' controlplane api internal 2>/dev/null | grep -v _test | cut -c1-220 | head -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:05:08.978Z",
+      "lastAccessed": "2026-10-05T22:05:08.978Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:05:08.978Z"
+    },
+    "cmd-1791237909139": {
+      "key": "cmd-1791237909139",
+      "value": "{\"command\":\"echo \\\"=== nvt metadata lookup\\\"; wc -l daemon/internal/nvt/*.go | tail -5; grep -n -E 'func |get_vts|vt_id|filter=|Concurrency|batch|for _, oid|cache' daemon/internal/nvt/nvt.go | cut -c1-200 | head -50\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:05:09.139Z",
+      "lastAccessed": "2026-10-05T22:05:09.139Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:05:09.139Z"
+    },
+    "cmd-1791237909239": {
+      "key": "cmd-1791237909239",
+      "value": "{\"command\":\"echo \\\"=== normalize.go: how results become ports/products/findings\\\"; sed -n 1,140p daemon/internal/engine/normalize.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:05:09.239Z",
+      "lastAccessed": "2026-10-05T22:05:09.239Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:05:09.239Z"
+    },
+    "cmd-1791237920492": {
+      "key": "cmd-1791237920492",
+      "value": "{\"command\":\"echo \\\"=== nvt/cache.go\\\"; sed -n 1,170p daemon/internal/nvt/cache.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:05:20.492Z",
+      "lastAccessed": "2026-10-05T22:05:20.492Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:05:20.492Z"
+    },
+    "cmd-1791237920592": {
+      "key": "cmd-1791237920592",
+      "value": "{\"command\":\"echo \\\"=== normalize.go: product detection from log results\\\"; sed -n 140,300p daemon/internal/engine/normalize.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:05:20.592Z",
+      "lastAccessed": "2026-10-05T22:05:20.592Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:05:20.592Z"
+    },
+    "cmd-1791237920672": {
+      "key": "cmd-1791237920672",
+      "value": "{\"command\":\"echo \\\"=== heartbeat current_job handling on the control plane\\\"; grep -rn --include='*.go' -E 'CurrentJob' controlplane/pkg api/v1 daemon/internal/heartbeat | grep -v _test | cut -c1-200 | head -12; echo \\\"=== engine progress callback\\\"; sed -n 160,176p daemon/internal/engine/engine.go; echo \\\"=== runner: where engine progress goes\\\"; grep -n -E 'progress|Progress' daemon/internal/jobs/runner.go | cut -c1-200 | head -20; echo \\\"=== jobs.go status handler 120-152\\\"; sed -n 120,152p controlplane/pkg/server/jobs.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:05:20.672Z",
+      "lastAccessed": "2026-10-05T22:05:20.672Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:05:20.672Z"
+    },
+    "cmd-1791237985019": {
+      "key": "cmd-1791237985019",
+      "value": "{\"command\":\"docker exec -i scanner-appliance-appliance-1 python3 - <<'EOF'\\nimport json, glob, socket, time, re, os\\npaths = glob.glob(\\\"/var/lib/appliance/nvt-cache/nvt-*.json\\\")\\nprint(\\\"cache files:\\\", [(os.path.basename(p), os.path.getsize(p)) for p in paths])\\nd = json.load(open(paths[0])) if paths else {}\\nprint(\\\"distinct tests looked up for this scan:\\\", len(d), \\\"| unknown to the feed:\\\", sum(1 for m in d.values() if m.get(\\\"missing\\\")))\\nfam = {}\\nfor m in d.values():\\n    fam[m.get(\\\"family\\\")] = fam.get(m.get(\\\"family\\\"), 0) + 1\\nprint(\\\"by family:\\\", dict(sorted(fam.items(), key=lambda kv: -kv[1])))\\nprint(\\\"--- detection tests seen (names only)\\\")\\nfor m in sorted(d.values(), key=lambda m: m.get(\\\"name\\\") or \\\"\\\"):\\n    n = m.get(\\\"name\\\") or \\\"\\\"\\n    if re.search(r\\\"(?i)tomcat|nginx|apache http|redis|coyote|AJP\\\", n) and re.search(r\\\"(?i)detect|consolidation\\\", n):\\n        print(\\\"  \\\", m[\\\"oid\\\"], \\\"|\\\", m.get(\\\"family\\\"), \\\"|\\\", n)\\n# time single-test metadata lookups the way the daemon does them\\ndef one(oid):\\n    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(60)\\n    s.connect(\\\"/run/ospd/ospd.sock\\\")\\n    t0 = time.time()\\n    s.sendall(('<get_vts vt_id=\\\"%s\\\"/>' % oid).encode())\\n    n = 0\\n    while True:\\n        b = s.recv(65536)\\n        if not b: break\\n        n += len(b)\\n    s.close()\\n    return time.time() - t0, n\\noids = list(d.keys())[:5]\\nts = [one(o) for o in oids]\\nprint(\\\"--- single-test lookup time (s, bytes):\\\", [(round(t, 2), n) for t, n in ts])\\nEOF\\necho \\\"--- daemon's own lookup command\\\"; cd /Users/richardtang/Desktop/repos/scanner-appliance && grep -n -A6 'func (c \\\\*Client) GetVT' daemon/internal/osp/*.go | grep -v _test | head -12\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:06:25.019Z",
+      "lastAccessed": "2026-10-05T22:06:25.019Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:06:25.019Z"
+    },
+    "cmd-1791238004659": {
+      "key": "cmd-1791238004659",
+      "value": "{\"command\":\"echo \\\"=== engine log: lines for the tomcat target\\\"; docker exec scanner-appliance-appliance-1 sh -c 'ls -la /var/log/gvm/ 2>/dev/null; f=/var/log/gvm/openvas.log; [ -f \\\"$f\\\" ] && { echo \\\"lines: $(wc -l < $f)\\\"; grep -c \\\"172.18.0.5\\\" $f; grep -i -E \\\"timed out|timeout|kill|not launched|error\\\" $f | cut -c1-220 | tail -25; }'; cd /Users/richardtang/Desktop/repos/scanner-appliance && echo \\\"=== how the three consolidation tests report their result (feed source)\\\"; for f in gb_nginx_consolidation.nasl gb_apache_http_server_consolidation.nasl gb_apache_tomcat_consolidation.nasl gb_redis_detect.nasl; do p=$(find dev/feed/nasl -name \\\"$f\\\" | head -1); printf '%s\\\\t' \\\"$f\\\"; [ -n \\\"$p\\\" ] && grep -o -E 'log_message *\\\\( *port *: *[a-zA-Z0-9_]+' \\\"$p\\\" | sort | uniq -c | tr '\\\\n' ';' ; echo; done\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:06:44.659Z",
+      "lastAccessed": "2026-10-05T22:06:44.659Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:06:44.659Z"
+    },
+    "cmd-1791238012210": {
+      "key": "cmd-1791238012210",
+      "value": "{\"command\":\"echo \\\"=== engine log (12 lines)\\\"; docker exec scanner-appliance-appliance-1 sh -c 'cut -c1-260 /var/log/gvm/openvas.log'; echo \\\"=== ospd log without broker noise, scan window\\\"; docker exec scanner-appliance-appliance-1 sh -c 'grep -v -i mqtt /var/log/gvm/ospd-openvas.log | grep -E \\\"2026-10-05 20:(1|2)\\\" | cut -c1-240 | tail -20'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:06:52.210Z",
+      "lastAccessed": "2026-10-05T22:06:52.210Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:06:52.210Z"
+    },
+    "cmd-1791238048894": {
+      "key": "cmd-1791238048894",
+      "value": "{\"command\":\"x() { docker exec scanner-appliance-cp-api-1 \\\"$@\\\"; }; echo \\\"--- tomcat :8080 by IP\\\"; x curl -s -o /dev/null -w 'http %{http_code}\\\\n' http://172.18.0.5:8080/; echo \\\"--- tomcat :8080 with the name the engine used as virtual host\\\"; x curl -s -o /dev/null -w 'http %{http_code}\\\\n' -H 'Host: scanner-lab-tomcat-1.scanner-appliance_default' http://172.18.0.5:8080/; echo \\\"--- nginx and httpd with their engine virtual-host names\\\"; x curl -s -o /dev/null -w 'nginx http %{http_code}\\\\n' -H 'Host: scanner-lab-nginx-1.scanner-appliance_default' http://172.18.0.4/; x curl -s -o /dev/null -w 'httpd http %{http_code}\\\\n' -H 'Host: scanner-lab-httpd-1.scanner-appliance_default' http://172.18.0.7/; echo \\\"--- tomcat log: rejected requests during the scan\\\"; docker logs scanner-lab-tomcat-1 2>&1 | grep -c -i 'never valid in a domain name\\\\|Invalid character found in the request target\\\\|Error parsing HTTP request header'; docker logs scanner-lab-tomcat-1 2>&1 | grep -i -m2 'never valid\\\\|Error parsing HTTP request header' | cut -c1-220\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:07:28.894Z",
+      "lastAccessed": "2026-10-05T22:07:28.894Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:07:28.894Z"
+    },
+    "cmd-1791238106682": {
+      "key": "cmd-1791238106682",
+      "value": "{\"command\":\"echo \\\"=== MAC handling\\\"; grep -n -E 'MAC +string|Mac +string' api/v1/types.go | head -4; grep -rn --include='*.go' -E '\\\\.mac = |MAC: ' daemon/internal/engine | grep -v _test | cut -c1-160 | head -6; python3 -c '\\nimport json\\nhs=json.load(open(\\\"dev/lab/hosts.json\\\")); hs=hs if isinstance(hs,list) else hs.get(\\\"hosts\\\",[])\\nprint(\\\"hosts with a MAC recorded:\\\", sum(1 for h in hs if h.get(\\\"mac\\\")), \\\"of\\\", len(hs), \\\"| with an OS guess:\\\", sum(1 for h in hs if h.get(\\\"os_guess\\\")), \\\"| with a hostname:\\\", sum(1 for h in hs if h.get(\\\"hostname\\\")))'; echo \\\"=== repo state\\\"; git status --short | grep -v '\\\\.claude-flow'; wc -c daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem | head -2; git check-ignore -q docker/feed/vt-feed.tar.gz && echo \\\"feed tarball is git-ignored\\\"; git check-ignore -q docker/.env && echo \\\"docker/.env is git-ignored\\\"; echo \\\"=== stack\\\"; docker ps --format '{{.Names}}\\\\t{{.Status}}' | grep -E 'scanner-'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:08:26.682Z",
+      "lastAccessed": "2026-10-05T22:08:26.682Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:08:26.682Z"
+    },
+    "cmd-1791238114341": {
+      "key": "cmd-1791238114341",
+      "value": "{\"command\":\"git log --oneline -4 && echo \\\"--- last commit files\\\" && git show --stat --format='%h %ci %s' HEAD | tail -6 && echo \\\"--- fix present: $(grep -c '\\\"-timeout\\\", \\\"1000ms\\\"' daemon/internal/engine/naabu.go)  .dockerignore tracked: $(git ls-files .dockerignore | wc -l | tr -d ' ')\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:08:34.341Z",
+      "lastAccessed": "2026-10-05T22:08:34.341Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:08:34.341Z"
+    },
+    "cmd-1791238131280": {
+      "key": "cmd-1791238131280",
+      "value": "{\"command\":\"M=/Users/richardtang/.claude/projects/-Users-richardtang-Desktop-repos-scanner-appliance/memory && python3 - <<'EOF'\\nimport pathlib\\nm = pathlib.Path(\\\"/Users/richardtang/.claude/projects/-Users-richardtang-Desktop-repos-scanner-appliance/memory\\\")\\np = m / \\\"local-dev-environment.md\\\"\\ns = p.read_text()\\nanchor = \\\"\\\\n**Why:**\\\"\\nassert s.count(anchor) == 1\\nadd = \\\"\\\"\\\"- Container lab with a real feed (built 2026-10-05): the compose stack runs on host ports 18443 and 19443 (set in `docker/.env`) so the native `make dev-cp` lab keeps 8443 and 9443. `dev/lab/cp` wraps the admin CLI for it, `dev/lab/targets.yml` starts four outdated server containers as scan targets, `dev/feed/nasl` is the Community Feed mirror from `cp-api feed sync`, and `docker/feed/vt-feed.tar.gz` is the tarball the image build bakes in. All of that is git-ignored. Building the image needs the dev CA copied into `daemon/internal/pki/` first and restored after.\\n- Docker names networks `project_default`, and the engine uses reverse-DNS names as HTTP virtual hosts. Tomcat rejects a Host header containing an underscore with a 400, so Tomcat version checks silently fail on targets in a compose default network. Put targets on a network whose name has no underscore.\\n\\\"\\\"\\\"\\np.write_text(s.replace(anchor, add + anchor))\\n(m / \\\"first-real-feed-scan-open-issues.md\\\").write_text(\\\"\\\"\\\"---\\nname: first-real-feed-scan-open-issues\\ndescription: Defects the first OpenVAS scan with the real Community Feed exposed on 2026-10-05; none fixed yet\\nmetadata:\\n  type: project\\n---\\n\\nThe first end-to-end scan with the real feed ran on 2026-10-05 in the container lab (see [[local-dev-environment]]): 4 targets, 64 findings, 13 minutes. It worked, and it exposed these defects. None is fixed and the user has not yet asked for fixes.\\n\\n- Product inventory is incomplete. `finalize` in `daemon/internal/engine/normalize.go` skips log results on port 0, but Greenbone \\\"Detection Consolidation\\\" tests report there, so nginx and Apache got no product, version or CPE on their port. Only Redis did. Host Detail \\\"App\\\" entries are also ignored.\\n- Test metadata is fetched one test at a time (`nvt.Cache.Lookup` calling `GetVT`), about 4.7 s each. 76 tests cost 6 of the 13 minutes. The cache is keyed by feed version, so it resets on every feed update. One bulk `get_vts` returns all 95,000 in 34 s.\\n- The job record's phase stays at \\\"discovery\\\" and progress at 0 for the whole run. Progress only travels in the heartbeat's `current_job`, which the control plane does not apply to the job.\\n- `vt_count` in engine health is always 0: ospd answers the daemon's `filter=\\\"id=none\\\"` count query with 400.\\n- No MAC addresses are recorded on a same-segment scan. naabu's discovery output is parsed as bare IPs, and the engine skips its own alive test.\\n- Cosmetic: CVSS values carry float32 noise such as 7.800000190734863, and finding names keep HTML entities such as `&lt;`.\\n\\n**Why:** these decide whether the planned advisory matching can work, because it depends on the product inventory ([[project-goal-qualys-parity]]).\\n\\n**How to apply:** check whether each item is still present before repeating it, and fix the inventory item before starting advisory matching.\\n\\\"\\\"\\\")\\nidx = m / \\\"MEMORY.md\\\"\\nt = idx.read_text()\\nline = \\\"- [First real-feed scan: open issues](first-real-feed-scan-open-issues.md) — six defects found 2026-10-05, none fixed; inventory gap blocks advisory matching\\\\n\\\"\\nif \\\"first-real-feed-scan-open-issues.md\\\" not in t:\\n    idx.write_text(t.rstrip(\\\"\\\\n\\\") + \\\"\\\\n\\\" + line)\\nprint(idx.read_text())\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:08:51.280Z",
+      "lastAccessed": "2026-10-05T22:08:51.280Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:08:51.280Z"
+    },
+    "cmd-1791238842073": {
+      "key": "cmd-1791238842073",
+      "value": "{\"command\":\"echo \\\"=== scan.go from line 200 (GetVT, VT parsing)\\\"; sed -n 200,420p daemon/internal/osp/scan.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:20:42.073Z",
+      "lastAccessed": "2026-10-05T22:20:42.073Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:20:42.073Z"
+    },
+    "cmd-1791238842147": {
+      "key": "cmd-1791238842147",
+      "value": "{\"command\":\"git status --short | grep -v '\\\\.claude-flow'; git log --oneline -2; echo \\\"=== osp.go (client + Command)\\\"; sed -n 1,100p daemon/internal/osp/osp.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:20:42.147Z",
+      "lastAccessed": "2026-10-05T22:20:42.147Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:20:42.147Z"
+    },
+    "cmd-1791238843301": {
+      "key": "cmd-1791238843301",
+      "value": "{\"command\":\"echo \\\"=== api/v1 Port / Host / OSGuess\\\"; grep -n -E '^type (Port|Host|OSGuess|Finding|ResultBatch|ScanStats) struct' api/v1/types.go; awk '/^type Port struct/,/^}/' api/v1/types.go; awk '/^type Host struct/,/^}/' api/v1/types.go; echo \\\"=== where the control plane reads port product fields\\\"; grep -rn --include='*.go' -E '\\\\.CPE\\\\b|\\\\.Product\\\\b|\\\\.Version\\\\b' controlplane/pkg | grep -v _test | cut -c1-190 | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:20:43.301Z",
+      "lastAccessed": "2026-10-05T22:20:43.301Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:20:43.301Z"
+    },
+    "cmd-1791238885288": {
+      "key": "cmd-1791238885288",
+      "value": "{\"command\":\"cat > dev/lab/network.yml <<'EOF'\\n# Lab override for docker/docker-compose.yml: puts the stack on a network\\n# whose name has no underscore. Docker serves reverse DNS as\\n# <container>.<network>, the engine uses that name as the HTTP virtual\\n# host, and Tomcat answers 400 to a Host header containing \\\"_\\\", which\\n# hides it from version detection on the default \\\"<project>_default\\\" name.\\n#\\n#   docker network create --subnet 172.18.0.0/16 --ip-range 172.18.1.0/24 --gateway 172.18.0.1 scannerlab\\n#   dev/lab/compose up -d\\nnetworks:\\n  default:\\n    name: scannerlab\\n    external: true\\nEOF\\ncat > dev/lab/compose <<'EOF'\\n#!/usr/bin/env bash\\n# docker compose for the container lab (stack + lab network override).\\n# Usage: dev/lab/compose up -d | ps | logs -f appliance | build appliance\\ncd \\\"$(dirname \\\"$0\\\")/../..\\\" || exit 1\\nexec docker compose -f docker/docker-compose.yml -f dev/lab/network.yml --profile appliance \\\"$@\\\"\\nEOF\\nchmod +x dev/lab/compose && cat > dev/lab/targets.yml <<'EOF'\\n# Deliberately outdated servers for OpenVAS scans in the lab. They sit on\\n# the lab network with fixed addresses and publish no host ports, so\\n# nothing outside Docker can reach them. The network is created once by\\n# hand (see dev/lab/network.yml).\\n#\\n#   docker compose -f dev/lab/targets.yml up -d\\n#   docker compose -f dev/lab/targets.yml down\\nname: scanner-lab\\n\\nservices:\\n  nginx:\\n    image: nginx:1.16.1\\n    networks:\\n      default:\\n        ipv4_address: 172.18.0.4\\n  tomcat:\\n    image: tomcat:9.0.30\\n    # Some builds of this image ship the default webapps in webapps.dist.\\n    command: [\\\"sh\\\", \\\"-c\\\", \\\"[ -d webapps.dist ] && cp -rn webapps.dist/. webapps/; exec catalina.sh run\\\"]\\n    networks:\\n      default:\\n        ipv4_address: 172.18.0.5\\n  redis:\\n    image: redis:5.0.7\\n    networks:\\n      default:\\n        ipv4_address: 172.18.0.6\\n  httpd:\\n    image: httpd:2.4.49\\n    # CVE-2021-41773 is only reachable with \\\"Require all granted\\\" on the\\n    # filesystem root, so the first occurrence in httpd.conf is flipped.\\n    command: [\\\"sh\\\", \\\"-c\\\", \\\"sed -i '0,/Require all denied/s//Require all granted/' /usr/local/apache2/conf/httpd.conf && exec httpd-foreground\\\"]\\n    networks:\\n      default:\\n        ipv4_address: 172.18.0.7\\n\\nnetworks:\\n  default:\\n    name: scannerlab\\n    external: true\\nEOF\\necho \\\"--- stop targets and stack (volumes kept)\\\"; docker compose -p scanner-lab down 2>&1 | tail -3; docker compose -f docker/docker-compose.yml --profile appliance down 2>&1 | tail -4; echo \\\"--- volumes still present\\\"; docker volume ls --format '{{.Name}}' | grep scanner-appliance; echo \\\"--- create lab network\\\"; docker network ls --format '{{.Name}}' | grep -E 'scanner' || echo \\\"(old network removed)\\\"; docker network create --subnet 172.18.0.0/16 --ip-range 172.18.1.0/24 --gateway 172.18.0.1 scannerlab && docker network inspect scannerlab --format '{{range .IPAM.Config}}{{.Subnet}} range {{.IPRange}} gw {{.Gateway}}{{end}}'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:21:25.288Z",
+      "lastAccessed": "2026-10-05T22:21:25.288Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:21:25.288Z"
+    },
+    "cmd-1791238972576": {
+      "key": "cmd-1791238972576",
+      "value": "{\"command\":\"until [ \\\"$(docker exec scanner-appliance-cp-api-1 curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://172.18.0.5:8080/)\\\" = \\\"200\\\" ]; do sleep 2; done; echo \\\"tomcat by IP: 200\\\"; docker exec scanner-appliance-cp-api-1 curl -s -o /dev/null -w 'tomcat with virtual-host name scanner-lab-tomcat-1.scannerlab: http %{http_code}\\\\n' -H 'Host: scanner-lab-tomcat-1.scannerlab' http://172.18.0.5:8080/; set -a && . docker/.env && set +a && APL=$(python3 -c 'import json; print(json.load(open(\\\"dev/lab/appliance.json\\\"))[\\\"appliance_id\\\"])') && get() { curl -s --max-time 10 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/appliances/$APL\\\"; } && until get | python3 -c 'import json,sys,datetime; d=json.load(sys.stdin); e=(d.get(\\\"last_heartbeat\\\") or {}).get(\\\"engine\\\") or {}; sys.exit(0 if (d.get(\\\"online\\\") and e.get(\\\"ospd_up\\\") and e.get(\\\"vt_cache_loaded\\\")) else 1)' 2>/dev/null; do sleep 5; done; get | python3 -c 'import json,sys; d=json.load(sys.stdin); e=(d.get(\\\"last_heartbeat\\\") or {}).get(\\\"engine\\\") or {}; print(\\\"appliance:\\\", d.get(\\\"status\\\"), \\\"online:\\\", d.get(\\\"online\\\"), \\\"| engine ready:\\\", e.get(\\\"ospd_up\\\") and e.get(\\\"vt_cache_loaded\\\"), \\\"feed\\\", e.get(\\\"feed_version\\\"))'; SITE=$(python3 -c 'import json; print(json.load(open(\\\"dev/lab/appliance.json\\\"))[\\\"site_id\\\"])'); curl -s --max-time 20 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/sites/$SITE/findings\\\" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(\\\"findings still on the control plane:\\\", len(d))'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:22:52.576Z",
+      "lastAccessed": "2026-10-05T22:22:52.576Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:22:52.576Z"
+    },
+    "cmd-1791238988654": {
+      "key": "cmd-1791238988654",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && cat > $S/capture.py <<'EOF'\\n# Runs one detection-only scan through ospd and saves the raw result stream,\\n# so parsers and test fixtures are built from what the engine really emits.\\nimport socket, time, re, sys\\nSOCK = \\\"/run/ospd/ospd.sock\\\"\\ndef cmd(xml, wait=120):\\n    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(wait)\\n    s.connect(SOCK); s.sendall(xml.encode())\\n    out = b\\\"\\\"\\n    while True:\\n        b = s.recv(1 << 16)\\n        if not b: break\\n        out += b\\n    s.close()\\n    return out.decode(errors=\\\"replace\\\")\\nparams = {\\\"optimize_test\\\": \\\"1\\\", \\\"auto_enable_dependencies\\\": \\\"1\\\", \\\"timeout_retry\\\": \\\"3\\\", \\\"scanner_plugins_timeout\\\": \\\"7200\\\",\\n          \\\"report_host_details\\\": \\\"1\\\", \\\"safe_checks\\\": \\\"1\\\", \\\"max_hosts\\\": \\\"4\\\", \\\"max_checks\\\": \\\"4\\\"}\\nstart = (\\\"<start_scan><targets><target><hosts>172.18.0.4,172.18.0.5,172.18.0.6,172.18.0.7</hosts>\\\"\\n         \\\"<ports>T:80,6379,8009,8080</ports><alive_test>16</alive_test></target></targets><scanner_params>\\\"\\n         + \\\"\\\".join(\\\"<%s>%s</%s>\\\" % (k, v, k) for k, v in sorted(params.items()))\\n         + '</scanner_params><vt_selection><vt_group filter=\\\"family=Service detection\\\"/>'\\n           '<vt_group filter=\\\"family=Product detection\\\"/></vt_selection></start_scan>')\\nr = cmd(start)\\nm = re.search(r\\\"<id>([^<]+)</id>\\\", r)\\nif not m:\\n    print(\\\"start_scan failed:\\\", r[:300]); sys.exit(1)\\nsid = m.group(1)\\nprint(\\\"scan\\\", sid, flush=True)\\nt0 = time.time()\\nwith open(\\\"/tmp/raw-results.xml\\\", \\\"w\\\") as f:\\n    while True:\\n        r = cmd('<get_scans scan_id=\\\"%s\\\" details=\\\"1\\\" pop_results=\\\"1\\\" progress=\\\"1\\\"/>' % sid)\\n        f.write(r + \\\"\\\\n\\\"); f.flush()\\n        st = re.search(r'<scan [^>]*status=\\\"([^\\\"]+)\\\"', r)\\n        st = st.group(1) if st else \\\"?\\\"\\n        if st in (\\\"finished\\\", \\\"stopped\\\", \\\"interrupted\\\"):\\n            break\\n        if time.time() - t0 > 1500:\\n            print(\\\"timeout\\\"); cmd('<stop_scan scan_id=\\\"%s\\\"/>' % sid); break\\n        time.sleep(10)\\nprint(\\\"status\\\", st, \\\"after %.0fs\\\" % (time.time() - t0), flush=True)\\ncmd('<delete_scan scan_id=\\\"%s\\\"/>' % sid)\\nEOF\\ndocker cp $S/capture.py scanner-appliance-appliance-1:/tmp/capture.py && docker exec scanner-appliance-appliance-1 python3 /tmp/capture.py\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:23:08.654Z",
+      "lastAccessed": "2026-10-05T22:23:08.654Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:23:08.654Z"
+    },
+    "cmd-1791238990100": {
+      "key": "cmd-1791238990100",
+      "value": "{\"command\":\"echo \\\"=== osptest/fake.go\\\"; cat daemon/internal/osp/osptest/fake.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:23:10.100Z",
+      "lastAccessed": "2026-10-05T22:23:10.100Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:23:10.100Z"
+    },
+    "cmd-1791238990256": {
+      "key": "cmd-1791238990256",
+      "value": "{\"command\":\"echo \\\"=== nvt tests\\\"; cat daemon/internal/nvt/nvt_test.go; echo \\\"=== engine tests that touch finalize / product detection\\\"; grep -n -E 'func Test|Detected|cpe:/|general/tcp|Host Detail|Log Message' daemon/internal/engine/*_test.go | cut -c1-200 | head -60\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:23:10.256Z",
+      "lastAccessed": "2026-10-05T22:23:10.256Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:23:10.256Z"
+    },
+    "cmd-1791238998901": {
+      "key": "cmd-1791238998901",
+      "value": "{\"command\":\"echo \\\"=== who uses the fake ospd and the metadata cache\\\"; grep -rn --include='*.go' -E 'osptest\\\\.|nvt\\\\.New\\\\(|\\\\.Lookup\\\\(|GetVT\\\\(' . | grep -v '^./daemon/internal/osp/osptest/' | cut -c1-170; echo \\\"=== engine_test.go 60-190\\\"; sed -n 60,190p daemon/internal/engine/engine_test.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:23:18.901Z",
+      "lastAccessed": "2026-10-05T22:23:18.901Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:23:18.901Z"
+    },
+    "cmd-1791239121318": {
+      "key": "cmd-1791239121318",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f && cat $S/tasks/bi8n2rv35.output 2>/dev/null; until grep -q -E '^status |failed|timeout' $S/tasks/bi8n2rv35.output 2>/dev/null; do sleep 5; done; cat $S/tasks/bi8n2rv35.output; docker cp scanner-appliance-appliance-1:/tmp/raw-results.xml $S/scratchpad/raw-results.xml && ls -la $S/scratchpad/raw-results.xml\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:25:21.318Z",
+      "lastAccessed": "2026-10-05T22:25:21.318Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:25:21.318Z"
+    },
+    "cmd-1791239130239": {
+      "key": "cmd-1791239130239",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && python3 - <<'EOF'\\nimport re, html, collections\\nraw = open(\\\"/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/raw-results.xml\\\").read()\\nres = re.findall(r'<result ([^>]*)>(.*?)</result>', raw, flags=re.S)\\nprint(\\\"results:\\\", len(res))\\nrows = []\\nfor attrs, body in res:\\n    a = dict(re.findall(r'(\\\\w+)=\\\"([^\\\"]*)\\\"', attrs))\\n    rows.append((a, html.unescape(body)))\\nprint(\\\"by type:\\\", dict(collections.Counter(a.get(\\\"type\\\") for a, _ in rows)))\\nprint(\\\"by (type, port):\\\", dict(collections.Counter((a.get(\\\"type\\\"), a.get(\\\"port\\\")) for a, _ in rows)))\\nprint()\\nprint(\\\"=== Log Message results (name | host | port), with text\\\")\\nfor a, body in rows:\\n    if a.get(\\\"type\\\") != \\\"Log Message\\\":\\n        continue\\n    print(\\\"-----\\\", html.unescape(a.get(\\\"name\\\", \\\"\\\")), \\\"|\\\", a.get(\\\"host\\\"), \\\"|\\\", a.get(\\\"port\\\"), \\\"| oid\\\", a.get(\\\"test_id\\\"))\\n    print(body.strip()[:900])\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:25:30.239Z",
+      "lastAccessed": "2026-10-05T22:25:30.239Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:25:30.239Z"
+    },
+    "cmd-1791239182527": {
+      "key": "cmd-1791239182527",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && sed -e 's#<vt_group filter=\\\"family=Service detection\\\"/>#<vt_group filter=\\\"family=Service detection\\\"/><vt_group filter=\\\"family=General\\\"/><vt_group filter=\\\"family=Port scanners\\\"/>#' -e 's#/tmp/raw-results.xml#/tmp/raw-results-2.xml#' $S/capture.py > $S/capture2.py && grep -c 'Port scanners' $S/capture2.py && docker cp $S/capture2.py scanner-appliance-appliance-1:/tmp/capture2.py && docker exec scanner-appliance-appliance-1 python3 /tmp/capture2.py && docker cp scanner-appliance-appliance-1:/tmp/raw-results-2.xml $S/raw-results-2.xml && ls -la $S/raw-results-2.xml\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:26:22.527Z",
+      "lastAccessed": "2026-10-05T22:26:22.527Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:26:22.527Z"
+    },
+    "cmd-1791239183871": {
+      "key": "cmd-1791239183871",
+      "value": "{\"command\":\"echo \\\"=== how scan-config families and params reach start_scan\\\"; grep -n -E 'unscanned|Port scanners|port_range|RemoteFamilies|DetectionFamilies' -r daemon internal controlplane --include='*.go' | grep -v _test | cut -c1-200; echo \\\"=== engine defaults inside the image for unscanned ports\\\"; docker exec scanner-appliance-appliance-1 sh -c 'cat /etc/openvas/openvas.conf; echo ---; openvas -s 2>/dev/null | grep -i -E \\\"unscanned|optimize|expand_vhosts|test_empty_vhost|plugins_timeout|safe_checks\\\" '\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:26:23.871Z",
+      "lastAccessed": "2026-10-05T22:26:23.871Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:26:23.871Z"
+    },
+    "cmd-1791239477281": {
+      "key": "cmd-1791239477281",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f && until grep -q -E '^status |failed|timeout|Error|No such' $S/tasks/bx4k8ecvz.output 2>/dev/null && [ -f $S/scratchpad/raw-results-2.xml ]; do sleep 5; done; cat $S/tasks/bx4k8ecvz.output | tail -4; python3 - <<'EOF'\\nimport re, html, collections\\nraw = open(\\\"/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/raw-results-2.xml\\\").read()\\nrows = []\\nfor attrs, body in re.findall(r'<result ([^>]*)>(.*?)</result>', raw, flags=re.S):\\n    a = {k: html.unescape(v) for k, v in re.findall(r'(\\\\w+)=\\\"([^\\\"]*)\\\"', attrs)}\\n    rows.append((a, html.unescape(body)))\\nprint(\\\"results:\\\", len(rows), \\\"| by type:\\\", dict(collections.Counter(a.get(\\\"type\\\") for a, _ in rows)))\\nc = collections.Counter((a.get(\\\"name\\\"), a.get(\\\"port\\\")) for a, _ in rows if a.get(\\\"port\\\") != \\\"general/Host_Details\\\" and a.get(\\\"name\\\") not in (\\\"HOST_START\\\", \\\"HOST_END\\\"))\\nprint(\\\"=== result names by port (host details excluded)\\\")\\nfor (n, p), k in sorted(c.items(), key=lambda kv: (kv[0][1], kv[0][0])):\\n    print(f\\\"  {k:>2}  {p:<16} {n}\\\")\\ndn = collections.Counter()\\nfor a, body in rows:\\n    if a.get(\\\"port\\\") == \\\"general/Host_Details\\\":\\n        for nm in re.findall(r\\\"<detail><name>([^<]*)</name>\\\", body):\\n            dn[\\\"cpe:/a:…\\\" if nm.startswith(\\\"cpe:/a:\\\") else \\\"cpe:/o:…\\\" if nm.startswith(\\\"cpe:/o:\\\") else nm] += 1\\nprint(\\\"=== host detail names:\\\", dict(dn))\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:31:17.281Z",
+      "lastAccessed": "2026-10-05T22:31:17.281Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:31:17.281Z"
+    },
+    "cmd-1791239488339": {
+      "key": "cmd-1791239488339",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport re, html, collections\\nraw = open(\\\"/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/raw-results-2.xml\\\").read()\\nrows = []\\nfor attrs, body in re.findall(r'<result ([^>]*)>(.*?)</result>', raw, flags=re.S):\\n    a = {k: html.unescape(v) for k, v in re.findall(r'(\\\\w+)=\\\"([^\\\"]*)\\\"', attrs)}\\n    rows.append((a, html.unescape(body)))\\nwant = (\\\"Detection Consolidation\\\", \\\"Redis Server Detection\\\", \\\"AJP\\\", \\\"Services\\\", \\\"HTTP Server type and version\\\", \\\"Service Detection with\\\", \\\"CPE Inventory\\\")\\nprint(\\\"=== detection log texts\\\")\\nfor a, body in rows:\\n    n = a.get(\\\"name\\\", \\\"\\\")\\n    if any(w in n for w in want) and a.get(\\\"port\\\") != \\\"general/Host_Details\\\" and \\\"OS Detection\\\" not in n:\\n        print(f\\\"----- [{a.get('type')}] {n} | {a.get('host')} | {a.get('port')} | qod {a.get('qod')} | oid …{a.get('test_id','')[-6:]}\\\")\\n        print(body.strip()[:700])\\nprint()\\nprint(\\\"=== host details: App / cpe:/a / ports / tcp_ports / Services / detected_at (per host)\\\")\\nfor a, body in rows:\\n    if a.get(\\\"port\\\") != \\\"general/Host_Details\\\":\\n        continue\\n    for nm, val, src, desc in re.findall(r\\\"<detail><name>([^<]*)</name><value>([^<]*)</value><source><type>[^<]*</type><name>([^<]*)</name><description>?([^<]*)\\\", body):\\n        if nm in (\\\"App\\\", \\\"ports\\\", \\\"tcp_ports\\\", \\\"Services\\\", \\\"detected_at\\\") or nm.startswith(\\\"cpe:/a:\\\"):\\n            print(f\\\"  {a.get('host'):<11} {nm:<40} = {val:<44} src …{src[-6:]} {desc[:40]}\\\")\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:31:28.339Z",
+      "lastAccessed": "2026-10-05T22:31:28.339Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:31:28.339Z"
+    },
+    "cmd-1791239567127": {
+      "key": "cmd-1791239567127",
+      "value": "{\"command\":\"dev/lab/cp create-job --appliance apl_06GGRJKKP85W1AGRNT5FZY0YV8 --mode inventory --targets 172.18.0.4,172.18.0.5,172.18.0.6,172.18.0.7 --now > dev/lab/job-inventory.json; python3 -c 'import json; d=json.load(open(\\\"dev/lab/job-inventory.json\\\")); s=d.get(\\\"spec\\\",{}); print(\\\"job:\\\", d.get(\\\"id\\\"), d.get(\\\"status\\\"), \\\"| modules:\\\", s.get(\\\"modules\\\"), \\\"| openvas:\\\", s.get(\\\"openvas\\\"))'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:32:47.127Z",
+      "lastAccessed": "2026-10-05T22:32:47.127Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:32:47.127Z"
+    },
+    "cmd-1791239568310": {
+      "key": "cmd-1791239568310",
+      "value": "{\"command\":\"echo \\\"=== tests that assert product/CPE/OS from engine results\\\"; grep -rn --include='*_test.go' -E 'cpe:/a|Detected |product_detection|find_service|best_os|OSGuess|\\\\.Product|\\\\.CPE' daemon controlplane | cut -c1-210 | head -40; echo \\\"=== where service labels are consumed\\\"; grep -rn --include='*.go' -E '\\\\.Service ==|\\\\.Service !=|Service: *\\\"|isWebPort|case \\\"http\\\"' daemon/internal/engine controlplane/pkg | grep -v _test | cut -c1-200 | head -20\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:32:48.310Z",
+      "lastAccessed": "2026-10-05T22:32:48.310Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:32:48.310Z"
+    },
+    "cmd-1791239574621": {
+      "key": "cmd-1791239574621",
+      "value": "{\"command\":\"echo \\\"=== correlate.go port merge\\\"; sed -n 225,300p controlplane/pkg/store/correlate.go; echo \\\"=== isWebPort\\\"; sed -n 40,54p daemon/internal/engine/web.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:32:54.621Z",
+      "lastAccessed": "2026-10-05T22:32:54.621Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:32:54.621Z"
+    },
+    "cmd-1791239603609": {
+      "key": "cmd-1791239603609",
+      "value": "{\"command\":\"f=$(find dev/feed/nasl -name host_details.inc | head -1); echo \\\"=== build_detection_report in $f\\\"; awk '/^function build_detection_report/,/^}/' \\\"$f\\\" | grep -v '^\\\\s*#' | head -80; echo \\\"=== nginx consolidation: reporting section\\\"; f2=$(find dev/feed/nasl -name gb_nginx_consolidation.nasl | head -1); grep -n -E 'foreach|build_detection_report|register_product|log_message|report \\\\+=|report =|install *=|location' \\\"$f2\\\" | cut -c1-170 | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:33:23.609Z",
+      "lastAccessed": "2026-10-05T22:33:23.609Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:33:23.609Z"
+    },
+    "cmd-1791239750479": {
+      "key": "cmd-1791239750479",
+      "value": "{\"command\":\"set -a && . docker/.env && set +a && J=job_06GGWCNMHQ88KQB0E2HXHVBYYM && get() { curl -s --max-time 10 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/jobs/$J\\\"; } && until get | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)[\\\"status\\\"] not in (\\\"queued\\\",\\\"dispatched\\\",\\\"running\\\") else 1)'; do sleep 10; done; get | python3 -c '\\nimport json,sys\\nd=json.load(sys.stdin); s=d.get(\\\"stats\\\") or {}\\nprint(\\\"status:\\\", d[\\\"status\\\"], \\\"| reject:\\\", d.get(\\\"reject_reason\\\",\\\"\\\"))\\nprint(\\\"stats:\\\", {k:s.get(k) for k in (\\\"hosts_alive\\\",\\\"hosts_scanned\\\",\\\"open_ports\\\",\\\"findings\\\",\\\"duration_s\\\")}, \\\"| phases:\\\", s.get(\\\"phase_duration_s\\\"))'; echo \\\"--- what the engine did in that job\\\"; docker logs --since 20m scanner-appliance-appliance-1 2>&1 | grep -v -i mqtt | grep -E 'job_06GGWCNMHQ88KQB0E2HXHVBYYM|OSPD' | grep -E 'openvas scan started|job done|Scan finished|Starting scan|nvt' | cut -c1-330\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:35:50.479Z",
+      "lastAccessed": "2026-10-05T22:35:50.479Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:35:50.479Z"
+    },
+    "cmd-1791239763024": {
+      "key": "cmd-1791239763024",
+      "value": "{\"command\":\"dev/lab/cp job-hosts job_06GGWCNMHQ88KQB0E2HXHVBYYM > dev/lab/job-inventory-hosts.json 2>/dev/null; python3 - <<'EOF'\\nimport json, collections\\nhs = json.load(open(\\\"dev/lab/job-inventory-hosts.json\\\"))\\nprint(\\\"hosts in this job:\\\", len(hs), \\\"| fields:\\\", sorted(hs[0].keys()))\\nfor h in sorted(hs, key=lambda h: h[\\\"ip\\\"]):\\n    fs = h.get(\\\"findings\\\") or []\\n    print(\\\" \\\", h[\\\"ip\\\"], \\\"| ports:\\\", [(p[\\\"port\\\"], p.get(\\\"service\\\", \\\"-\\\"), p.get(\\\"source\\\")) for p in h.get(\\\"ports\\\") or []])\\n    for f in fs:\\n        if isinstance(f, dict):\\n            print(\\\"     finding:\\\", f.get(\\\"port\\\"), f.get(\\\"qod\\\"), (f.get(\\\"name\\\") or \\\"\\\")[:70], \\\"| last job:\\\", (f.get(\\\"evidence\\\") or [{}])[-1].get(\\\"job_id\\\", \\\"\\\")[-6:] if isinstance(f.get(\\\"evidence\\\"), list) else \\\"\\\")\\n    if fs and not isinstance(fs[0], dict):\\n        print(\\\"     finding ids:\\\", len(fs))\\nEOF\\ndocker exec scanner-appliance-appliance-1 sh -c 'cp /var/lib/appliance/nvt-cache/nvt-202610050609.json /tmp/nvt-before.json && python3 -c \\\"import json; d=json.load(open(\\\\\\\"/tmp/nvt-before.json\\\\\\\")); print(\\\\\\\"metadata cache entries now:\\\\\\\", len(d))\\\"' && docker cp scanner-appliance-appliance-1:/tmp/nvt-before.json /private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/nvt-before.json\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:36:03.024Z",
+      "lastAccessed": "2026-10-05T22:36:03.024Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:36:03.024Z"
+    },
+    "cmd-1791239852889": {
+      "key": "cmd-1791239852889",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\np = pathlib.Path(\\\"daemon/internal/osp/scan.go\\\")\\ns = p.read_text()\\n\\ndef rep(old, new, count=1):\\n    global s\\n    assert s.count(old) == count, (s.count(old), old[:60])\\n    s = s.replace(old, new)\\n\\nrep('''import (\\n\\t\\\"context\\\"\\n\\t\\\"encoding/xml\\\"\\n\\t\\\"fmt\\\"\\n\\t\\\"strconv\\\"\\n\\t\\\"strings\\\"\\n)\\n''', '''import (\\n\\t\\\"bufio\\\"\\n\\t\\\"context\\\"\\n\\t\\\"encoding/xml\\\"\\n\\t\\\"errors\\\"\\n\\t\\\"fmt\\\"\\n\\t\\\"io\\\"\\n\\t\\\"net\\\"\\n\\t\\\"strconv\\\"\\n\\t\\\"strings\\\"\\n\\t\\\"time\\\"\\n)\\n''')\\n\\nrep('''// FeedVersion returns the loaded VT feed version from get_version.\\n''', '''// bulkTimeout bounds one full-feed get_vts when the caller's context has\\n// no earlier deadline.\\nconst bulkTimeout = 10 * time.Minute\\n\\n// GetVTs fetches the metadata of many VTs with one full-feed <get_vts/>,\\n// streaming the response and keeping only the wanted OIDs. ospd-openvas\\n// cannot select several VTs at once (its filter only takes modification\\n// times) and answers each single-VT query by first walking the whole feed\\n// in redis, which costs seconds per call; the full list costs about as\\n// much as seven of those. OIDs the feed does not carry are absent from the\\n// result. On error the VTs decoded so far are still returned.\\nfunc (c *Client) GetVTs(ctx context.Context, oids []string) (map[string]*VT, error) {\\n\\twant := make(map[string]bool, len(oids))\\n\\tfor _, o := range oids {\\n\\t\\twant[o] = true\\n\\t}\\n\\tout := make(map[string]*VT, len(want))\\n\\tif len(want) == 0 {\\n\\t\\treturn out, nil\\n\\t}\\n\\td := net.Dialer{Timeout: c.Timeout}\\n\\tconn, err := d.DialContext(ctx, \\\"unix\\\", c.Socket)\\n\\tif err != nil {\\n\\t\\treturn out, err\\n\\t}\\n\\tdefer conn.Close()\\n\\tdeadline := time.Now().Add(bulkTimeout)\\n\\tif dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {\\n\\t\\tdeadline = dl\\n\\t}\\n\\t_ = conn.SetDeadline(deadline)\\n\\tstop := context.AfterFunc(ctx, func() { _ = conn.Close() })\\n\\tdefer stop()\\n\\tif _, err := io.WriteString(conn, `<get_vts details=\\\"1\\\"/>`); err != nil {\\n\\t\\treturn out, err\\n\\t}\\n\\tfail := func(err error) (map[string]*VT, error) {\\n\\t\\tif ctx.Err() != nil {\\n\\t\\t\\treturn out, ctx.Err()\\n\\t\\t}\\n\\t\\treturn out, fmt.Errorf(\\\"parse get_vts_response: %w\\\", err)\\n\\t}\\n\\tdec := xml.NewDecoder(bufio.NewReaderSize(conn, 1<<16))\\n\\tanswered := false\\n\\tfor {\\n\\t\\ttok, err := dec.Token()\\n\\t\\tif err == io.EOF {\\n\\t\\t\\tif !answered {\\n\\t\\t\\t\\treturn fail(errors.New(\\\"empty response\\\"))\\n\\t\\t\\t}\\n\\t\\t\\treturn out, nil\\n\\t\\t}\\n\\t\\tif err != nil {\\n\\t\\t\\treturn fail(err)\\n\\t\\t}\\n\\t\\tse, ok := tok.(xml.StartElement)\\n\\t\\tif !ok {\\n\\t\\t\\tcontinue\\n\\t\\t}\\n\\t\\tswitch se.Name.Local {\\n\\t\\tcase \\\"get_vts_response\\\":\\n\\t\\t\\tif st := startAttr(se, \\\"status\\\"); st != \\\"200\\\" {\\n\\t\\t\\t\\treturn out, fmt.Errorf(\\\"ospd get_vts: %s %s\\\", st, startAttr(se, \\\"status_text\\\"))\\n\\t\\t\\t}\\n\\t\\t\\tanswered = true\\n\\t\\tcase \\\"vt\\\":\\n\\t\\t\\tif !want[startAttr(se, \\\"id\\\")] {\\n\\t\\t\\t\\tif err := dec.Skip(); err != nil {\\n\\t\\t\\t\\t\\treturn fail(err)\\n\\t\\t\\t\\t}\\n\\t\\t\\t\\tcontinue\\n\\t\\t\\t}\\n\\t\\t\\tvar v vtXML\\n\\t\\t\\tif err := dec.DecodeElement(&v, &se); err != nil {\\n\\t\\t\\t\\treturn fail(err)\\n\\t\\t\\t}\\n\\t\\t\\tout[v.ID] = v.toVT()\\n\\t\\t}\\n\\t}\\n}\\n\\nfunc startAttr(se xml.StartElement, name string) string {\\n\\tfor _, a := range se.Attr {\\n\\t\\tif a.Name.Local == name {\\n\\t\\t\\treturn a.Value\\n\\t\\t}\\n\\t}\\n\\treturn \\\"\\\"\\n}\\n\\n// FeedVersion returns the loaded VT feed version from get_version.\\n''')\\np.write_text(s)\\nprint(\\\"scan.go edited\\\")\\nEOF\\ngofmt -l daemon/internal/osp/ ; go build ./daemon/internal/osp/ && echo \\\"osp builds\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:37:32.889Z",
+      "lastAccessed": "2026-10-05T22:37:32.889Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:37:32.889Z"
+    },
+    "cmd-1791239871662": {
+      "key": "cmd-1791239871662",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\np = pathlib.Path(\\\"daemon/internal/osp/osptest/fake.go\\\")\\ns = p.read_text()\\n\\ndef rep(old, new, count=1):\\n    global s\\n    assert s.count(old) == count, (s.count(old), old[:70])\\n    s = s.replace(old, new)\\n\\nrep('''// the daemon tests: get_version, get_vts (count and single-VT metadata),\\n// start_scan, get_scans with pop_results, stop_scan and delete_scan.\\n''', '''// the daemon tests: get_version, get_vts (count, single-VT metadata and the\\n// full list), start_scan, get_scans with pop_results, stop_scan and\\n// delete_scan.\\n''')\\n\\nrep('''\\t\\\"regexp\\\"\\n\\t\\\"strings\\\"\\n\\t\\\"sync\\\"\\n\\t\\\"testing\\\"\\n''', '''\\t\\\"regexp\\\"\\n\\t\\\"sort\\\"\\n\\t\\\"strings\\\"\\n\\t\\\"sync\\\"\\n\\t\\\"testing\\\"\\n''')\\n\\nrep('''\\tScript []Step\\n\\tHang   bool\\n\\n\\tmu        sync.Mutex\\n\\tscans     map[string]*scanState\\n\\tStartXML  []string\\n\\tStopIDs   []string\\n\\tDeleteIDs []string\\n\\tnextID    int\\n}\\n''', '''\\tScript []Step\\n\\tHang   bool\\n\\n\\tmu        sync.Mutex\\n\\tscans     map[string]*scanState\\n\\tStartXML  []string\\n\\tStopIDs   []string\\n\\tDeleteIDs []string\\n\\tnextID    int\\n\\tvtSingle  int\\n\\tvtBulk    int\\n}\\n''')\\n\\nold_get = s[s.index(\\\"func (f *Fake) getVTs(req string) string {\\\"):s.index(\\\"func (f *Fake) startScan(req string) string {\\\")]\\nnew_get = '''func (f *Fake) getVTs(req string) string {\\n\\tif oid := attr(vtIDRe, req); oid != \\\"\\\" {\\n\\t\\tf.mu.Lock()\\n\\t\\tf.vtSingle++\\n\\t\\tf.mu.Unlock()\\n\\t\\tvt, ok := f.VTs[oid]\\n\\t\\tif !ok {\\n\\t\\t\\treturn `<get_vts_response status=\\\"404\\\" status_text=\\\"Not found\\\"/>`\\n\\t\\t}\\n\\t\\treturn fmt.Sprintf(`<get_vts_response status=\\\"200\\\" status_text=\\\"OK\\\"><vts vts_version=\\\"%s\\\" total=\\\"1\\\" sent=\\\"1\\\">%s</vts></get_vts_response>`, f.version(), vtXML(oid, vt))\\n\\t}\\n\\tif strings.Contains(req, \\\"filter=\\\") {\\n\\t\\treturn fmt.Sprintf(`<get_vts_response status=\\\"200\\\" status_text=\\\"OK\\\"><vts vts_version=\\\"%s\\\" total=\\\"%d\\\" sent=\\\"0\\\"/></get_vts_response>`, f.version(), f.vtCount())\\n\\t}\\n\\t// No vt_id and no filter: the whole feed, as ospd-openvas streams it.\\n\\tf.mu.Lock()\\n\\tf.vtBulk++\\n\\tf.mu.Unlock()\\n\\toids := make([]string, 0, len(f.VTs))\\n\\tfor oid := range f.VTs {\\n\\t\\toids = append(oids, oid)\\n\\t}\\n\\tsort.Strings(oids)\\n\\tvar sb strings.Builder\\n\\tfmt.Fprintf(&sb, `<get_vts_response status=\\\"200\\\" status_text=\\\"OK\\\"><vts vts_version=\\\"%s\\\" total=\\\"\\\">`, f.version())\\n\\tfor _, oid := range oids {\\n\\t\\tsb.WriteString(vtXML(oid, f.VTs[oid]))\\n\\t}\\n\\tsb.WriteString(`</vts></get_vts_response>`)\\n\\treturn sb.String()\\n}\\n\\nfunc vtXML(oid string, vt VT) string {\\n\\tvar sb strings.Builder\\n\\tfmt.Fprintf(&sb, `<vt id=\\\"%s\\\"><name>%s</name><refs>`, oid, x(vt.Name))\\n\\tfor _, c := range vt.CVEs {\\n\\t\\tfmt.Fprintf(&sb, `<ref type=\\\"cve\\\" id=\\\"%s\\\"/>`, c)\\n\\t}\\n\\tfmt.Fprintf(&sb, `<ref type=\\\"url\\\" id=\\\"https://example.invalid/adv\\\"/></refs><summary>summary</summary><solution type=\\\"VendorFix\\\">%s</solution><detection qod_type=\\\"%s\\\" qod=\\\"%d\\\"/><severities>`, x(vt.Solution), vt.QoDType, vt.QoD)\\n\\tif vt.CVSSv2 != \\\"\\\" {\\n\\t\\tfmt.Fprintf(&sb, `<severity type=\\\"cvss_base_v2\\\"><origin>NVD</origin><date>2019-05-14</date><value>%s</value></severity>`, vt.CVSSv2)\\n\\t}\\n\\tif vt.CVSSv3 != \\\"\\\" {\\n\\t\\tfmt.Fprintf(&sb, `<severity type=\\\"cvss_base_v3\\\"><value>%s</value></severity>`, vt.CVSSv3)\\n\\t}\\n\\tfmt.Fprintf(&sb, `</severities><custom><category>3</category><family>%s</family><filename>x.nasl</filename><cvss_base>%s</cvss_base></custom></vt>`, x(vt.Family), vt.CVSSBase)\\n\\treturn sb.String()\\n}\\n\\n'''\\ns = s.replace(old_get, new_get)\\n\\nrep('''// Stops returns the stop_scan calls seen so far.\\n''', '''// VTCalls returns how many single-VT and full-list get_vts commands the\\n// fake has answered.\\nfunc (f *Fake) VTCalls() (single, bulk int) {\\n\\tf.mu.Lock()\\n\\tdefer f.mu.Unlock()\\n\\treturn f.vtSingle, f.vtBulk\\n}\\n\\n// Stops returns the stop_scan calls seen so far.\\n''')\\np.write_text(s)\\nprint(\\\"fake.go edited\\\")\\nEOF\\ngofmt -l daemon/internal/osp/; go vet ./daemon/internal/osp/... && echo \\\"vet ok\\\"; sed -n 1,66p daemon/internal/osp/scan_test.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:37:51.662Z",
+      "lastAccessed": "2026-10-05T22:37:51.662Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:37:51.662Z"
+    },
+    "cmd-1791239898361": {
+      "key": "cmd-1791239898361",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\np = pathlib.Path(\\\"daemon/internal/osp/scan_test.go\\\")\\ns = p.read_text()\\nold = '''import (\\n\\t\\\"context\\\"\\n\\t\\\"strings\\\"\\n\\t\\\"testing\\\"\\n\\t\\\"time\\\"\\n'''\\nnew = '''import (\\n\\t\\\"context\\\"\\n\\t\\\"io\\\"\\n\\t\\\"net\\\"\\n\\t\\\"os\\\"\\n\\t\\\"reflect\\\"\\n\\t\\\"strings\\\"\\n\\t\\\"testing\\\"\\n\\t\\\"time\\\"\\n'''\\nassert s.count(old) == 1\\ns = s.replace(old, new)\\ns = s.rstrip(\\\"\\\\n\\\") + '''\\n\\nfunc TestGetVTsStreamsTheFullList(t *testing.T) {\\n\\tf := osptest.Start(t, &osptest.Fake{VTs: map[string]osptest.VT{\\n\\t\\t\\\"1.1\\\": {Name: \\\"BlueKeep\\\", Family: \\\"Windows\\\", QoD: 97, QoDType: \\\"remote_active\\\", CVEs: []string{\\\"CVE-2019-0708\\\"}, CVSSv2: \\\"AV:N/AC:L/Au:N/C:C/I:C/A:C\\\", Solution: \\\"Patch\\\"},\\n\\t\\t\\\"1.2\\\": {Name: \\\"Services\\\", Family: \\\"Service detection\\\", QoD: 80},\\n\\t\\t\\\"1.3\\\": {Name: \\\"nginx < 1.21 & friends\\\", Family: \\\"Web Servers\\\", QoD: 30, CVSSv3: \\\"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H\\\", CVSSBase: \\\"9.8\\\"},\\n\\t}})\\n\\tctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)\\n\\tdefer cancel()\\n\\tc := osp.New(f.Socket)\\n\\tgot, err := c.GetVTs(ctx, []string{\\\"1.3\\\", \\\"9.9\\\", \\\"1.1\\\", \\\"1.1\\\"})\\n\\tif err != nil {\\n\\t\\tt.Fatal(err)\\n\\t}\\n\\tif len(got) != 2 || got[\\\"9.9\\\"] != nil || got[\\\"1.2\\\"] != nil {\\n\\t\\tt.Fatalf(\\\"want exactly the two known OIDs asked for, got %v\\\", got)\\n\\t}\\n\\t// One stream, and each VT reads the same as a single-VT query.\\n\\tif single, bulk := f.VTCalls(); single != 0 || bulk != 1 {\\n\\t\\tt.Fatalf(\\\"calls: single=%d bulk=%d\\\", single, bulk)\\n\\t}\\n\\tfor _, oid := range []string{\\\"1.1\\\", \\\"1.3\\\"} {\\n\\t\\tone, err := c.GetVT(ctx, oid)\\n\\t\\tif err != nil || !reflect.DeepEqual(one, got[oid]) {\\n\\t\\t\\tt.Fatalf(\\\"%s: bulk %+v != single %+v (%v)\\\", oid, got[oid], one, err)\\n\\t\\t}\\n\\t}\\n\\tif got[\\\"1.3\\\"].Name != \\\"nginx < 1.21 & friends\\\" || got[\\\"1.3\\\"].CVSSBase != 9.8 {\\n\\t\\tt.Fatalf(\\\"escaping or fields: %+v\\\", got[\\\"1.3\\\"])\\n\\t}\\n\\tif none, err := c.GetVTs(ctx, nil); err != nil || len(none) != 0 {\\n\\t\\tt.Fatalf(\\\"no OIDs: %v %v\\\", none, err)\\n\\t}\\n\\tif _, bulk := f.VTCalls(); bulk != 1 {\\n\\t\\tt.Fatal(\\\"an empty request must not open a stream\\\")\\n\\t}\\n}\\n\\n// replyOnce serves one canned response per connection on a fresh socket.\\nfunc replyOnce(t *testing.T, resp string) string {\\n\\tt.Helper()\\n\\tdir, err := os.MkdirTemp(\\\"\\\", \\\"osp-\\\")\\n\\tif err != nil {\\n\\t\\tt.Fatal(err)\\n\\t}\\n\\tt.Cleanup(func() { os.RemoveAll(dir) })\\n\\tsock := dir + \\\"/ospd.sock\\\"\\n\\tl, err := net.Listen(\\\"unix\\\", sock)\\n\\tif err != nil {\\n\\t\\tt.Fatal(err)\\n\\t}\\n\\tt.Cleanup(func() { l.Close() })\\n\\tgo func() {\\n\\t\\tfor {\\n\\t\\t\\tc, err := l.Accept()\\n\\t\\t\\tif err != nil {\\n\\t\\t\\t\\treturn\\n\\t\\t\\t}\\n\\t\\t\\tbuf := make([]byte, 4096)\\n\\t\\t\\t_, _ = c.Read(buf)\\n\\t\\t\\t_, _ = io.WriteString(c, resp)\\n\\t\\t\\tc.Close()\\n\\t\\t}\\n\\t}()\\n\\treturn sock\\n}\\n\\nfunc TestGetVTsFailures(t *testing.T) {\\n\\tctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)\\n\\tdefer cancel()\\n\\tconst head = `<get_vts_response status=\\\"200\\\" status_text=\\\"OK\\\"><vts vts_version=\\\"1\\\" total=\\\"\\\">`\\n\\tconst vt1 = `<vt id=\\\"1.1\\\"><name>A</name><custom><family>Windows</family></custom></vt>`\\n\\t// A stream cut inside the list is an error, and keeps what was complete.\\n\\tgot, err := osp.New(replyOnce(t, head+vt1+`<vt id=\\\"1.2\\\"><name>B`)).GetVTs(ctx, []string{\\\"1.1\\\", \\\"1.2\\\", \\\"1.3\\\"})\\n\\tif err == nil || len(got) != 1 || got[\\\"1.1\\\"] == nil || got[\\\"1.1\\\"].Family != \\\"Windows\\\" {\\n\\t\\tt.Fatalf(\\\"truncated inside a wanted VT: %v %v\\\", got, err)\\n\\t}\\n\\t// Also when the cut falls between VTs: absence then proves nothing.\\n\\tif got, err := osp.New(replyOnce(t, head+vt1)).GetVTs(ctx, []string{\\\"1.1\\\", \\\"1.3\\\"}); err == nil || len(got) != 1 {\\n\\t\\tt.Fatalf(\\\"truncated between VTs: %v %v\\\", got, err)\\n\\t}\\n\\tif _, err := osp.New(replyOnce(t, \\\"\\\")).GetVTs(ctx, []string{\\\"1.1\\\"}); err == nil {\\n\\t\\tt.Fatal(\\\"empty response accepted\\\")\\n\\t}\\n\\t_, err = osp.New(replyOnce(t, `<get_vts_response status=\\\"400\\\" status_text=\\\"Invalid filter element\\\"/>`)).GetVTs(ctx, []string{\\\"1.1\\\"})\\n\\tif err == nil || !strings.Contains(err.Error(), \\\"400 Invalid filter element\\\") {\\n\\t\\tt.Fatalf(\\\"status: %v\\\", err)\\n\\t}\\n\\t// The complete stream is not an error even when nothing matched.\\n\\tif got, err := osp.New(replyOnce(t, head+vt1+`</vts></get_vts_response>`)).GetVTs(ctx, []string{\\\"7.7\\\"}); err != nil || len(got) != 0 {\\n\\t\\tt.Fatalf(\\\"complete stream: %v %v\\\", got, err)\\n\\t}\\n}\\n'''\\np.write_text(s)\\nEOF\\ngofmt -l daemon/internal/osp/; go test -count=1 -race ./daemon/internal/osp/... 2>&1 | tail -15\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:38:18.361Z",
+      "lastAccessed": "2026-10-05T22:38:18.361Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:38:18.361Z"
+    },
+    "cmd-1791239929456": {
+      "key": "cmd-1791239929456",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\np = pathlib.Path(\\\"daemon/internal/nvt/cache.go\\\")\\ns = p.read_text()\\n\\ndef rep(old, new, count=1):\\n    global s\\n    assert s.count(old) == count, (s.count(old), old[:70])\\n    s = s.replace(old, new)\\n\\nrep('''// Source fetches one VT (the OSP client in production).\\ntype Source interface {\\n\\tGetVT(ctx context.Context, oid string) (*osp.VT, error)\\n}\\n''', '''// Source fetches one VT (the OSP client in production).\\ntype Source interface {\\n\\tGetVT(ctx context.Context, oid string) (*osp.VT, error)\\n}\\n\\n// BulkSource is a Source that can also return many VTs from one pass over\\n// the feed; an OID the feed does not carry is absent from the map. On\\n// error the map holds what was read before it.\\ntype BulkSource interface {\\n\\tGetVTs(ctx context.Context, oids []string) (map[string]*osp.VT, error)\\n}\\n\\n// bulkMin is the number of uncached OIDs from which one pass over the feed\\n// is cheaper than single lookups. Measured on ospd-openvas 22.10 with the\\n// 95,000-test community feed: about 4.7 s per single lookup, because ospd\\n// walks the whole feed in redis for each, against about 34 s for the pass.\\nconst bulkMin = 8\\n''')\\n\\nold = s[s.index(\\\"// Lookup returns metadata for every OID, fetching misses from the source.\\\"):s.index(\\\"func (c *Cache) save() error {\\\")]\\nnew = '''// Lookup returns metadata for every OID, fetching misses from the source:\\n// one at a time for a few, in one pass over the feed from bulkMin on when\\n// the source can do that. Unknown OIDs get a Missing entry. Fetch errors\\n// are returned after the rest is done (the caller logs and carries on with\\n// partial metadata); already-cached entries are still returned.\\nfunc (c *Cache) Lookup(ctx context.Context, feedVersion string, oids []string) (map[string]*Meta, error) {\\n\\tc.mu.Lock()\\n\\tdefer c.mu.Unlock()\\n\\tc.load(feedVersion)\\n\\tout := make(map[string]*Meta, len(oids))\\n\\tvar misses []string\\n\\tasked := map[string]bool{}\\n\\tfor _, oid := range oids {\\n\\t\\tif m, ok := c.entries[oid]; ok {\\n\\t\\t\\tout[oid] = m\\n\\t\\t} else if !asked[oid] {\\n\\t\\t\\tasked[oid] = true\\n\\t\\t\\tmisses = append(misses, oid)\\n\\t\\t}\\n\\t}\\n\\tvar firstErr error\\n\\tbulk, canBulk := c.Source.(BulkSource)\\n\\tswitch {\\n\\tcase len(misses) == 0:\\n\\tcase c.Source == nil:\\n\\t\\tfirstErr = errors.New(\\\"nvt: no metadata source\\\")\\n\\tcase canBulk && len(misses) >= bulkMin:\\n\\t\\tvts, err := bulk.GetVTs(ctx, misses)\\n\\t\\tfirstErr = err\\n\\t\\tfor _, oid := range misses {\\n\\t\\t\\tvt, found := vts[oid]\\n\\t\\t\\tif !found && err != nil {\\n\\t\\t\\t\\tcontinue // a pass that broke off says nothing about this OID\\n\\t\\t\\t}\\n\\t\\t\\tout[oid] = c.put(oid, vt)\\n\\t\\t}\\n\\tdefault:\\n\\t\\tfor _, oid := range misses {\\n\\t\\t\\tvt, err := c.Source.GetVT(ctx, oid)\\n\\t\\t\\tif err != nil {\\n\\t\\t\\t\\tif firstErr == nil {\\n\\t\\t\\t\\t\\tfirstErr = err\\n\\t\\t\\t\\t}\\n\\t\\t\\t\\tcontinue\\n\\t\\t\\t}\\n\\t\\t\\tout[oid] = c.put(oid, vt)\\n\\t\\t}\\n\\t}\\n\\tif c.dirty {\\n\\t\\tif err := c.save(); err != nil {\\n\\t\\t\\tc.Log.Warn(\\\"nvt cache save\\\", \\\"err\\\", err)\\n\\t\\t}\\n\\t}\\n\\treturn out, firstErr\\n}\\n\\n// put caches one fetched VT; nil is an OID the feed does not know.\\nfunc (c *Cache) put(oid string, vt *osp.VT) *Meta {\\n\\tm := &Meta{OID: oid, Missing: true}\\n\\tif vt != nil {\\n\\t\\tm = &Meta{OID: oid, Name: vt.Name, Family: vt.Family, CVEs: vt.CVEs, QoD: vt.QoD, QoDType: vt.QoDType,\\n\\t\\t\\tSolution: vt.Solution, Summary: vt.Summary, CVSS: Score(vt.CVSSv3Vector, vt.CVSSv2Vector, vt.CVSSBase)}\\n\\t\\tif m.CVEs == nil {\\n\\t\\t\\tm.CVEs = []string{}\\n\\t\\t}\\n\\t}\\n\\tc.entries[oid] = m\\n\\tc.dirty = true\\n\\treturn m\\n}\\n\\n'''\\ns = s.replace(old, new)\\np.write_text(s)\\n\\nt = pathlib.Path(\\\"daemon/internal/nvt/nvt_test.go\\\")\\nts = t.read_text()\\nold_imp = '''import (\\n\\t\\\"context\\\"\\n\\t\\\"errors\\\"\\n\\t\\\"testing\\\"\\n'''\\nassert ts.count(old_imp) == 1\\nts = ts.replace(old_imp, '''import (\\n\\t\\\"context\\\"\\n\\t\\\"errors\\\"\\n\\t\\\"fmt\\\"\\n\\t\\\"testing\\\"\\n''')\\nts = ts.rstrip(\\\"\\\\\\\\n\\\") + '''\\n\\n// bulkSrc is a source that can also do one pass over the feed.\\ntype bulkSrc struct {\\n\\tfakeSrc\\n\\tpasses  int\\n\\tfailAt  int // stop the pass after this many VTs (0 = complete)\\n\\tlastAsk []string\\n}\\n\\nfunc (b *bulkSrc) GetVTs(_ context.Context, oids []string) (map[string]*osp.VT, error) {\\n\\tb.passes++\\n\\tb.lastAsk = oids\\n\\tout := map[string]*osp.VT{}\\n\\tfor _, oid := range oids {\\n\\t\\tif vt := b.vts[oid]; vt != nil {\\n\\t\\t\\tif b.failAt > 0 && len(out) == b.failAt {\\n\\t\\t\\t\\treturn out, errors.New(\\\"stream cut\\\")\\n\\t\\t\\t}\\n\\t\\t\\tout[oid] = vt\\n\\t\\t}\\n\\t}\\n\\treturn out, nil\\n}\\n\\nfunc TestCacheLookupBulk(t *testing.T) {\\n\\tsrc := &bulkSrc{fakeSrc: fakeSrc{vts: map[string]*osp.VT{}}}\\n\\tvar oids []string\\n\\tfor i := 0; i < 10; i++ {\\n\\t\\toid := fmt.Sprintf(\\\"1.%d\\\", i)\\n\\t\\toids = append(oids, oid)\\n\\t\\tsrc.vts[oid] = &osp.VT{OID: oid, Name: \\\"vt \\\" + oid, Family: \\\"Web Servers\\\", QoD: 30, CVSSBase: 7.5}\\n\\t}\\n\\tc := New(t.TempDir(), src, nil)\\n\\n\\t// Below the threshold: single lookups, no pass.\\n\\tfew := oids[:bulkMin-1]\\n\\tif m, err := c.Lookup(context.Background(), \\\"v1\\\", few); err != nil || len(m) != len(few) || src.calls != len(few) || src.passes != 0 {\\n\\t\\tt.Fatalf(\\\"few: len=%d calls=%d passes=%d err=%v\\\", len(m), src.calls, src.passes, err)\\n\\t}\\n\\n\\t// A new feed version empties the cache. From the threshold on: one pass\\n\\t// that asks only for the misses, each once, and marks the unknown ones.\\n\\task := append(append([]string{\\\"9.9\\\"}, oids...), oids[0], \\\"9.8\\\")\\n\\tm, err := c.Lookup(context.Background(), \\\"v2\\\", ask)\\n\\tif err != nil || src.passes != 1 || src.calls != len(few) {\\n\\t\\tt.Fatalf(\\\"bulk: calls=%d passes=%d err=%v\\\", src.calls, src.passes, err)\\n\\t}\\n\\tif len(src.lastAsk) != 12 || len(m) != 12 || !m[\\\"9.9\\\"].Missing || !m[\\\"9.8\\\"].Missing || m[\\\"1.3\\\"].Missing || m[\\\"1.3\\\"].Name != \\\"vt 1.3\\\" || m[\\\"1.3\\\"].CVSS != 7.5 || m[\\\"1.3\\\"].CVEs == nil {\\n\\t\\tt.Fatalf(\\\"bulk result: asked=%d got=%d %+v\\\", len(src.lastAsk), len(m), m[\\\"1.3\\\"])\\n\\t}\\n\\t// Everything is cached now, on disk too: no further source use.\\n\\tc2 := New(c.Dir, src, nil)\\n\\tif m2, err := c2.Lookup(context.Background(), \\\"v2\\\", ask); err != nil || len(m2) != 12 || src.passes != 1 || src.calls != len(few) || !m2[\\\"9.9\\\"].Missing {\\n\\t\\tt.Fatalf(\\\"not cached: passes=%d calls=%d err=%v\\\", src.passes, src.calls, err)\\n\\t}\\n\\n\\t// A pass that breaks off keeps what it read, reports the error, and\\n\\t// leaves the rest unknown rather than marked missing.\\n\\tsrc.failAt = 3\\n\\tm3, err := c2.Lookup(context.Background(), \\\"v3\\\", ask)\\n\\tif err == nil || len(m3) != 3 {\\n\\t\\tt.Fatalf(\\\"cut pass: got=%d err=%v\\\", len(m3), err)\\n\\t}\\n\\tfor _, e := range m3 {\\n\\t\\tif e.Missing {\\n\\t\\t\\tt.Fatalf(\\\"an OID was marked missing after a cut pass: %+v\\\", e)\\n\\t\\t}\\n\\t}\\n\\t// The next lookup fetches only what is still unknown.\\n\\tsrc.failAt = 0\\n\\tif m4, err := c2.Lookup(context.Background(), \\\"v3\\\", ask); err != nil || len(m4) != 12 || len(src.lastAsk) != 9 || !m4[\\\"9.8\\\"].Missing {\\n\\t\\tt.Fatalf(\\\"retry: got=%d asked=%d err=%v\\\", len(m4), len(src.lastAsk), err)\\n\\t}\\n}\\n'''\\nt.write_text(ts)\\nprint(\\\"nvt edited\\\")\\nEOF\\ngofmt -l daemon/internal/nvt/; go vet ./daemon/internal/nvt/ && go test -count=1 -race ./daemon/internal/nvt/ 2>&1 | tail -15\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:38:49.456Z",
+      "lastAccessed": "2026-10-05T22:38:49.456Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:38:49.456Z"
+    },
+    "cmd-1791239938962": {
+      "key": "cmd-1791239938962",
+      "value": "{\"command\":\"gofmt -d daemon/internal/nvt/nvt_test.go | head -30; gofmt -w daemon/internal/nvt/nvt_test.go && gofmt -l daemon/internal/nvt/ daemon/internal/osp/; go test -count=1 -race ./daemon/internal/nvt/ 2>&1 | tail -3\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:38:58.962Z",
+      "lastAccessed": "2026-10-05T22:38:58.962Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:38:58.962Z"
+    },
+    "cmd-1791239967269": {
+      "key": "cmd-1791239967269",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\np = pathlib.Path(\\\"daemon/internal/engine/normalize.go\\\")\\ns = p.read_text()\\n\\ndef rep(old, new, count=1):\\n    global s\\n    assert s.count(old) == count, (s.count(old), old[:70])\\n    s = s.replace(old, new)\\n\\n# 1. per-host state for service names learned from host details\\nrep('''\\tports    map[string]*v1.Port // \\\"80/tcp\\\"\\n\\talarms   []osp.Result\\n''', '''\\tports    map[string]*v1.Port // \\\"80/tcp\\\"\\n\\tservices map[string]string   // portKey → name from \\\"Services\\\" host details\\n\\talarms   []osp.Result\\n''')\\nrep('''func newHostAgg(ip string) *hostAgg { return &hostAgg{ip: ip, ports: map[string]*v1.Port{}} }\\n''', '''func newHostAgg(ip string) *hostAgg {\\n\\treturn &hostAgg{ip: ip, ports: map[string]*v1.Port{}, services: map[string]string{}}\\n}\\n''')\\n\\n# 2. route host details by where they are reported, not only by type\\nrep('''// absorb files one OSP result under the host.\\nfunc (h *hostAgg) absorb(r osp.Result) {\\n\\tif r.Hostname != \\\"\\\" && h.hostname == \\\"\\\" && r.Hostname != r.Host {\\n\\t\\th.hostname = strings.TrimSpace(r.Hostname)\\n\\t}\\n\\tswitch r.Type {\\n\\tcase \\\"Alarm\\\":\\n\\t\\th.alarms = append(h.alarms, r)\\n\\tcase \\\"Log Message\\\":\\n\\t\\th.logs = append(h.logs, r)\\n\\tcase \\\"Host Detail\\\":\\n\\t\\th.absorbDetail(r)\\n\\tcase \\\"Error Message\\\":\\n\\t\\th.errors++\\n\\t}\\n}\\n''', '''// hostDetailsPort is the pseudo port the feed's \\\"Host Details\\\" test reports\\n// on. openvas sends those details as ordinary log results, one detail each;\\n// the \\\"Host Detail\\\" result type of OSP is accepted as well.\\nconst hostDetailsPort = \\\"general/Host_Details\\\"\\n\\nfunc isHostDetail(r osp.Result) bool {\\n\\treturn r.Type == \\\"Host Detail\\\" || strings.EqualFold(strings.TrimSpace(r.Port), hostDetailsPort)\\n}\\n\\n// absorb files one OSP result under the host.\\nfunc (h *hostAgg) absorb(r osp.Result) {\\n\\tif r.Hostname != \\\"\\\" && h.hostname == \\\"\\\" && r.Hostname != r.Host {\\n\\t\\th.hostname = strings.TrimSpace(r.Hostname)\\n\\t}\\n\\tif isHostDetail(r) {\\n\\t\\th.absorbDetail(r)\\n\\t\\treturn\\n\\t}\\n\\tswitch r.Type {\\n\\tcase \\\"Alarm\\\":\\n\\t\\th.alarms = append(h.alarms, r)\\n\\tcase \\\"Log Message\\\":\\n\\t\\th.logs = append(h.logs, r)\\n\\tcase \\\"Error Message\\\":\\n\\t\\th.errors++\\n\\t}\\n}\\n''')\\n\\n# 3. OS text precedence and the Services detail\\nrep('''\\t\\tcase \\\"best_os_cpe\\\":\\n\\t\\t\\th.osCPE = value\\n\\t\\tcase \\\"best_os_txt\\\", \\\"os\\\":\\n\\t\\t\\tif h.osTxt == \\\"\\\" {\\n\\t\\t\\t\\th.osTxt = value\\n\\t\\t\\t}\\n''', '''\\t\\tcase \\\"best_os_cpe\\\":\\n\\t\\t\\th.osCPE = value\\n\\t\\tcase \\\"best_os_txt\\\":\\n\\t\\t\\th.osTxt = value // the engine's own pick among the \\\"OS\\\" candidates\\n\\t\\tcase \\\"os\\\":\\n\\t\\t\\t// Each candidate arrives twice, as a name and as a CPE.\\n\\t\\t\\tif h.osTxt == \\\"\\\" && !strings.HasPrefix(value, \\\"cpe:/\\\") {\\n\\t\\t\\t\\th.osTxt = value\\n\\t\\t\\t}\\n\\t\\tcase \\\"services\\\":\\n\\t\\t\\th.serviceDetail(value)\\n''')\\n\\nrep('''var (\\n\\tcpeRe     = regexp.MustCompile(`cpe:/[aoh]:[A-Za-z0-9._~%-]+(?::[A-Za-z0-9._~%-]*)*`)\\n''', '''// serviceDetail records one \\\"Services\\\" host detail, which reads\\n// \\\"port,proto,service[,description]\\\".\\nfunc (h *hostAgg) serviceDetail(value string) {\\n\\tf := strings.SplitN(value, \\\",\\\", 4)\\n\\tif len(f) < 3 {\\n\\t\\treturn\\n\\t}\\n\\tp, err := strconv.Atoi(strings.TrimSpace(f[0]))\\n\\tsvc := strings.ToLower(strings.TrimSpace(f[2]))\\n\\tif err != nil || p < 1 || p > 65535 || svc == \\\"\\\" || svc == \\\"unknown\\\" || svc == \\\"wrapped\\\" {\\n\\t\\treturn\\n\\t}\\n\\tif svc == \\\"www\\\" {\\n\\t\\tsvc = \\\"http\\\" // the label the log texts already produce\\n\\t}\\n\\tproto := strings.TrimSpace(f[1])\\n\\tif proto == \\\"\\\" {\\n\\t\\tproto = \\\"tcp\\\"\\n\\t}\\n\\tif k := portKey(p, proto); h.services[k] == \\\"\\\" {\\n\\t\\th.services[k] = svc\\n\\t}\\n}\\n\\n// detection is one \\\"Detected <product>\\\" block of a product detection\\n// result. Every detection test in the feed builds its report the same way:\\n//\\n//\\tDetected Apache HTTP Server\\n//\\n//\\tVersion:       2.4.49\\n//\\tLocation:      80/tcp\\n//\\tCPE:           cpe:/a:apache:http_server:2.4.49\\ntype detection struct {\\n\\tproduct, version, cpe string\\n\\tport                  int // from \\\"Location: 80/tcp\\\"; 0 when it is a path\\n\\tproto                 string\\n}\\n\\nvar (\\n\\tdetectedRe = regexp.MustCompile(`(?m)^Detected[ \\\\\\\\t]+(\\\\\\\\S.*?)[ \\\\\\\\t]*$`)\\n\\tfieldRe    = regexp.MustCompile(`(?m)^(Version|Location|CPEs?):[ \\\\\\\\t]*(\\\\\\\\S.*?)[ \\\\\\\\t]*$`)\\n\\tlocPortRe  = regexp.MustCompile(`^(\\\\\\\\d{1,5})/(tcp|udp)$`)\\n)\\n\\n// detections splits a result text into its detection blocks. Only the\\n// first Version, Location and CPE line of a block count: the lines after\\n// them quote banners that may repeat those words.\\nfunc detections(text string) []detection {\\n\\tidx := detectedRe.FindAllStringSubmatchIndex(text, -1)\\n\\tout := make([]detection, 0, len(idx))\\n\\tfor i, m := range idx {\\n\\t\\tend := len(text)\\n\\t\\tif i+1 < len(idx) {\\n\\t\\t\\tend = idx[i+1][0]\\n\\t\\t}\\n\\t\\td := detection{product: text[m[2]:m[3]]}\\n\\t\\tseen := map[string]bool{}\\n\\t\\tfor _, f := range fieldRe.FindAllStringSubmatch(text[m[1]:end], -1) {\\n\\t\\t\\tname := strings.TrimSuffix(f[1], \\\"s\\\")\\n\\t\\t\\tif seen[name] {\\n\\t\\t\\t\\tcontinue\\n\\t\\t\\t}\\n\\t\\t\\tseen[name] = true\\n\\t\\t\\tswitch name {\\n\\t\\t\\tcase \\\"Version\\\":\\n\\t\\t\\t\\tif !strings.EqualFold(f[2], \\\"unknown\\\") {\\n\\t\\t\\t\\t\\td.version = f[2]\\n\\t\\t\\t\\t}\\n\\t\\t\\tcase \\\"Location\\\":\\n\\t\\t\\t\\tif lm := locPortRe.FindStringSubmatch(strings.ToLower(f[2])); lm != nil {\\n\\t\\t\\t\\t\\tif n, _ := strconv.Atoi(lm[1]); n >= 1 && n <= 65535 {\\n\\t\\t\\t\\t\\t\\td.port, d.proto = n, lm[2]\\n\\t\\t\\t\\t\\t}\\n\\t\\t\\t\\t}\\n\\t\\t\\tcase \\\"CPE\\\":\\n\\t\\t\\t\\tif c := cpeRe.FindString(f[2]); strings.HasPrefix(c, \\\"cpe:/a:\\\") {\\n\\t\\t\\t\\t\\td.cpe = c\\n\\t\\t\\t\\t}\\n\\t\\t\\t}\\n\\t\\t}\\n\\t\\tout = append(out, d)\\n\\t}\\n\\treturn out\\n}\\n\\nvar (\\n\\tcpeRe     = regexp.MustCompile(`cpe:/[aoh]:[A-Za-z0-9._~%-]+(?::[A-Za-z0-9._~%-]*)*`)\\n''')\\n\\n# 4. finalize: detections reported on general/tcp, and the service fallback\\nrep('''\\tfor _, r := range h.logs {\\n\\t\\tp, proto := r.PortNumber()\\n\\t\\tif p == 0 {\\n\\t\\t\\tcontinue\\n\\t\\t}\\n\\t\\tport := h.addPort(p, proto, \\\"openvas:find_service\\\")\\n''', '''\\tfor _, r := range h.logs {\\n\\t\\tp, proto := r.PortNumber()\\n\\t\\tif p == 0 {\\n\\t\\t\\t// A test that consolidates several detection methods reports\\n\\t\\t\\t// once on general/tcp, with one block per install naming its\\n\\t\\t\\t// port. Same rules as for a result on the port itself, below.\\n\\t\\t\\tfor _, d := range detections(r.Text) {\\n\\t\\t\\t\\tif d.port == 0 {\\n\\t\\t\\t\\t\\tcontinue\\n\\t\\t\\t\\t}\\n\\t\\t\\t\\tport := h.addPort(d.port, d.proto, \\\"openvas:find_service\\\")\\n\\t\\t\\t\\tif d.cpe != \\\"\\\" && port.CPE == \\\"\\\" {\\n\\t\\t\\t\\t\\tport.CPE = d.cpe\\n\\t\\t\\t\\t\\tport.Source = \\\"openvas:product_detection\\\"\\n\\t\\t\\t\\t}\\n\\t\\t\\t\\tif port.Product == \\\"\\\" {\\n\\t\\t\\t\\t\\tport.Product, port.Version = d.product, d.version\\n\\t\\t\\t\\t}\\n\\t\\t\\t}\\n\\t\\t\\tcontinue\\n\\t\\t}\\n\\t\\tport := h.addPort(p, proto, \\\"openvas:find_service\\\")\\n''')\\n\\nrep('''\\t// Findings from alarms; one per (oid, port).\\n''', '''\\tfor k, svc := range h.services {\\n\\t\\tif port, ok := h.ports[k]; ok && port.Service == \\\"\\\" {\\n\\t\\t\\tport.Service = svc\\n\\t\\t}\\n\\t}\\n\\t// Findings from alarms; one per (oid, port).\\n''')\\np.write_text(s)\\nprint(\\\"normalize.go edited\\\")\\nEOF\\ngofmt -l daemon/internal/engine/; go build ./daemon/... && go vet ./daemon/internal/engine/ && echo \\\"build and vet ok\\\"; grep -n -E 'detectedRe|fieldRe|locPortRe' daemon/internal/engine/normalize.go | head -5\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:39:27.269Z",
+      "lastAccessed": "2026-10-05T22:39:27.269Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:39:27.269Z"
+    },
+    "cmd-1791240046171": {
+      "key": "cmd-1791240046171",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib, re\\np = pathlib.Path(\\\"daemon/internal/engine/normalize_test.go\\\")\\ns = p.read_text()\\nn = len(re.findall(r\\\"\\\\bhostDetail\\\\(\\\", s))\\ns = re.sub(r\\\"\\\\bhostDetail\\\\(\\\", \\\"detailMsg(\\\", s)\\np.write_text(s)\\nprint(\\\"renamed\\\", n, \\\"uses\\\")\\nEOF\\ngofmt -l daemon/internal/engine/; go vet ./daemon/internal/engine/ && go test -count=1 -race ./daemon/internal/engine/ 2>&1 | tail -25\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:40:46.171Z",
+      "lastAccessed": "2026-10-05T22:40:46.171Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:40:46.171Z"
+    },
+    "cmd-1791240154377": {
+      "key": "cmd-1791240154377",
+      "value": "{\"command\":\"go build ./... && go vet ./... && echo \\\"build+vet ok (host)\\\"; for t in windows/amd64 windows/arm64 linux/amd64 linux/arm64 freebsd/amd64; do GOOS=${t%/*} GOARCH=${t#*/} go vet ./daemon/... ./internal/... >/dev/null 2>&1 && echo \\\"vet ok $t\\\" || echo \\\"VET FAILED $t\\\"; done; gofmt -l . | grep -v '^\\\\.claude' ; echo \\\"gofmt done\\\"; go test -count=1 -race -timeout 20m ./... 2>&1 | tail -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:42:34.377Z",
+      "lastAccessed": "2026-10-05T22:42:34.377Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:42:34.377Z"
+    },
+    "cmd-1791240176331": {
+      "key": "cmd-1791240176331",
+      "value": "{\"command\":\"cp dev/pki/root.pem daemon/internal/pki/roots.pem && cp dev/pki/release-pub.pem daemon/internal/pki/release-pub.pem && start=$(date +%s) && dev/lab/compose --progress plain build appliance > dev/build-appliance.log 2>&1; rc=$?; git checkout daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem; echo \\\"build exit=$rc after $(( $(date +%s) - start ))s; placeholders: $(wc -c < daemon/internal/pki/roots.pem | tr -d ' ') and $(wc -c < daemon/internal/pki/release-pub.pem | tr -d ' ') bytes\\\"; grep -E 'ERROR|error:' dev/build-appliance.log | head -5; docker images --format '{{.Repository}}:{{.Tag}}\\\\t{{.Size}}\\\\t{{.CreatedSince}}' | grep 'scanner-appliance:dev'; dev/lab/compose up -d appliance 2>&1 | tail -3; docker inspect --format 'appliance container image: {{.Image}} started {{.State.StartedAt}}' scanner-appliance-appliance-1 | cut -c1-120\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:42:56.331Z",
+      "lastAccessed": "2026-10-05T22:42:56.331Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:42:56.331Z"
+    },
+    "cmd-1791240291174": {
+      "key": "cmd-1791240291174",
+      "value": "{\"command\":\"set -a && . docker/.env && set +a && APL=apl_06GGRJKKP85W1AGRNT5FZY0YV8 && get() { curl -s --max-time 10 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/appliances/$APL\\\"; } && until get | python3 -c 'import json,sys; d=json.load(sys.stdin); e=(d.get(\\\"last_heartbeat\\\") or {}).get(\\\"engine\\\") or {}; sys.exit(0 if (d.get(\\\"online\\\") and e.get(\\\"ospd_up\\\") and e.get(\\\"vt_cache_loaded\\\")) else 1)' 2>/dev/null; do sleep 5; done; echo \\\"engine ready\\\"; docker exec scanner-appliance-appliance-1 sh -c 'ls -la /var/lib/appliance/nvt-cache/ && rm -f /var/lib/appliance/nvt-cache/nvt-202610050609.json && echo \\\"metadata cache cleared for a cold run\\\"'; dev/lab/cp create-job --appliance $APL --mode full --targets 172.18.0.4,172.18.0.5,172.18.0.6,172.18.0.7 --now > dev/lab/job-after.json; python3 -c 'import json; d=json.load(open(\\\"dev/lab/job-after.json\\\")); print(\\\"job:\\\", d.get(\\\"id\\\"), d.get(\\\"status\\\"))'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:44:51.174Z",
+      "lastAccessed": "2026-10-05T22:44:51.174Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:44:51.174Z"
+    },
+    "cmd-1791240297266": {
+      "key": "cmd-1791240297266",
+      "value": "{\"command\":\"echo \\\"=== docs mentioning the metadata lookup or product detection\\\"; grep -n -i -E 'nvt-cache|metadata|get_vts|host detail|product detection|os_guess|per-port detail|CPE' README.md docs/*.md | cut -c1-260 | head -20; echo \\\"=== user's own pending README change (context only)\\\"; git diff --stat -- README.md\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:44:57.266Z",
+      "lastAccessed": "2026-10-05T22:44:57.266Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:44:57.266Z"
+    },
+    "cmd-1791240300576": {
+      "key": "cmd-1791240300576",
+      "value": "{\"command\":\"sed -n 116,117p README.md | cut -c1-900\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:45:00.576Z",
+      "lastAccessed": "2026-10-05T22:45:00.576Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:45:00.576Z"
+    },
+    "cmd-1791240731143": {
+      "key": "cmd-1791240731143",
+      "value": "{\"command\":\"set -a && . docker/.env && set +a && J=job_06GGWFE0225HTG3DPNQ5R9FRF8 && get() { curl -s --max-time 10 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/jobs/$J\\\"; } && until get | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)[\\\"status\\\"] not in (\\\"queued\\\",\\\"dispatched\\\",\\\"running\\\") else 1)'; do sleep 10; done; get | python3 -c '\\nimport json,sys\\nd=json.load(sys.stdin); s=d.get(\\\"stats\\\") or {}\\nprint(\\\"status:\\\", d[\\\"status\\\"], \\\"| reject:\\\", d.get(\\\"reject_reason\\\",\\\"\\\"))\\nprint(\\\"stats:\\\", {k:s.get(k) for k in (\\\"hosts_alive\\\",\\\"hosts_scanned\\\",\\\"open_ports\\\",\\\"findings\\\",\\\"duration_s\\\")})\\nprint(\\\"phase seconds:\\\", s.get(\\\"phase_duration_s\\\"))'; echo \\\"--- timeline\\\"; docker logs --since 30m scanner-appliance-appliance-1 2>&1 | grep -v -i mqtt | grep -E \\\"$J|Scan finished|Starting scan|nvt\\\" | grep -E 'openvas scan started|Scan finished|Starting scan|job done|nvt|WARN|ERROR' | cut -c1-200\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:52:11.143Z",
+      "lastAccessed": "2026-10-05T22:52:11.143Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:52:11.143Z"
+    },
+    "cmd-1791240750036": {
+      "key": "cmd-1791240750036",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && docker cp scanner-appliance-appliance-1:/var/lib/appliance/nvt-cache/nvt-202610050609.json $S/nvt-after.json && python3 - <<'EOF'\\nimport json\\nS = \\\"/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/\\\"\\nbefore = json.load(open(S + \\\"nvt-before.json\\\"))   # fetched one test at a time by the old daemon\\nafter = json.load(open(S + \\\"nvt-after.json\\\"))     # fetched in one pass by the fixed daemon\\ncommon = sorted(set(before) & set(after))\\ndiff = [o for o in common if before[o] != after[o]]\\nprint(\\\"tests looked up: before\\\", len(before), \\\"| after\\\", len(after), \\\"| in both\\\", len(common))\\nprint(\\\"entries that differ between the two fetch methods:\\\", len(diff))\\nfor o in diff[:5]:\\n    b, a = before[o], after[o]\\n    print(\\\"  \\\", o, {k: (b.get(k), a.get(k)) for k in set(b) | set(a) if b.get(k) != a.get(k)})\\nprint(\\\"marked missing after:\\\", sum(1 for m in after.values() if m.get(\\\"missing\\\")), \\\"| only in before:\\\", len(set(before) - set(after)), \\\"| only in after:\\\", len(set(after) - set(before)))\\nEOF\\nset -a && . docker/.env && set +a && SITE=site_06GGRJKKNW9M0D471MZ6HBTMT8 && curl -s --max-time 30 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/sites/$SITE/hosts\\\" > dev/lab/hosts-after.json && curl -s --max-time 30 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/sites/$SITE/findings\\\" > dev/lab/findings-after.json && python3 - <<'EOF'\\nimport json, collections\\nhs = json.load(open(\\\"dev/lab/hosts-after.json\\\")); old = json.load(open(\\\"dev/lab/hosts.json\\\"))\\nfs = json.load(open(\\\"dev/lab/findings-after.json\\\"))\\noldp = {(h[\\\"ip\\\"], p[\\\"port\\\"]): p for h in old for p in h.get(\\\"ports\\\") or []}\\nprint(\\\"=== inventory: before -> after\\\")\\nfor h in sorted(hs, key=lambda h: h[\\\"ip\\\"]):\\n    g = h.get(\\\"os_guess\\\") or {}\\n    print(f\\\"  {h['ip']}  os: {g.get('name','-')} | {g.get('cpe','-')} | family {g.get('family','-')} | conf {g.get('confidence','-')}\\\")\\n    for p in h.get(\\\"ports\\\") or []:\\n        o = oldp.get((h[\\\"ip\\\"], p[\\\"port\\\"]), {})\\n        f = lambda d: \\\" \\\".join(str(d.get(k) or \\\"-\\\") for k in (\\\"service\\\", \\\"product\\\", \\\"version\\\", \\\"cpe\\\"))\\n        print(f\\\"      {p['port']:>5}/tcp   {f(o)}   ->   {f(p)}   [{p.get('source')}]\\\")\\nipof = {h[\\\"id\\\"]: h[\\\"ip\\\"] for h in hs}\\nper = collections.Counter(ipof.get(f.get(\\\"host_id\\\")) for f in fs if f.get(\\\"status\\\") == \\\"open\\\")\\nsev = collections.Counter(f.get(\\\"severity\\\") for f in fs if f.get(\\\"status\\\") == \\\"open\\\")\\nprint(\\\"=== findings now:\\\", len(fs), \\\"| open by severity:\\\", {k: sev[k] for k in (\\\"critical\\\", \\\"high\\\", \\\"medium\\\", \\\"low\\\") if sev[k]}, \\\"| by status:\\\", dict(collections.Counter(f.get(\\\"status\\\") for f in fs)))\\nprint(\\\"    open per host:\\\", dict(sorted(per.items())))\\nprint(\\\"    hosts on the site:\\\", len(hs))\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:52:30.036Z",
+      "lastAccessed": "2026-10-05T22:52:30.036Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:52:30.036Z"
+    },
+    "cmd-1791240776332": {
+      "key": "cmd-1791240776332",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport json\\nS = \\\"/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/\\\"\\nb = json.load(open(S + \\\"nvt-before.json\\\")); a = json.load(open(S + \\\"nvt-after.json\\\"))\\nfor o in set(b) - set(a):\\n    print(\\\"looked up before but not after:\\\", o, \\\"|\\\", b[o].get(\\\"name\\\"), \\\"|\\\", b[o].get(\\\"family\\\"))\\nfam = {}\\nfor o in set(a) - set(b):\\n    fam[a[o].get(\\\"family\\\")] = fam.get(a[o].get(\\\"family\\\"), 0) + 1\\nprint(\\\"new after, by family:\\\", fam)\\nEOF\\necho \\\"--- engine log between scan end and job done (broker noise removed)\\\"; docker exec scanner-appliance-appliance-1 sh -c 'grep -v -i mqtt /var/log/gvm/ospd-openvas.log | grep -E \\\"2026-10-05 22:5[1-3]\\\" | cut -c1-220'; echo \\\"--- engine health now\\\"; set -a && . docker/.env && set +a && curl -s --max-time 10 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/appliances/apl_06GGRJKKP85W1AGRNT5FZY0YV8\\\" | python3 -c 'import json,sys; d=json.load(sys.stdin); e=(d.get(\\\"last_heartbeat\\\") or {}).get(\\\"engine\\\") or {}; print(\\\"online:\\\", d.get(\\\"online\\\"), \\\"| ospd_up:\\\", e.get(\\\"ospd_up\\\"), \\\"| vt_cache_loaded:\\\", e.get(\\\"vt_cache_loaded\\\"), \\\"| error:\\\", e.get(\\\"error\\\",\\\"-\\\"))'; docker stats --no-stream --format '{{.Name}}\\\\t{{.MemUsage}}' | grep appliance-appliance\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:52:56.332Z",
+      "lastAccessed": "2026-10-05T22:52:56.332Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:52:56.332Z"
+    },
+    "cmd-1791240818337": {
+      "key": "cmd-1791240818337",
+      "value": "{\"command\":\"docker exec -i scanner-appliance-appliance-1 python3 - <<'EOF'\\nimport socket, time\\ns = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(300)\\ns.connect(\\\"/run/ospd/ospd.sock\\\")\\nt0 = time.time(); s.sendall(b'<get_vts details=\\\"1\\\"/>')\\nn = 0; vts = 0; tail = b\\\"\\\"\\nwhile True:\\n    b = s.recv(1 << 16)\\n    if not b: break\\n    n += len(b)\\n    buf = tail + b\\n    vts += buf.count(b\\\"<vt id=\\\")\\n    tail = buf[-6:] if not buf.endswith(b\\\"<vt id=\\\") else b\\\"\\\"\\nprint(\\\"one pass over the feed: %.1f s, %.0f MB, %d tests\\\" % (time.time() - t0, n / 1e6, vts))\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:53:38.337Z",
+      "lastAccessed": "2026-10-05T22:53:38.337Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:53:38.337Z"
+    },
+    "cmd-1791240832680": {
+      "key": "cmd-1791240832680",
+      "value": "{\"command\":\"git status --short | grep -v '\\\\.claude-flow'; git diff --stat -- daemon | tail -8; echo \\\"=== normalize.go diff\\\"; git diff -- daemon/internal/engine/normalize.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:53:52.680Z",
+      "lastAccessed": "2026-10-05T22:53:52.680Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:53:52.680Z"
+    },
+    "cmd-1791240854949": {
+      "key": "cmd-1791240854949",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\np = pathlib.Path(\\\"daemon/internal/engine/normalize.go\\\")\\ns = p.read_text()\\ndef rep(old, new):\\n    global s\\n    assert s.count(old) == 1, old[:60]\\n    s = s.replace(old, new)\\n# Values are trimmed so a stray carriage return in an engine report cannot end up in a product name.\\nrep('''\\t\\td := detection{product: text[m[2]:m[3]]}\\n\\t\\tseen := map[string]bool{}\\n\\t\\tfor _, f := range fieldRe.FindAllStringSubmatch(text[m[1]:end], -1) {\\n\\t\\t\\tname := strings.TrimSuffix(f[1], \\\"s\\\")\\n\\t\\t\\tif seen[name] {\\n\\t\\t\\t\\tcontinue\\n\\t\\t\\t}\\n\\t\\t\\tseen[name] = true\\n\\t\\t\\tswitch name {\\n\\t\\t\\tcase \\\"Version\\\":\\n\\t\\t\\t\\tif !strings.EqualFold(f[2], \\\"unknown\\\") {\\n\\t\\t\\t\\t\\td.version = f[2]\\n\\t\\t\\t\\t}\\n\\t\\t\\tcase \\\"Location\\\":\\n\\t\\t\\t\\tif lm := locPortRe.FindStringSubmatch(strings.ToLower(f[2])); lm != nil {\\n''', '''\\t\\td := detection{product: strings.TrimSpace(text[m[2]:m[3]])}\\n\\t\\tseen := map[string]bool{}\\n\\t\\tfor _, f := range fieldRe.FindAllStringSubmatch(text[m[1]:end], -1) {\\n\\t\\t\\tname, value := strings.TrimSuffix(f[1], \\\"s\\\"), strings.TrimSpace(f[2])\\n\\t\\t\\tif seen[name] {\\n\\t\\t\\t\\tcontinue\\n\\t\\t\\t}\\n\\t\\t\\tseen[name] = true\\n\\t\\t\\tswitch name {\\n\\t\\t\\tcase \\\"Version\\\":\\n\\t\\t\\t\\tif !strings.EqualFold(value, \\\"unknown\\\") {\\n\\t\\t\\t\\t\\td.version = value\\n\\t\\t\\t\\t}\\n\\t\\t\\tcase \\\"Location\\\":\\n\\t\\t\\t\\tif lm := locPortRe.FindStringSubmatch(strings.ToLower(value)); lm != nil {\\n''')\\nrep('''\\t\\t\\tcase \\\"CPE\\\":\\n\\t\\t\\t\\tif c := cpeRe.FindString(f[2]); strings.HasPrefix(c, \\\"cpe:/a:\\\") {\\n''', '''\\t\\t\\tcase \\\"CPE\\\":\\n\\t\\t\\t\\tif c := cpeRe.FindString(value); strings.HasPrefix(c, \\\"cpe:/a:\\\") {\\n''')\\np.write_text(s)\\n\\nt = pathlib.Path(\\\"daemon/internal/engine/normalize_test.go\\\")\\nts = t.read_text()\\nold = '''\\t// Without a port in the block there is nothing to attach it to, an OS\\n'''\\nnew = '''\\t// Carriage returns from a quoted banner do not end up in the values.\\n\\tif d := detections(\\\"Detected Example Server\\\\\\\\r\\\\\\\\n\\\\\\\\r\\\\\\\\nVersion:       2.0\\\\\\\\r\\\\\\\\nLocation:      8080/tcp\\\\\\\\r\\\\\\\\nCPE:           cpe:/a:example:server:2.0\\\\\\\\r\\\\\\\\n\\\"); len(d) != 1 || d[0].product != \\\"Example Server\\\" || d[0].version != \\\"2.0\\\" || d[0].port != 8080 || d[0].cpe != \\\"cpe:/a:example:server:2.0\\\" {\\n\\t\\tt.Fatalf(\\\"crlf report: %+q\\\", d)\\n\\t}\\n\\n\\t// Without a port in the block there is nothing to attach it to, an OS\\n'''\\nassert ts.count(old) == 1\\nt.write_text(ts.replace(old, new))\\nprint(\\\"edited\\\")\\nEOF\\ngofmt -l daemon/; go vet ./daemon/internal/engine/ && go test -count=1 -race ./daemon/internal/engine/ 2>&1 | tail -5; echo \\\"=== cache.go + scan.go diff\\\"; git diff -- daemon/internal/nvt/cache.go daemon/internal/osp/scan.go | grep -E '^[+-]' | grep -v -E '^(\\\\+\\\\+\\\\+|---)' | cut -c1-170\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:54:14.949Z",
+      "lastAccessed": "2026-10-05T22:54:14.949Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:54:14.949Z"
+    },
+    "cmd-1791240874941": {
+      "key": "cmd-1791240874941",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\nt = pathlib.Path(\\\"daemon/internal/engine/normalize_test.go\\\")\\ns = t.read_text()\\nold = 't.Fatalf(\\\"crlf report: %+q\\\", d)'\\nassert s.count(old) == 1\\nt.write_text(s.replace(old, 't.Fatalf(\\\"crlf report: %+v\\\", d)'))\\nEOF\\ngofmt -l daemon/ internal/ controlplane/ api/; go build ./... && go vet ./... && echo \\\"build+vet ok\\\" && go test -count=1 -race ./daemon/internal/engine/ ./daemon/internal/nvt/ ./daemon/internal/osp/... 2>&1 | tail -5\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:54:34.941Z",
+      "lastAccessed": "2026-10-05T22:54:34.941Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:54:34.941Z"
+    },
+    "cmd-1791240888409": {
+      "key": "cmd-1791240888409",
+      "value": "{\"command\":\"cp dev/pki/root.pem daemon/internal/pki/roots.pem && cp dev/pki/release-pub.pem daemon/internal/pki/release-pub.pem && dev/lab/compose --progress plain build appliance > dev/build-appliance.log 2>&1; rc=$?; git checkout daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem 2>&1 | tail -1; echo \\\"build exit=$rc; placeholders: $(wc -c < daemon/internal/pki/roots.pem | tr -d ' ') and $(wc -c < daemon/internal/pki/release-pub.pem | tr -d ' ') bytes\\\"; dev/lab/compose up -d appliance 2>&1 | tail -1; set -a && . docker/.env && set +a && APL=apl_06GGRJKKP85W1AGRNT5FZY0YV8 && get() { curl -s --max-time 10 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/appliances/$APL\\\"; } && until get | python3 -c 'import json,sys,time; d=json.load(sys.stdin); e=(d.get(\\\"last_heartbeat\\\") or {}).get(\\\"engine\\\") or {}; sys.exit(0 if (d.get(\\\"online\\\") and e.get(\\\"ospd_up\\\") and e.get(\\\"vt_cache_loaded\\\")) else 1)' 2>/dev/null; do sleep 5; done; echo \\\"engine ready\\\"; dev/lab/cp create-job --appliance $APL --mode full --targets 172.18.0.4,172.18.0.5,172.18.0.6,172.18.0.7 --now > dev/lab/job-warm.json; python3 -c 'import json; d=json.load(open(\\\"dev/lab/job-warm.json\\\")); print(\\\"job:\\\", d.get(\\\"id\\\"), d.get(\\\"status\\\"))'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:54:48.409Z",
+      "lastAccessed": "2026-10-05T22:54:48.409Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:54:48.409Z"
+    },
+    "cmd-1791240910581": {
+      "key": "cmd-1791240910581",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\nm = pathlib.Path(\\\"/Users/richardtang/.claude/projects/-Users-richardtang-Desktop-repos-scanner-appliance/memory\\\")\\n(m / \\\"first-real-feed-scan-open-issues.md\\\").write_text(\\\"\\\"\\\"---\\nname: first-real-feed-scan-open-issues\\ndescription: Defects the first OpenVAS scans with the real Community Feed exposed (2026-10-05), which are fixed and which are open\\nmetadata:\\n  type: project\\n---\\n\\nThe first end-to-end scans with the real feed ran on 2026-10-05 in the container lab (see [[local-dev-environment]]). They work, and they exposed defects the scripted fakes could not, because the fakes encode assumptions about the engine that turned out wrong.\\n\\n**Fixed on 2026-10-05, in the working tree, not committed by me:**\\n- Product inventory. ospd-openvas sends host details as `Log Message` results on the pseudo port `general/Host_Details`, not as the `Host Detail` type, and consolidated detection tests report on `general/tcp` with the port in a `Location:` line. `daemon/internal/engine/normalize.go` now handles both, so ports get product, version and CPE, and hosts get an OS guess.\\n- Slow test descriptions. `nvt.Cache.Lookup` now fetches 8 or more misses in one streamed pass (`osp.Client.GetVTs`), about 34 s for the whole feed against 4.7 s per single lookup. A cold 4-host scan went from 805 s to 380 s.\\n\\n**Open, verified, not fixed:**\\n- Inventory mode sees no services with the real engine. Its scan config has no \\\"Port scanners\\\" family and the engine default is `unscanned_closed = yes`, so every port counts as closed. An inventory job re-observed only one ICMP finding per host. Full mode works because it includes that family. The UDP port set is probably ineffective for the same reason; that part is not verified.\\n- One product per port on the wire (`v1.Port`). The engine registers nginx under two CPEs (`nginx:nginx` and `f5:nginx`); only the first is kept. Advisory matching will want all of them.\\n- The job record's phase stays at \\\"discovery\\\" and progress at 0 for the whole run; progress only travels in the heartbeat's `current_job`.\\n- `vt_count` in engine health is always 0: ospd answers the daemon's `filter=\\\"id=none\\\"` count query with 400.\\n- No MAC addresses are recorded: naabu's discovery output is parsed as bare IPs and the engine emits no MAC detail when its alive test is skipped.\\n- Cosmetic: CVSS values carry float32 noise such as 7.800000190734863, and finding names keep HTML entities such as `&lt;`.\\n\\n**Why:** these decide whether the planned advisory matching can work, because it depends on the product inventory ([[project-goal-qualys-parity]]).\\n\\n**How to apply:** check whether each item is still present before repeating it. When changing how results are parsed, capture real engine output in the lab first; do not trust `daemon/internal/osp/osptest` to reflect the real wire format.\\n\\\"\\\"\\\")\\np = m / \\\"local-dev-environment.md\\\"\\ns = p.read_text()\\nold = s[s.index(\\\"- Container lab with a real feed (built 2026-10-05)\\\"):s.index(\\\"\\\\n**Why:**\\\")]\\nnew = \\\"\\\"\\\"- Container lab with a real feed (built 2026-10-05). Start it with `dev/lab/compose up -d` and `docker compose -f dev/lab/targets.yml up -d`; both need the network created once with `docker network create --subnet 172.18.0.0/16 --ip-range 172.18.1.0/24 --gateway 172.18.0.1 scannerlab`. The stack is on host ports 18443 and 19443 (set in `docker/.env`) so the native `make dev-cp` lab keeps 8443 and 9443. `dev/lab/cp` wraps the admin CLI, the four outdated target servers are at 172.18.0.4 to .7, `dev/feed/nasl` is the Community Feed mirror from `cp-api feed sync`, and `docker/feed/vt-feed.tar.gz` is the tarball the image build bakes in. All of that is git-ignored. Building the image needs the dev CA copied into `daemon/internal/pki/` first and restored after; `dev/lab/compose build appliance` takes seconds once cached.\\n- The lab network is named `scannerlab` on purpose. Docker serves reverse DNS as `container.network`, the engine uses that name as the HTTP virtual host, and Tomcat answers 400 to a Host header containing an underscore, so on a compose default network (`project_default`) Tomcat version checks silently fail.\\n- To see what the engine really emits, run a scan straight through the ospd socket inside the appliance container and save the raw `get_scans` responses. Select the \\\"Port scanners\\\" family too, or the engine reports no services at all.\\n\\\"\\\"\\\"\\np.write_text(s.replace(old, new))\\nidx = m / \\\"MEMORY.md\\\"\\nt = idx.read_text()\\nold_line = [l for l in t.splitlines() if \\\"first-real-feed-scan-open-issues.md\\\" in l][0]\\nidx.write_text(t.replace(old_line, \\\"- [First real-feed scans: fixed and open issues](first-real-feed-scan-open-issues.md) — inventory and slow-fetch fixed 2026-10-05; inventory mode blind with the real engine, still open\\\"))\\nprint(idx.read_text())\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T22:55:10.581Z",
+      "lastAccessed": "2026-10-05T22:55:10.581Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T22:55:10.581Z"
+    },
+    "cmd-1791241302885": {
+      "key": "cmd-1791241302885",
+      "value": "{\"command\":\"set -a && . docker/.env && set +a && J=job_06GGWHPY0HZJ8FR4AVB31E6024 && api() { curl -s --max-time 30 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443$1\\\"; } && until api /admin/jobs/$J | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)[\\\"status\\\"] not in (\\\"queued\\\",\\\"dispatched\\\",\\\"running\\\") else 1)'; do sleep 10; done; api /admin/jobs/$J | python3 -c '\\nimport json,sys\\nd=json.load(sys.stdin); s=d.get(\\\"stats\\\") or {}\\nprint(\\\"status:\\\", d[\\\"status\\\"], \\\"| stats:\\\", {k:s.get(k) for k in (\\\"hosts_alive\\\",\\\"hosts_scanned\\\",\\\"open_ports\\\",\\\"findings\\\",\\\"duration_s\\\")}, \\\"| phases:\\\", s.get(\\\"phase_duration_s\\\"))'; echo \\\"--- timeline\\\"; docker logs --since 20m scanner-appliance-appliance-1 2>&1 | grep -v -i mqtt | grep -E \\\"Scan finished|Starting scan|job done\\\" | cut -c1-150; SITE=site_06GGRJKKNW9M0D471MZ6HBTMT8; api /admin/sites/$SITE/hosts > dev/lab/hosts-after.json; api /admin/sites/$SITE/findings > dev/lab/findings-after.json; python3 - <<'EOF'\\nimport json, collections\\nhs = json.load(open(\\\"dev/lab/hosts-after.json\\\")); fs = json.load(open(\\\"dev/lab/findings-after.json\\\"))\\nprint(\\\"--- inventory after the warm rescan\\\")\\nfor h in sorted(hs, key=lambda h: h[\\\"ip\\\"]):\\n    g = h.get(\\\"os_guess\\\") or {}\\n    for p in h.get(\\\"ports\\\") or []:\\n        print(f\\\"  {h['ip']} {p['port']:>5}  {p.get('service','-'):<6} {p.get('product','-'):<19} {p.get('version','-'):<7} {p.get('cpe','-'):<34} os={g.get('name','-')}\\\")\\nprint(\\\"hosts:\\\", len(hs), \\\"| findings:\\\", len(fs), \\\"| by status:\\\", dict(collections.Counter(f.get(\\\"status\\\") for f in fs)))\\nEOF\\ndocker exec scanner-appliance-appliance-1 python3 -c 'import json; print(\\\"metadata cache entries:\\\", len(json.load(open(\\\"/var/lib/appliance/nvt-cache/nvt-202610050609.json\\\"))))'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:01:42.885Z",
+      "lastAccessed": "2026-10-05T23:01:42.885Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:01:42.885Z"
+    },
+    "cmd-1791241434447": {
+      "key": "cmd-1791241434447",
+      "value": "{\"command\":\"go vet ./... && for t in windows/amd64 linux/amd64; do GOOS=${t%/*} GOARCH=${t#*/} go vet ./daemon/... ./internal/... >/dev/null 2>&1 && echo \\\"vet ok $t\\\" || echo \\\"VET FAILED $t\\\"; done; gofmt -l . | grep -v '^\\\\.claude'; go test -count=1 -race -timeout 20m ./... 2>&1 | grep -v 'no test files' | awk '{print $1, $2}' | sort | uniq -c | awk '{print $2, $3}' | tr '\\\\n' ';' ; echo; go test -count=1 -race -timeout 20m ./... 2>&1 | grep -c '^ok'; git status --short | grep -v '\\\\.claude-flow'; wc -c daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem | head -2\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:03:54.447Z",
+      "lastAccessed": "2026-10-05T23:03:54.447Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:03:54.447Z"
     }
   },
   "version": "3.0.0"

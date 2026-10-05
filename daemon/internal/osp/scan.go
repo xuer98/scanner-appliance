@@ -1,11 +1,16 @@
 package osp
 
 import (
+	"bufio"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Scan-related OSP commands (PLAN §10.3): start_scan, get_scans (with
@@ -308,6 +313,96 @@ func (c *Client) GetVT(ctx context.Context, oid string) (*VT, error) {
 		return nil, nil
 	}
 	return r.VTs[0].toVT(), nil
+}
+
+// bulkTimeout bounds one full-feed get_vts when the caller's context has
+// no earlier deadline.
+const bulkTimeout = 10 * time.Minute
+
+// GetVTs fetches the metadata of many VTs with one full-feed <get_vts/>,
+// streaming the response and keeping only the wanted OIDs. ospd-openvas
+// cannot select several VTs at once (its filter only takes modification
+// times) and answers each single-VT query by first walking the whole feed
+// in redis, which costs seconds per call; the full list costs about as
+// much as seven of those. OIDs the feed does not carry are absent from the
+// result. On error the VTs decoded so far are still returned.
+func (c *Client) GetVTs(ctx context.Context, oids []string) (map[string]*VT, error) {
+	want := make(map[string]bool, len(oids))
+	for _, o := range oids {
+		want[o] = true
+	}
+	out := make(map[string]*VT, len(want))
+	if len(want) == 0 {
+		return out, nil
+	}
+	d := net.Dialer{Timeout: c.Timeout}
+	conn, err := d.DialContext(ctx, "unix", c.Socket)
+	if err != nil {
+		return out, err
+	}
+	defer conn.Close()
+	deadline := time.Now().Add(bulkTimeout)
+	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
+		deadline = dl
+	}
+	_ = conn.SetDeadline(deadline)
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	if _, err := io.WriteString(conn, `<get_vts details="1"/>`); err != nil {
+		return out, err
+	}
+	fail := func(err error) (map[string]*VT, error) {
+		if ctx.Err() != nil {
+			return out, ctx.Err()
+		}
+		return out, fmt.Errorf("parse get_vts_response: %w", err)
+	}
+	dec := xml.NewDecoder(bufio.NewReaderSize(conn, 1<<16))
+	answered := false
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			if !answered {
+				return fail(errors.New("empty response"))
+			}
+			return out, nil
+		}
+		if err != nil {
+			return fail(err)
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		switch se.Name.Local {
+		case "get_vts_response":
+			if st := startAttr(se, "status"); st != "200" {
+				return out, fmt.Errorf("ospd get_vts: %s %s", st, startAttr(se, "status_text"))
+			}
+			answered = true
+		case "vt":
+			if !want[startAttr(se, "id")] {
+				if err := dec.Skip(); err != nil {
+					return fail(err)
+				}
+				continue
+			}
+			var v vtXML
+			if err := dec.DecodeElement(&v, &se); err != nil {
+				return fail(err)
+			}
+			out[v.ID] = v.toVT()
+		}
+	}
+}
+
+func startAttr(se xml.StartElement, name string) string {
+	for _, a := range se.Attr {
+		if a.Name.Local == name {
+			return a.Value
+		}
+	}
+	return ""
 }
 
 // FeedVersion returns the loaded VT feed version from get_version.

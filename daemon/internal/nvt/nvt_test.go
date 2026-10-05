@@ -3,6 +3,7 @@ package nvt
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/tprm/scanner-appliance/daemon/internal/osp"
@@ -79,5 +80,79 @@ func TestCacheLookup(t *testing.T) {
 	}
 	if got := UniqueOIDs([]string{"b", "a", "", "b"}); len(got) != 2 || got[0] != "a" {
 		t.Fatal(got)
+	}
+}
+
+// bulkSrc is a source that can also do one pass over the feed.
+type bulkSrc struct {
+	fakeSrc
+	passes  int
+	failAt  int // stop the pass after this many VTs (0 = complete)
+	lastAsk []string
+}
+
+func (b *bulkSrc) GetVTs(_ context.Context, oids []string) (map[string]*osp.VT, error) {
+	b.passes++
+	b.lastAsk = oids
+	out := map[string]*osp.VT{}
+	for _, oid := range oids {
+		if vt := b.vts[oid]; vt != nil {
+			if b.failAt > 0 && len(out) == b.failAt {
+				return out, errors.New("stream cut")
+			}
+			out[oid] = vt
+		}
+	}
+	return out, nil
+}
+
+func TestCacheLookupBulk(t *testing.T) {
+	src := &bulkSrc{fakeSrc: fakeSrc{vts: map[string]*osp.VT{}}}
+	var oids []string
+	for i := 0; i < 10; i++ {
+		oid := fmt.Sprintf("1.%d", i)
+		oids = append(oids, oid)
+		src.vts[oid] = &osp.VT{OID: oid, Name: "vt " + oid, Family: "Web Servers", QoD: 30, CVSSBase: 7.5}
+	}
+	c := New(t.TempDir(), src, nil)
+
+	// Below the threshold: single lookups, no pass.
+	few := oids[:bulkMin-1]
+	if m, err := c.Lookup(context.Background(), "v1", few); err != nil || len(m) != len(few) || src.calls != len(few) || src.passes != 0 {
+		t.Fatalf("few: len=%d calls=%d passes=%d err=%v", len(m), src.calls, src.passes, err)
+	}
+
+	// A new feed version empties the cache. From the threshold on: one pass
+	// that asks only for the misses, each once, and marks the unknown ones.
+	ask := append(append([]string{"9.9"}, oids...), oids[0], "9.8")
+	m, err := c.Lookup(context.Background(), "v2", ask)
+	if err != nil || src.passes != 1 || src.calls != len(few) {
+		t.Fatalf("bulk: calls=%d passes=%d err=%v", src.calls, src.passes, err)
+	}
+	if len(src.lastAsk) != 12 || len(m) != 12 || !m["9.9"].Missing || !m["9.8"].Missing || m["1.3"].Missing || m["1.3"].Name != "vt 1.3" || m["1.3"].CVSS != 7.5 || m["1.3"].CVEs == nil {
+		t.Fatalf("bulk result: asked=%d got=%d %+v", len(src.lastAsk), len(m), m["1.3"])
+	}
+	// Everything is cached now, on disk too: no further source use.
+	c2 := New(c.Dir, src, nil)
+	if m2, err := c2.Lookup(context.Background(), "v2", ask); err != nil || len(m2) != 12 || src.passes != 1 || src.calls != len(few) || !m2["9.9"].Missing {
+		t.Fatalf("not cached: passes=%d calls=%d err=%v", src.passes, src.calls, err)
+	}
+
+	// A pass that breaks off keeps what it read, reports the error, and
+	// leaves the rest unknown rather than marked missing.
+	src.failAt = 3
+	m3, err := c2.Lookup(context.Background(), "v3", ask)
+	if err == nil || len(m3) != 3 {
+		t.Fatalf("cut pass: got=%d err=%v", len(m3), err)
+	}
+	for _, e := range m3 {
+		if e.Missing {
+			t.Fatalf("an OID was marked missing after a cut pass: %+v", e)
+		}
+	}
+	// The next lookup fetches only what is still unknown.
+	src.failAt = 0
+	if m4, err := c2.Lookup(context.Background(), "v3", ask); err != nil || len(m4) != 12 || len(src.lastAsk) != 9 || !m4["9.8"].Missing {
+		t.Fatalf("retry: got=%d asked=%d err=%v", len(m4), len(src.lastAsk), err)
 	}
 }

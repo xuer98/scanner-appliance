@@ -1,6 +1,7 @@
 // Package osptest is a scripted fake ospd-openvas speaking enough OSP for
-// the daemon tests: get_version, get_vts (count and single-VT metadata),
-// start_scan, get_scans with pop_results, stop_scan and delete_scan.
+// the daemon tests: get_version, get_vts (count, single-VT metadata and the
+// full list), start_scan, get_scans with pop_results, stop_scan and
+// delete_scan.
 package osptest
 
 import (
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -58,6 +60,8 @@ type Fake struct {
 	StopIDs   []string
 	DeleteIDs []string
 	nextID    int
+	vtSingle  int
+	vtBulk    int
 }
 
 type scanState struct {
@@ -155,26 +159,51 @@ func attr(re *regexp.Regexp, s string) string {
 
 func (f *Fake) getVTs(req string) string {
 	if oid := attr(vtIDRe, req); oid != "" {
+		f.mu.Lock()
+		f.vtSingle++
+		f.mu.Unlock()
 		vt, ok := f.VTs[oid]
 		if !ok {
 			return `<get_vts_response status="404" status_text="Not found"/>`
 		}
-		var sb strings.Builder
-		fmt.Fprintf(&sb, `<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total="1" sent="1"><vt id="%s"><name>%s</name><refs>`, f.version(), oid, x(vt.Name))
-		for _, c := range vt.CVEs {
-			fmt.Fprintf(&sb, `<ref type="cve" id="%s"/>`, c)
-		}
-		fmt.Fprintf(&sb, `<ref type="url" id="https://example.invalid/adv"/></refs><summary>summary</summary><solution type="VendorFix">%s</solution><detection qod_type="%s" qod="%d"/><severities>`, x(vt.Solution), vt.QoDType, vt.QoD)
-		if vt.CVSSv2 != "" {
-			fmt.Fprintf(&sb, `<severity type="cvss_base_v2"><origin>NVD</origin><date>2019-05-14</date><value>%s</value></severity>`, vt.CVSSv2)
-		}
-		if vt.CVSSv3 != "" {
-			fmt.Fprintf(&sb, `<severity type="cvss_base_v3"><value>%s</value></severity>`, vt.CVSSv3)
-		}
-		fmt.Fprintf(&sb, `</severities><custom><category>3</category><family>%s</family><filename>x.nasl</filename><cvss_base>%s</cvss_base></custom></vt></vts></get_vts_response>`, x(vt.Family), vt.CVSSBase)
-		return sb.String()
+		return fmt.Sprintf(`<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total="1" sent="1">%s</vts></get_vts_response>`, f.version(), vtXML(oid, vt))
 	}
-	return fmt.Sprintf(`<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total="%d" sent="0"/></get_vts_response>`, f.version(), f.vtCount())
+	if strings.Contains(req, "filter=") {
+		return fmt.Sprintf(`<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total="%d" sent="0"/></get_vts_response>`, f.version(), f.vtCount())
+	}
+	// No vt_id and no filter: the whole feed, as ospd-openvas streams it.
+	f.mu.Lock()
+	f.vtBulk++
+	f.mu.Unlock()
+	oids := make([]string, 0, len(f.VTs))
+	for oid := range f.VTs {
+		oids = append(oids, oid)
+	}
+	sort.Strings(oids)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, `<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total="">`, f.version())
+	for _, oid := range oids {
+		sb.WriteString(vtXML(oid, f.VTs[oid]))
+	}
+	sb.WriteString(`</vts></get_vts_response>`)
+	return sb.String()
+}
+
+func vtXML(oid string, vt VT) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, `<vt id="%s"><name>%s</name><refs>`, oid, x(vt.Name))
+	for _, c := range vt.CVEs {
+		fmt.Fprintf(&sb, `<ref type="cve" id="%s"/>`, c)
+	}
+	fmt.Fprintf(&sb, `<ref type="url" id="https://example.invalid/adv"/></refs><summary>summary</summary><solution type="VendorFix">%s</solution><detection qod_type="%s" qod="%d"/><severities>`, x(vt.Solution), vt.QoDType, vt.QoD)
+	if vt.CVSSv2 != "" {
+		fmt.Fprintf(&sb, `<severity type="cvss_base_v2"><origin>NVD</origin><date>2019-05-14</date><value>%s</value></severity>`, vt.CVSSv2)
+	}
+	if vt.CVSSv3 != "" {
+		fmt.Fprintf(&sb, `<severity type="cvss_base_v3"><value>%s</value></severity>`, vt.CVSSv3)
+	}
+	fmt.Fprintf(&sb, `</severities><custom><category>3</category><family>%s</family><filename>x.nasl</filename><cvss_base>%s</cvss_base></custom></vt>`, x(vt.Family), vt.CVSSBase)
+	return sb.String()
 }
 
 func (f *Fake) startScan(req string) string {
@@ -236,6 +265,14 @@ func (f *Fake) SetHang(v bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Hang = v
+}
+
+// VTCalls returns how many single-VT and full-list get_vts commands the
+// fake has answered.
+func (f *Fake) VTCalls() (single, bulk int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.vtSingle, f.vtBulk
 }
 
 // Stops returns the stop_scan calls seen so far.

@@ -22,6 +22,7 @@ type hostAgg struct {
 	osCPE    string
 	osTxt    string
 	ports    map[string]*v1.Port // "80/tcp"
+	services map[string]string   // portKey → name from "Services" host details
 	alarms   []osp.Result
 	logs     []osp.Result
 	notes    []string
@@ -33,7 +34,9 @@ type hostAgg struct {
 	nmapOS *v1.OSGuess
 }
 
-func newHostAgg(ip string) *hostAgg { return &hostAgg{ip: ip, ports: map[string]*v1.Port{}} }
+func newHostAgg(ip string) *hostAgg {
+	return &hostAgg{ip: ip, ports: map[string]*v1.Port{}, services: map[string]string{}}
+}
 
 func portKey(p int, proto string) string { return strings.ToLower(proto) + ":" + itoa(p) }
 
@@ -52,18 +55,29 @@ func (h *hostAgg) addPort(p int, proto, source string) *v1.Port {
 	return e
 }
 
+// hostDetailsPort is the pseudo port the feed's "Host Details" test reports
+// on. openvas sends those details as ordinary log results, one detail each;
+// the "Host Detail" result type of OSP is accepted as well.
+const hostDetailsPort = "general/Host_Details"
+
+func isHostDetail(r osp.Result) bool {
+	return r.Type == "Host Detail" || strings.EqualFold(strings.TrimSpace(r.Port), hostDetailsPort)
+}
+
 // absorb files one OSP result under the host.
 func (h *hostAgg) absorb(r osp.Result) {
 	if r.Hostname != "" && h.hostname == "" && r.Hostname != r.Host {
 		h.hostname = strings.TrimSpace(r.Hostname)
+	}
+	if isHostDetail(r) {
+		h.absorbDetail(r)
+		return
 	}
 	switch r.Type {
 	case "Alarm":
 		h.alarms = append(h.alarms, r)
 	case "Log Message":
 		h.logs = append(h.logs, r)
-	case "Host Detail":
-		h.absorbDetail(r)
 	case "Error Message":
 		h.errors++
 	}
@@ -92,10 +106,15 @@ func (h *hostAgg) absorbDetail(r osp.Result) {
 			}
 		case "best_os_cpe":
 			h.osCPE = value
-		case "best_os_txt", "os":
-			if h.osTxt == "" {
+		case "best_os_txt":
+			h.osTxt = value // the engine's own pick among the "OS" candidates
+		case "os":
+			// Each candidate arrives twice, as a name and as a CPE.
+			if h.osTxt == "" && !strings.HasPrefix(value, "cpe:/") {
 				h.osTxt = value
 			}
+		case "services":
+			h.serviceDetail(value)
 		case "hostname":
 			if h.hostname == "" {
 				h.hostname = value
@@ -113,6 +132,91 @@ func (h *hostAgg) absorbDetail(r osp.Result) {
 		}
 	}
 	apply(r.Name, text)
+}
+
+// serviceDetail records one "Services" host detail, which reads
+// "port,proto,service[,description]".
+func (h *hostAgg) serviceDetail(value string) {
+	f := strings.SplitN(value, ",", 4)
+	if len(f) < 3 {
+		return
+	}
+	p, err := strconv.Atoi(strings.TrimSpace(f[0]))
+	svc := strings.ToLower(strings.TrimSpace(f[2]))
+	if err != nil || p < 1 || p > 65535 || svc == "" || svc == "unknown" || svc == "wrapped" {
+		return
+	}
+	if svc == "www" {
+		svc = "http" // the label the log texts already produce
+	}
+	proto := strings.TrimSpace(f[1])
+	if proto == "" {
+		proto = "tcp"
+	}
+	if k := portKey(p, proto); h.services[k] == "" {
+		h.services[k] = svc
+	}
+}
+
+// detection is one "Detected <product>" block of a product detection
+// result. Every detection test in the feed builds its report the same way:
+//
+//	Detected Apache HTTP Server
+//
+//	Version:       2.4.49
+//	Location:      80/tcp
+//	CPE:           cpe:/a:apache:http_server:2.4.49
+type detection struct {
+	product, version, cpe string
+	port                  int // from "Location: 80/tcp"; 0 when it is a path
+	proto                 string
+}
+
+var (
+	detectedRe = regexp.MustCompile(`(?m)^Detected[ \t]+(\S.*?)[ \t]*$`)
+	fieldRe    = regexp.MustCompile(`(?m)^(Version|Location|CPEs?):[ \t]*(\S.*?)[ \t]*$`)
+	locPortRe  = regexp.MustCompile(`^(\d{1,5})/(tcp|udp)$`)
+)
+
+// detections splits a result text into its detection blocks. Only the
+// first Version, Location and CPE line of a block count: the lines after
+// them quote banners that may repeat those words.
+func detections(text string) []detection {
+	idx := detectedRe.FindAllStringSubmatchIndex(text, -1)
+	out := make([]detection, 0, len(idx))
+	for i, m := range idx {
+		end := len(text)
+		if i+1 < len(idx) {
+			end = idx[i+1][0]
+		}
+		d := detection{product: strings.TrimSpace(text[m[2]:m[3]])}
+		seen := map[string]bool{}
+		for _, f := range fieldRe.FindAllStringSubmatch(text[m[1]:end], -1) {
+			name, value := strings.TrimSuffix(f[1], "s"), strings.TrimSpace(f[2])
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			switch name {
+			case "Version":
+				if !strings.EqualFold(value, "unknown") {
+					d.version = value
+				}
+			case "Location":
+				if lm := locPortRe.FindStringSubmatch(strings.ToLower(value)); lm != nil {
+					if n, _ := strconv.Atoi(lm[1]); n >= 1 && n <= 65535 {
+						d.port, d.proto = n, lm[2]
+					}
+				}
+			case "CPE":
+				if c := cpeRe.FindString(value); strings.HasPrefix(c, "cpe:/a:") {
+					d.cpe = c
+				}
+			}
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 var (
@@ -178,6 +282,22 @@ func (h *hostAgg) finalize(meta map[string]*nvt.Meta) v1.Host {
 	for _, r := range h.logs {
 		p, proto := r.PortNumber()
 		if p == 0 {
+			// A test that consolidates several detection methods reports
+			// once on general/tcp, with one block per install naming its
+			// port. Same rules as for a result on the port itself, below.
+			for _, d := range detections(r.Text) {
+				if d.port == 0 {
+					continue
+				}
+				port := h.addPort(d.port, d.proto, "openvas:find_service")
+				if d.cpe != "" && port.CPE == "" {
+					port.CPE = d.cpe
+					port.Source = "openvas:product_detection"
+				}
+				if port.Product == "" {
+					port.Product, port.Version = d.product, d.version
+				}
+			}
 			continue
 		}
 		port := h.addPort(p, proto, "openvas:find_service")
@@ -204,6 +324,11 @@ func (h *hostAgg) finalize(meta map[string]*nvt.Meta) v1.Host {
 			if svc := serviceFromText(text); svc != "" {
 				port.Service = svc
 			}
+		}
+	}
+	for k, svc := range h.services {
+		if port, ok := h.ports[k]; ok && port.Service == "" {
+			port.Service = svc
 		}
 	}
 	// Findings from alarms; one per (oid, port).
