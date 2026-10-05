@@ -1,0 +1,968 @@
+{
+  "entries": {
+    "cmd-1790821318524": {
+      "key": "cmd-1790821318524",
+      "value": "{\"command\":\"echo \\\"== diff docker vs controlplane (yours) ==\\\" && diff docker/oss-notices.txt controlplane/pkg/server/oss-notices.txt; echo \\\"== packer heredoc copy: matching lines ==\\\" && grep -n \\\"licence\\\\|license\\\\|Phase [0-9]\\\\|Web add-on\\\\|Fingerprint pass\\\" packer/scripts/install-daemon.sh; echo \\\"== other references to the wording ==\\\" && grep -rn \\\"Full licence texts\\\\|Full license texts\\\\|Phase 3; only present\\\\|Phase 5; only present\\\" --include='*.go' --include='*.sh' --include='*.txt' --include='*.yml' --include='*.md' . | grep -v \\\"^./.git/\\\" | cut -c1-160\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-01T02:21:58.524Z",
+      "lastAccessed": "2026-10-01T02:21:58.524Z",
+      "accessCount": 0,
+      "expiresAt": "2026-10-31T02:21:58.524Z"
+    },
+    "cmd-1790821336441": {
+      "key": "cmd-1790821336441",
+      "value": "{\"command\":\"sed -n 74,127p packer/scripts/install-daemon.sh; echo \\\"== tests or scripts asserting on the spelling ==\\\"; grep -rn \\\"licence\\\" --include='*.go' --include='*.sh' --include='*.yml' . | grep -v \\\"^./.git/\\\" | cut -c1-150\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-01T02:22:16.441Z",
+      "lastAccessed": "2026-10-01T02:22:16.441Z",
+      "accessCount": 0,
+      "expiresAt": "2026-10-31T02:22:16.441Z"
+    },
+    "cmd-1790821348614": {
+      "key": "cmd-1790821348614",
+      "value": "{\"command\":\"cp controlplane/pkg/server/oss-notices.txt docker/oss-notices.txt && python3 - <<'PY'\\np='packer/scripts/install-daemon.sh'\\ns=open(p,encoding='utf-8').read()\\nfor a,b in [\\n (\\\"ships the following third-party components. Full licence texts are\\\",\\\"ships the following third-party components. Full license texts are\\\"),\\n (\\\"Web add-on (Phase 3; not present in this image unless enabled)\\\",\\\"Web add-on (not present in this image unless enabled)\\\"),\\n (\\\"Fingerprint pass (Phase 5; only present in builds made after the legal\\\",\\\"Fingerprint pass (only present in builds made after the legal\\\"),\\n (\\\"Debian package licences: /usr/share/doc/<package>/copyright.\\\",\\\"Debian package licenses: /usr/share/doc/<package>/copyright.\\\"),\\n]:\\n    assert s.count(a)==1,(s.count(a),a)\\n    s=s.replace(a,b)\\nopen(p,'w',encoding='utf-8').write(s)\\nprint(\\\"install-daemon.sh: 4 lines updated\\\")\\nPY\\necho \\\"== CI check ==\\\" && cmp docker/oss-notices.txt controlplane/pkg/server/oss-notices.txt && echo \\\"docker and controlplane copies are identical\\\"; echo \\\"== diff summary ==\\\" && git diff --stat -- docker/oss-notices.txt packer/scripts/install-daemon.sh controlplane/pkg/server/oss-notices.txt; echo \\\"== VM heredoc vs container file: remaining differences ==\\\" && diff <(sed -n '/^  cat >\\\\/etc\\\\/appliance\\\\/oss-notices.txt/,/^EOF$/p' packer/scripts/install-daemon.sh | sed '1d;$d') docker/oss-notices.txt\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-01T02:22:28.614Z",
+      "lastAccessed": "2026-10-01T02:22:28.614Z",
+      "accessCount": 0,
+      "expiresAt": "2026-10-31T02:22:28.614Z"
+    },
+    "cmd-1790821356936": {
+      "key": "cmd-1790821356936",
+      "value": "{\"command\":\"bash -n packer/scripts/install-daemon.sh && echo \\\"bash syntax ok\\\" && (command -v shellcheck >/dev/null && shellcheck -x packer/scripts/install-daemon.sh && echo \\\"shellcheck clean\\\" || echo \\\"shellcheck not installed or reported issues: $?\\\"); go test -count=1 ./controlplane/pkg/server 2>&1 | tail -3; git status --short | grep -v \\\"claude-flow\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-01T02:22:36.936Z",
+      "lastAccessed": "2026-10-01T02:22:36.936Z",
+      "accessCount": 0,
+      "expiresAt": "2026-10-31T02:22:36.936Z"
+    },
+    "cmd-1790918368506": {
+      "key": "cmd-1790918368506",
+      "value": "{\"command\":\"git status --short | grep -v '^.. \\\\.claude-flow' ; echo \\\"--- log\\\"; git log --oneline -3; echo \\\"--- status section\\\"; awk '/^## Status/{f=1} /^## Repository layout/{f=0} f' README.md; echo \\\"--- known gaps\\\"; awk '/^## Known gaps and next steps/{f=1} f' README.md\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-02T05:19:28.506Z",
+      "lastAccessed": "2026-10-02T05:19:28.506Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-01T05:19:28.506Z"
+    },
+    "cmd-1790918369756": {
+      "key": "cmd-1790918369756",
+      "value": "{\"command\":\"echo \\\"--- cp-api / applianced processes\\\"; pgrep -fl 'cp-api|applianced' || echo \\\"none running\\\"; echo \\\"--- listeners\\\"; lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E 'cp-api|appliance|:8443|:8080|:9443' || echo \\\"no matching listeners\\\"; echo \\\"--- docker\\\"; docker ps --format '{{.Names}}\\\\t{{.Image}}\\\\t{{.Status}}' 2>/dev/null || echo \\\"docker not reachable\\\"; echo \\\"--- dev state dirs\\\"; ls -d .dev* dist packer/output-appliance 2>/dev/null || echo \\\"no dev/dist/packer output dirs\\\"; echo \\\"--- pki placeholders\\\"; wc -c daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-02T05:19:29.756Z",
+      "lastAccessed": "2026-10-02T05:19:29.756Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-01T05:19:29.756Z"
+    },
+    "cmd-1790918377648": {
+      "key": "cmd-1790918377648",
+      "value": "{\"command\":\"grep -nE '^(dev-[a-z-]+|ova|image|smoke[a-z-]*|[a-z-]+):' Makefile | head -40; echo \\\"--- dev vars\\\"; grep -nE '^(DEV_[A-Z_]+|CODE|NAABU|CP_ADDR|STATE|TOKEN)[ ?:]*=' Makefile; echo \\\"--- dev-cp / dev-appliance / dev-job bodies\\\"; awk '/^dev-ca:/{f=1} /^ova:/{f=0} f' Makefile | head -80; echo \\\"--- dev dirs\\\"; ls -la | grep -iE 'dev|state|\\\\.tmp' || echo \\\"no dev dirs at root\\\"; echo \\\"--- naabu\\\"; ls -l \\\"$(go env GOPATH)/bin/naabu\\\" 2>/dev/null || echo \\\"naabu missing\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-02T05:19:37.648Z",
+      "lastAccessed": "2026-10-02T05:19:37.648Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-01T05:19:37.648Z"
+    },
+    "cmd-1790918383894": {
+      "key": "cmd-1790918383894",
+      "value": "{\"command\":\"ls -la dev; echo \\\"--- state\\\"; ls -la dev/state 2>/dev/null || echo \\\"no dev/state: the dev appliance has never enrolled\\\"; echo \\\"--- objects\\\"; find dev/objects -maxdepth 2 2>/dev/null | head -20; echo \\\"--- gitignore\\\"; git check-ignore -v dev || echo \\\"dev not ignored\\\"; echo \\\"--- images\\\"; docker images --format '{{.Repository}}:{{.Tag}}\\\\t{{.Size}}\\\\t{{.CreatedSince}}' 2>/dev/null | grep -iE 'appliance|cp-api|scanner|openvas|greenbone' || echo \\\"no appliance or greenbone images locally\\\"; echo \\\"--- smoke opts\\\"; grep -nE 'SMOKE_[A-Z_]+|WITH_NMAP' ci/smoke/run-container.sh | head -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-02T05:19:43.894Z",
+      "lastAccessed": "2026-10-02T05:19:43.894Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-01T05:19:43.894Z"
+    },
+    "cmd-1790918389317": {
+      "key": "cmd-1790918389317",
+      "value": "{\"command\":\"echo \\\"--- state.json\\\"; cat dev/state/state.json; echo; echo \\\"--- run dir\\\"; ls -la dev/run; echo \\\"--- smoke header\\\"; sed -n 1,32p ci/smoke/run-container.sh; echo \\\"--- feed handling in smoke\\\"; grep -nE 'SMOKE_BUNDLE_FEED|feed' ci/smoke/run-container.sh | head -20\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-02T05:19:49.317Z",
+      "lastAccessed": "2026-10-02T05:19:49.317Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-01T05:19:49.317Z"
+    },
+    "cmd-1790918395156": {
+      "key": "cmd-1790918395156",
+      "value": "{\"command\":\"echo \\\"--- status.json\\\"; cat dev/run/status.json; echo; echo \\\"--- now\\\"; date; echo \\\"--- feed vars in smoke scripts\\\"; grep -rnE 'BUNDLE_FEED|VT feed|feed' ci/smoke/lib.sh ci/smoke/run-container.sh | head -12\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-02T05:19:55.156Z",
+      "lastAccessed": "2026-10-02T05:19:55.156Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-01T05:19:55.156Z"
+    },
+    "cmd-1790986320698": {
+      "key": "cmd-1790986320698",
+      "value": "{\"command\":\"echo \\\"--- naabu invocation\\\"; grep -rn --include='*.go' -E '\\\"-s\\\"|\\\"-sS\\\"|\\\"-host-discovery\\\"|\\\"-arp\\\"|\\\"-syn\\\"|\\\"-json\\\"|\\\"-silent\\\"|\\\"-rate\\\"|\\\"-p\\\"' daemon/internal | grep -v _test | head -30; echo \\\"--- files mentioning naabu\\\"; grep -rl --include='*.go' -i naabu daemon/internal | grep -v _test\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:12:00.698Z",
+      "lastAccessed": "2026-10-03T00:12:00.698Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:12:00.698Z"
+    },
+    "cmd-1790986320920": {
+      "key": "cmd-1790986320920",
+      "value": "{\"command\":\"echo \\\"--- admin subcommands\\\"; grep -nE '\\\"(create-appliance|create-job|list-hosts|hosts|findings|list-findings|jobs|job|results|export|appliance|status)\\\"' controlplane/cmd/cp-api/*.go | head -40; echo \\\"--- create-appliance flags\\\"; grep -nE 'create-appliance' -A40 controlplane/cmd/cp-api/main.go | grep -nE 'flag\\\\.|fs\\\\.|String\\\\(|Bool\\\\(|Int\\\\(' | head -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:12:00.920Z",
+      "lastAccessed": "2026-10-03T00:12:00.920Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:12:00.920Z"
+    },
+    "cmd-1790986334097": {
+      "key": "cmd-1790986334097",
+      "value": "{\"command\":\"echo \\\"=== engine.go 230-300\\\"; sed -n 230,300p daemon/internal/engine/engine.go; echo \\\"=== naabu.go 60-200\\\"; sed -n 60,200p daemon/internal/engine/naabu.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:12:14.097Z",
+      "lastAccessed": "2026-10-03T00:12:14.097Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:12:14.097Z"
+    },
+    "cmd-1790986334160": {
+      "key": "cmd-1790986334160",
+      "value": "{\"command\":\"sed -n 400,600p controlplane/cmd/cp-api/main.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:12:14.160Z",
+      "lastAccessed": "2026-10-03T00:12:14.160Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:12:14.160Z"
+    },
+    "cmd-1790986334274": {
+      "key": "cmd-1790986334274",
+      "value": "{\"command\":\"echo \\\"=== root/privilege handling\\\"; grep -rn --include='*.go' -iE 'geteuid|privileg|root required|setcap|CAP_NET_RAW|sudo' daemon/internal | grep -v _test | head -20; echo \\\"=== runner stage dispatch\\\"; grep -n -iE 'stage|discovery|portscan|openvas|web|fingerprint' daemon/internal/jobs/runner.go | head -60\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:12:14.274Z",
+      "lastAccessed": "2026-10-03T00:12:14.274Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:12:14.274Z"
+    },
+    "cmd-1790986372921": {
+      "key": "cmd-1790986372921",
+      "value": "{\"command\":\"echo \\\"=== engine.go 60-130\\\"; sed -n 60,130p daemon/internal/engine/engine.go; echo \\\"=== ScanType assignments\\\"; grep -rn --include='*.go' -E 'ScanType\\\\s*[:=]|rawSocketsAllowed\\\\(\\\\)' daemon | grep -v _test\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:12:52.921Z",
+      "lastAccessed": "2026-10-03T00:12:52.921Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:12:52.921Z"
+    },
+    "cmd-1790986373030": {
+      "key": "cmd-1790986373030",
+      "value": "{\"command\":\"echo \\\"=== APPLIANCE_CODE handling\\\"; grep -rn --include='*.go' -E 'APPLIANCE_CODE|seed_consumed|SeedConsumed' daemon | grep -v _test | head -20; echo \\\"=== create-appliance response type\\\"; grep -n -A12 'type AdminCreateApplianceResponse struct' api/v1/types.go; echo \\\"=== job view status fields\\\"; grep -n -A25 'type AdminJobView struct' api/v1/types.go | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:12:53.030Z",
+      "lastAccessed": "2026-10-03T00:12:53.030Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:12:53.030Z"
+    },
+    "cmd-1790986374037": {
+      "key": "cmd-1790986374037",
+      "value": "{\"command\":\"NAABU_SRC=$(ls -d \\\"$HOME/go/pkg/mod/github.com/projectdiscovery/naabu/v2@\\\"* 2>/dev/null | tail -1); echo \\\"naabu src: ${NAABU_SRC:-none}\\\"; if [ -n \\\"$NAABU_SRC\\\" ]; then grep -rn -iE 'privileg|OnlyHostDiscovery|root' \\\"$NAABU_SRC/pkg/runner/options.go\\\" \\\"$NAABU_SRC/pkg/runner/validate.go\\\" 2>/dev/null | head -30; echo \\\"=== host discovery in runner.go\\\"; grep -rn -iE 'IsPrivileged|OnlyHostDiscovery' \\\"$NAABU_SRC/pkg/runner/runner.go\\\" | head -20; fi\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:12:54.037Z",
+      "lastAccessed": "2026-10-03T00:12:54.037Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:12:54.037Z"
+    },
+    "cmd-1790986385483": {
+      "key": "cmd-1790986385483",
+      "value": "{\"command\":\"sed -n 36,62p \\\"$HOME/go/pkg/mod/github.com/projectdiscovery/naabu/v2@v2.3.6/pkg/runner/validate.go\\\"; echo \\\"=== line 120-140\\\"; sed -n 120,140p \\\"$HOME/go/pkg/mod/github.com/projectdiscovery/naabu/v2@v2.3.6/pkg/runner/validate.go\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:13:05.483Z",
+      "lastAccessed": "2026-10-03T00:13:05.483Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:13:05.483Z"
+    },
+    "cmd-1790986386476": {
+      "key": "cmd-1790986386476",
+      "value": "{\"command\":\"echo \\\"=== applianced flags\\\"; sed -n 240,300p daemon/cmd/applianced/main.go | grep -nE 'fs\\\\.(String|Bool|Int|Duration)' ; echo \\\"=== enrollment with existing state\\\"; sed -n 140,160p daemon/cmd/applianced/main.go; echo \\\"=== heartbeat MinInterval / poll\\\"; grep -rn --include='*.go' -E 'MinInterval\\\\s*=|DefaultInterval|interval_s' daemon/internal/heartbeat/heartbeat.go | head -8\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:13:06.476Z",
+      "lastAccessed": "2026-10-03T00:13:06.476Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:13:06.476Z"
+    },
+    "cmd-1790986387908": {
+      "key": "cmd-1790986387908",
+      "value": "{\"command\":\"echo \\\"=== docker compose services\\\"; grep -nE '^\\\\s{2}[a-z-]+:|image:|build:|cap_add|NET_|APPLIANCE_|ports:|- \\\"' docker/docker-compose.yml | head -40; echo \\\"=== .env\\\"; ls -la docker/.env docker/.env.example 2>/dev/null; echo \\\"=== smoke flow: how a job is run in smoke (if any)\\\"; grep -nE 'create-job|run-now|job' ci/smoke/run-container.sh | head; echo \\\"=== docker desktop memory\\\"; docker info --format '{{.MemTotal}}' 2>/dev/null | awk '{printf \\\"%.1f GB\\\\n\\\", $1/1024/1024/1024}'; echo \\\"=== host arch\\\"; uname -m\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:13:07.908Z",
+      "lastAccessed": "2026-10-03T00:13:07.908Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:13:07.908Z"
+    },
+    "cmd-1790986496633": {
+      "key": "cmd-1790986496633",
+      "value": "{\"command\":\"echo \\\"=== module validation\\\"; grep -n -iE 'module' api/v1/jobspec.go | head -40; echo \\\"=== runner/engine order of stages\\\"; grep -n -E 'HasModule|Module(Discovery|Portscan|OpenVAS|Web)' daemon/internal/engine/engine.go daemon/internal/jobs/runner.go | head -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:14:56.633Z",
+      "lastAccessed": "2026-10-03T00:14:56.633Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:14:56.633Z"
+    },
+    "cmd-1790986496690": {
+      "key": "cmd-1790986496690",
+      "value": "{\"command\":\"echo \\\"=== applianced run flow 160-235\\\"; sed -n 160,235p daemon/cmd/applianced/main.go; echo \\\"=== admin list subcommands\\\"; grep -n -E 'case \\\"[a-z-]+\\\"(, \\\"[a-z-]+\\\")*:' controlplane/cmd/cp-api/main.go | sed -n 1,60p\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:14:56.690Z",
+      "lastAccessed": "2026-10-03T00:14:56.690Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:14:56.690Z"
+    },
+    "cmd-1790986499994": {
+      "key": "cmd-1790986499994",
+      "value": "{\"command\":\"echo \\\"=== naabu unprivileged connect scan of localhost:8080 with the daemon's HOME override\\\"; HOME=/var/lib/appliance NO_COLOR=1 \\\"$HOME/go/bin/naabu\\\" -host 127.0.0.1 -p 8080,9 -silent -no-color -disable-update-check -json -rate 100 -c 10 -retries 1 -timeout 1000 -warm-up-time 1 2>&1 | head -5; echo \\\"exit=${PIPESTATUS[0]}\\\"; echo \\\"=== naabu -sn unprivileged\\\"; HOME=/var/lib/appliance \\\"$HOME/go/bin/naabu\\\" -host 127.0.0.1 -sn -wn -pe -silent -no-color -disable-update-check 2>&1 | tail -2; echo \\\"=== go\\\"; which go; go version; echo \\\"=== smoke job roundtrip targets\\\"; grep -n -A30 '^cp_job_roundtrip()' ci/smoke/lib.sh | grep -nE 'targets|mode|modules|cidr|create' | head; echo \\\"=== env keys\\\"; sed -E 's/=.*/=…/' docker/.env\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:14:59.994Z",
+      "lastAccessed": "2026-10-03T00:14:59.994Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:14:59.994Z"
+    },
+    "cmd-1790986548454": {
+      "key": "cmd-1790986548454",
+      "value": "{\"command\":\"echo \\\"=== jobspec portscan rule + rate defaults\\\"; sed -n 150,170p api/v1/jobspec.go; grep -n -E 'PPS|PerHostParallel' api/v1/jobspec.go | head; echo \\\"=== engine run order 175-200\\\"; sed -n 175,200p daemon/internal/engine/engine.go; echo \\\"=== checkBudget\\\"; grep -n -A18 'func (r \\\\*run) checkBudget' daemon/internal/engine/engine.go | head -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:15:48.454Z",
+      "lastAccessed": "2026-10-03T00:15:48.454Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:15:48.454Z"
+    },
+    "cmd-1790986549574": {
+      "key": "cmd-1790986549574",
+      "value": "{\"command\":\"mv dev/state \\\"dev/state.unenrolled-$(date +%Y%m%d-%H%M%S)\\\" && ls -d dev/state* && echo \\\"stale dev state moved aside\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:15:49.574Z",
+      "lastAccessed": "2026-10-03T00:15:49.574Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:15:49.574Z"
+    },
+    "cmd-1790986556482": {
+      "key": "cmd-1790986556482",
+      "value": "{\"command\":\"for i in $(seq 1 60); do if lsof -nP -iTCP:9443 -sTCP:LISTEN >/dev/null 2>&1; then echo \\\"cp-api listening on :9443 after ${i}x2s\\\"; break; fi; sleep 2; done; lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':8443|:9443' || echo \\\"cp-api not listening yet\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:15:56.482Z",
+      "lastAccessed": "2026-10-03T00:15:56.482Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:15:56.482Z"
+    },
+    "cmd-1790986578374": {
+      "key": "cmd-1790986578374",
+      "value": "{\"command\":\"CP_URL=https://localhost:9443 CP_ADMIN_TOKEN=dev CP_ROOT_CA=dev/pki/root.pem go run ./controlplane/cmd/cp-api admin create-appliance --vendor \\\"Dev\\\" --site \\\"Richard LAN\\\" --cidrs 192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,127.0.0.0/8 --tz America/Los_Angeles | tee /private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/appliance.json\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:16:18.374Z",
+      "lastAccessed": "2026-10-03T00:16:18.374Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:16:18.374Z"
+    },
+    "cmd-1790986579612": {
+      "key": "cmd-1790986579612",
+      "value": "{\"command\":\"echo \\\"LAN neighbours in the ARP cache (en0, 192.168.1.x):\\\"; arp -a -i en0 2>/dev/null | grep -c '192\\\\.168\\\\.1\\\\.' ; arp -a -i en0 2>/dev/null | grep '192\\\\.168\\\\.1\\\\.' | awk '{print $2}' | tr -d '()' | sort -t. -k4 -n | tr '\\\\n' ' '; echo\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:16:19.612Z",
+      "lastAccessed": "2026-10-03T00:16:19.612Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:16:19.612Z"
+    },
+    "cmd-1790986773074": {
+      "key": "cmd-1790986773074",
+      "value": "{\"command\":\"for i in $(seq 1 60); do st=$(python3 -c 'import json,sys; d=json.load(open(\\\"dev/run/status.json\\\")); print(d[\\\"state\\\"], d[\\\"appliance_id\\\"], d[\\\"reachable\\\"])' 2>/dev/null); case \\\"$st\\\" in enrolled*) echo \\\"enrolled after ${i}x3s: $st\\\"; break;; esac; sleep 3; done; echo \\\"--- status.json\\\"; python3 -c 'import json; d=json.load(open(\\\"dev/run/status.json\\\")); print({k:d[k] for k in (\\\"state\\\",\\\"appliance_id\\\",\\\"reachable\\\",\\\"interval_s\\\",\\\"version\\\")})'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:19:33.074Z",
+      "lastAccessed": "2026-10-03T00:19:33.074Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:19:33.074Z"
+    },
+    "cmd-1790986810551": {
+      "key": "cmd-1790986810551",
+      "value": "{\"command\":\"CP_URL=https://localhost:9443 CP_ADMIN_TOKEN=dev CP_ROOT_CA=dev/pki/root.pem go run ./controlplane/cmd/cp-api admin create-job --appliance apl_06GFY7JK3ZX0VS3A3347J9AY94 --mode discovery --modules portscan --ports 21,22,23,53,80,139,443,445,515,548,631,1883,3389,5000,5900,8000,8080,8443,9100,62078 --targets 192.168.1.0/24 --now | tee /private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/job.json; echo; python3 -c 'import json; d=json.load(open(\\\"/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/job.json\\\")); print(\\\"job\\\", d[\\\"id\\\"], \\\"status\\\", d[\\\"status\\\"], \\\"modules\\\", d[\\\"spec\\\"][\\\"modules\\\"], \\\"ports\\\", d[\\\"spec\\\"][\\\"ports\\\"], \\\"pps\\\", d[\\\"spec\\\"][\\\"rate\\\"][\\\"pps\\\"])'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:20:10.551Z",
+      "lastAccessed": "2026-10-03T00:20:10.551Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:20:10.551Z"
+    },
+    "cmd-1790987367092": {
+      "key": "cmd-1790987367092",
+      "value": "{\"command\":\"export CP_URL=https://localhost:9443 CP_ADMIN_TOKEN=dev CP_ROOT_CA=dev/pki/root.pem; go build -o /private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/cp-api ./controlplane/cmd/cp-api; CP=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/cp-api; last=\\\"\\\"; for i in $(seq 1 36); do out=$($CP admin job job_06GFY8FJNNJZ9BZ5RCWJTM32C0); cur=$(printf '%s' \\\"$out\\\" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[\\\"status\\\"], d.get(\\\"phase\\\",\\\"\\\"), str(d[\\\"progress_pct\\\"])+\\\"%\\\", \\\"batches=\\\"+str(d[\\\"batches\\\"]))'); if [ \\\"$cur\\\" != \\\"$last\\\" ]; then echo \\\"$(date +%H:%M:%S) $cur\\\"; last=\\\"$cur\\\"; fi; case \\\"$cur\\\" in done*|failed*|rejected*|cancel*|error*|timeout*) break;; esac; sleep 15; done; echo \\\"--- final job view\\\"; printf '%s' \\\"$out\\\" | python3 -m json.tool | sed -n '1,60p'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:29:27.092Z",
+      "lastAccessed": "2026-10-03T00:29:27.092Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:29:27.092Z"
+    },
+    "cmd-1790988011777": {
+      "key": "cmd-1790988011777",
+      "value": "{\"command\":\"export CP_URL=https://localhost:9443 CP_ADMIN_TOKEN=dev CP_ROOT_CA=dev/pki/root.pem; CP=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/cp-api; last=\\\"\\\"; for i in $(seq 1 38); do out=$($CP admin job job_06GFY8FJNNJZ9BZ5RCWJTM32C0); cur=$(printf '%s' \\\"$out\\\" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[\\\"status\\\"], d.get(\\\"phase\\\",\\\"\\\"), str(d[\\\"progress_pct\\\"])+\\\"%\\\", \\\"batches=\\\"+str(d[\\\"batches\\\"]))'); if [ \\\"$cur\\\" != \\\"$last\\\" ]; then echo \\\"$(date +%H:%M:%S) $cur\\\"; last=\\\"$cur\\\"; fi; case \\\"$cur\\\" in running*|queued*|dispatched*) sleep 15;; *) break;; esac; done; echo \\\"--- stats\\\"; printf '%s' \\\"$out\\\" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(\\\"status:\\\", d[\\\"status\\\"]); print(\\\"started:\\\", d.get(\\\"started_at\\\")); print(\\\"finished:\\\", d.get(\\\"finished_at\\\")); print(\\\"reject_reason:\\\", d.get(\\\"reject_reason\\\",\\\"\\\")); print(json.dumps(d.get(\\\"stats\\\"), indent=1))'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:40:11.777Z",
+      "lastAccessed": "2026-10-03T00:40:11.777Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:40:11.777Z"
+    },
+    "cmd-1790988047922": {
+      "key": "cmd-1790988047922",
+      "value": "{\"command\":\"export CP_URL=https://localhost:9443 CP_ADMIN_TOKEN=dev CP_ROOT_CA=dev/pki/root.pem; CP=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/cp-api; for i in $(seq 1 12); do out=$($CP admin job job_06GFY8FJNNJZ9BZ5RCWJTM32C0); st=$(printf '%s' \\\"$out\\\" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[\\\"status\\\"])'); [ \\\"$st\\\" != \\\"running\\\" ] && break; sleep 10; done; printf '%s' \\\"$out\\\" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(\\\"status:\\\", d[\\\"status\\\"], \\\"phase:\\\", d.get(\\\"phase\\\",\\\"\\\"), \\\"progress:\\\", d[\\\"progress_pct\\\"], \\\"batches:\\\", d[\\\"batches\\\"]); print(\\\"started:\\\", d.get(\\\"started_at\\\")); print(\\\"finished:\\\", d.get(\\\"finished_at\\\")); print(\\\"stats:\\\", json.dumps(d.get(\\\"stats\\\")))'; echo \\\"--- job hosts\\\"; $CP admin job-hosts job_06GFY8FJNNJZ9BZ5RCWJTM32C0 | python3 -m json.tool | head -120; echo \\\"--- site hosts\\\"; $CP admin hosts site_06GFY7JK3W5N6XMPWVNZ5PX6K0 | python3 -c 'import json,sys; d=json.load(sys.stdin); hs=d if isinstance(d,list) else d.get(\\\"hosts\\\",d); print(len(hs), \\\"hosts on the site\\\"); [print(\\\" \\\", h.get(\\\"ip\\\") or h.get(\\\"ips\\\"), h.get(\\\"id\\\",\\\"\\\"), \\\"ports:\\\", [p.get(\\\"port\\\") for p in (h.get(\\\"ports\\\") or [])] if isinstance(h.get(\\\"ports\\\"),list) else h.get(\\\"ports\\\"), \\\"mac:\\\", h.get(\\\"mac\\\") or h.get(\\\"macs\\\")) for h in hs]'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:40:47.922Z",
+      "lastAccessed": "2026-10-03T00:40:47.922Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:40:47.922Z"
+    },
+    "cmd-1790988135542": {
+      "key": "cmd-1790988135542",
+      "value": "{\"command\":\"NAABU_SRC=\\\"$HOME/go/pkg/mod/github.com/projectdiscovery/naabu/v2@v2.3.6\\\"; echo \\\"=== connect-scan worker pool\\\"; grep -n -E 'sizedwaitgroup.New|Threads|ConnectPort\\\\(' \\\"$NAABU_SRC/pkg/runner/runner.go\\\" | head -12; grep -n -E '\\\"threads\\\"|\\\"c\\\"' \\\"$NAABU_SRC/pkg/runner/options.go\\\" | head -3\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:42:15.542Z",
+      "lastAccessed": "2026-10-03T00:42:15.542Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:42:15.542Z"
+    },
+    "cmd-1790988136869": {
+      "key": "cmd-1790988136869",
+      "value": "{\"command\":\"echo \\\"=== gitignore bin/dev\\\"; grep -nE '^/?(bin|dev|dist)/?$' .gitignore; echo \\\"=== git status (repo files only)\\\"; git status --short | grep -v '\\\\.claude-flow'; echo \\\"=== remove moved-aside state\\\"; rm -rf dev/state.unenrolled-20261002-171549 && ls dev\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:42:16.869Z",
+      "lastAccessed": "2026-10-03T00:42:16.869Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:42:16.869Z"
+    },
+    "cmd-1790988137907": {
+      "key": "cmd-1790988137907",
+      "value": "{\"command\":\"cat /Users/richardtang/.claude/projects/-Users-richardtang-Desktop-repos-scanner-appliance/memory/local-dev-environment.md\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:42:17.907Z",
+      "lastAccessed": "2026-10-03T00:42:17.907Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:42:17.907Z"
+    },
+    "cmd-1790988166805": {
+      "key": "cmd-1790988166805",
+      "value": "{\"command\":\"NAABU_SRC=\\\"$HOME/go/pkg/mod/github.com/projectdiscovery/naabu/v2@v2.3.6\\\"; echo \\\"=== timeout flag and GetTimeout\\\"; grep -n -E '\\\"timeout\\\"|func \\\\(options \\\\*Options\\\\) GetTimeout' -A4 \\\"$NAABU_SRC/pkg/runner/options.go\\\" | head -20; echo \\\"=== handleHostPort / limiter\\\"; grep -n -E 'limiter|handleHostPort\\\\(|func \\\\(r \\\\*Runner\\\\) handleHostPort' \\\"$NAABU_SRC/pkg/runner/runner.go\\\" | head -12; echo \\\"=== ulimit -n\\\"; ulimit -n\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:42:46.805Z",
+      "lastAccessed": "2026-10-03T00:42:46.805Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:42:46.805Z"
+    },
+    "cmd-1790988168391": {
+      "key": "cmd-1790988168391",
+      "value": "{\"command\":\"cd /tmp && start=$(date +%s); HOME=/var/lib/appliance NO_COLOR=1 \\\"$HOME/go/bin/naabu\\\" -host 192.168.1.200-203 -silent -no-color -disable-update-check -rate 300 -c 20 -retries 1 -timeout 1000 -warm-up-time 1 -json -p 22,80 2>&1 | tail -3; echo \\\"exit=${PIPESTATUS[0]} wall=$(( $(date +%s) - start ))s for 4 dead addresses x 2 ports\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:42:48.391Z",
+      "lastAccessed": "2026-10-03T00:42:48.391Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:42:48.391Z"
+    },
+    "cmd-1790988204111": {
+      "key": "cmd-1790988204111",
+      "value": "{\"command\":\"GF=$(ls -d \\\"$HOME/go/pkg/mod/github.com/projectdiscovery/goflags@\\\"* 2>/dev/null | tail -1); echo \\\"goflags: $GF\\\"; grep -rn -E 'ParseDuration|missing unit|func \\\\(flagSet \\\\*FlagSet\\\\) DurationVar' \\\"$GF\\\"/*.go | grep -v _test | head -12; echo \\\"=== GetTimeout body\\\"; sed -n 377,392p \\\"$HOME/go/pkg/mod/github.com/projectdiscovery/naabu/v2@v2.3.6/pkg/runner/options.go\\\"; echo \\\"=== DefaultPortTimeout consts\\\"; grep -rn 'DefaultPortTimeout' \\\"$HOME/go/pkg/mod/github.com/projectdiscovery/naabu/v2@v2.3.6/pkg/runner/\\\"*.go | grep -v _test | head -4\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:43:24.111Z",
+      "lastAccessed": "2026-10-03T00:43:24.111Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:43:24.111Z"
+    },
+    "cmd-1790988206358": {
+      "key": "cmd-1790988206358",
+      "value": "{\"command\":\"start=$(date +%s); HOME=/var/lib/appliance NO_COLOR=1 \\\"$HOME/go/bin/naabu\\\" -host 192.168.1.200,192.168.1.201,192.168.1.202,192.168.1.203 -silent -no-color -disable-update-check -rate 300 -c 20 -retries 1 -timeout 1000 -warm-up-time 1 -json -p 22,80 2>&1 | tail -2; echo \\\"unitless 1000: exit=${PIPESTATUS[0]} wall=$(( $(date +%s) - start ))s\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:43:26.358Z",
+      "lastAccessed": "2026-10-03T00:43:26.358Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:43:26.358Z"
+    },
+    "cmd-1790988208561": {
+      "key": "cmd-1790988208561",
+      "value": "{\"command\":\"start=$(date +%s); HOME=/var/lib/appliance NO_COLOR=1 \\\"$HOME/go/bin/naabu\\\" -host 192.168.1.200,192.168.1.201,192.168.1.202,192.168.1.203 -silent -no-color -disable-update-check -rate 300 -c 20 -retries 1 -timeout 1000ms -warm-up-time 1 -json -p 22,80 2>&1 | tail -2; echo \\\"1000ms: exit=${PIPESTATUS[0]} wall=$(( $(date +%s) - start ))s\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:43:28.561Z",
+      "lastAccessed": "2026-10-03T00:43:28.561Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:43:28.561Z"
+    },
+    "cmd-1790988209693": {
+      "key": "cmd-1790988209693",
+      "value": "{\"command\":\"echo \\\"=== timeout-style args passed to httpx/nuclei/nmap\\\"; grep -n -E '\\\"-timeout\\\"|\\\"-rl\\\"|\\\"-rate-limit\\\"|\\\"-c\\\"|\\\"-t\\\"|host-timeout' daemon/internal/engine/web.go daemon/internal/engine/nmap.go | head; echo \\\"=== e2e fake naabu: does it check -timeout?\\\"; grep -rn -E 'timeout' daemon/internal/e2e/*.go | grep -i naabu | head -5\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:43:29.693Z",
+      "lastAccessed": "2026-10-03T00:43:29.693Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:43:29.693Z"
+    },
+    "cmd-1790988242520": {
+      "key": "cmd-1790988242520",
+      "value": "{\"command\":\"NAABU_SRC=\\\"$HOME/go/pkg/mod/github.com/projectdiscovery/naabu/v2@v2.3.6/pkg/runner/runner.go\\\"; echo \\\"=== connect enumeration loop (340-430)\\\"; sed -n 340,430p \\\"$NAABU_SRC\\\" | grep -n -E 'wgscan|limiter|Threads|for |go r\\\\.|Sleep|WarmUp|handleHostPort' ; echo \\\"=== handleHostPort body\\\"; grep -n -A22 'func (r \\\\*Runner) handleHostPort' \\\"$NAABU_SRC\\\" | grep -E 'limiter|wgscan|Threads|ConnectPort|Sleep|Retries|for ' \",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:44:02.520Z",
+      "lastAccessed": "2026-10-03T00:44:02.520Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:44:02.520Z"
+    },
+    "cmd-1790988470354": {
+      "key": "cmd-1790988470354",
+      "value": "{\"command\":\"start=$(date +%s); HOME=/var/lib/appliance NO_COLOR=1 \\\"$HOME/go/bin/naabu\\\" -host 192.168.1.32/27 -silent -no-color -disable-update-check -rate 300 -c 20 -retries 1 -timeout 1000 -warm-up-time 1 -json -p 21,22,23,53,80,139,443,445,515,548,631,1883,3389,5000,5900,8000,8080,8443,9100,62078 2>&1 | tail -2; echo \\\"32 unused addresses x 20 ports (640 probes): exit=${PIPESTATUS[0]} wall=$(( $(date +%s) - start ))s\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:47:50.354Z",
+      "lastAccessed": "2026-10-03T00:47:50.354Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:47:50.354Z"
+    },
+    "cmd-1790988515753": {
+      "key": "cmd-1790988515753",
+      "value": "{\"command\":\"U=$(ls -d \\\"$HOME/go/pkg/mod/github.com/projectdiscovery/utils@\\\"* 2>/dev/null | tail -1); echo \\\"utils: $U\\\"; f=$(grep -rl 'func ParseDuration' \\\"$U/time\\\" 2>/dev/null | head -1); echo \\\"file: $f\\\"; grep -n -B2 -A30 'func ParseDuration' \\\"$f\\\" | head -60\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:48:35.753Z",
+      "lastAccessed": "2026-10-03T00:48:35.753Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:48:35.753Z"
+    },
+    "cmd-1790988517152": {
+      "key": "cmd-1790988517152",
+      "value": "{\"command\":\"NAABU=\\\"$HOME/go/pkg/mod/github.com/projectdiscovery/naabu/v2@v2.3.6\\\"; echo \\\"=== GetTimeout / Timeout uses outside connect\\\"; grep -rn -E 'GetTimeout\\\\(\\\\)|options\\\\.Timeout' \\\"$NAABU/pkg\\\" --include='*.go' | grep -v _test | grep -v 'options.go' | head -12; echo \\\"=== scanner timeout use (syn mode wait)\\\"; grep -rn -E 'timeout|Timeout' \\\"$NAABU/pkg/scan/scan.go\\\" | head -12\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:48:37.152Z",
+      "lastAccessed": "2026-10-03T00:48:37.152Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:48:37.152Z"
+    },
+    "cmd-1790988550939": {
+      "key": "cmd-1790988550939",
+      "value": "{\"command\":\"NAABU=\\\"$HOME/go/pkg/mod/github.com/projectdiscovery/naabu/v2@v2.3.6\\\"; echo \\\"=== s.timeout uses in the scan package (SYN path)\\\"; grep -rn -E '\\\\bs\\\\.timeout\\\\b|scanner\\\\.timeout|\\\\.timeout\\\\)' \\\"$NAABU/pkg/scan/\\\"*.go | grep -v _test | head; echo \\\"=== runner: waits after sending (SYN)\\\"; grep -n -E 'Sleep|WaitGroup|Wait\\\\(\\\\)|Timeout' \\\"$NAABU/pkg/runner/runner.go\\\" | sed -n 1,30p\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:49:10.939Z",
+      "lastAccessed": "2026-10-03T00:49:10.939Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:49:10.939Z"
+    },
+    "cmd-1790988552886": {
+      "key": "cmd-1790988552886",
+      "value": "{\"command\":\"echo \\\"=== naabu version pinned for images\\\"; grep -rn -iE 'naabu' docker/Dockerfile Makefile ci/*.sh packer/scripts/*.sh 2>/dev/null | grep -iE 'v2\\\\.|@|version|install' | head -8; echo \\\"=== go.mod naabu (daemon imports?)\\\"; grep -n naabu go.mod || echo \\\"naabu is not a Go dependency\\\"; echo \\\"=== tests mentioning the naabu timeout arg\\\"; grep -rn --include='*_test.go' -E '\\\"-timeout\\\"|timeout 1000|-timeout 1000' daemon | head -8; echo \\\"=== smoke timeout\\\"; grep -n -E 'SMOKE_TIMEOUT' ci/smoke/lib.sh | head -4\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:49:12.886Z",
+      "lastAccessed": "2026-10-03T00:49:12.886Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:49:12.886Z"
+    },
+    "cmd-1790988595047": {
+      "key": "cmd-1790988595047",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\np = pathlib.Path(\\\"daemon/internal/engine/naabu.go\\\")\\ns = p.read_text()\\nold_arg = '\\\"-retries\\\", \\\"1\\\", \\\"-timeout\\\", \\\"1000\\\", \\\"-warm-up-time\\\", \\\"1\\\"}'\\nnew_arg = '\\\"-retries\\\", \\\"1\\\", \\\"-timeout\\\", \\\"1000ms\\\", \\\"-warm-up-time\\\", \\\"1\\\"}'\\nassert s.count(old_arg) == 1, \\\"timeout arg not found exactly once\\\"\\ns = s.replace(old_arg, new_arg)\\nold_c = \\\"// naabuArgs builds the common argument list (output mode is added per phase).\\\\n\\\"\\nnew_c = (\\\"// naabuArgs builds the common argument list (output mode is added per phase).\\\\n\\\"\\n         \\\"// naabu 2.3 parses -timeout as a duration and reads a bare number as\\\\n\\\"\\n         \\\"// seconds (its help text still says milliseconds), so the unit is explicit:\\\\n\\\"\\n         \\\"// a bare 1000 made every connect-scan probe to a filtered port wait 1000 s.\\\\n\\\")\\nassert s.count(old_c) == 1, \\\"naabuArgs comment not found exactly once\\\"\\ns = s.replace(old_c, new_c)\\np.write_text(s)\\nprint(\\\"edited\\\")\\nEOF\\ngofmt -l daemon/internal/engine/ && go vet ./daemon/internal/engine/ && echo \\\"gofmt and vet clean\\\"; git diff --stat -- daemon/internal/engine/naabu.go; git diff -- daemon/internal/engine/naabu.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:49:55.047Z",
+      "lastAccessed": "2026-10-03T00:49:55.047Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:49:55.047Z"
+    },
+    "cmd-1790988597429": {
+      "key": "cmd-1790988597429",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\np = pathlib.Path(\\\"/Users/richardtang/.claude/projects/-Users-richardtang-Desktop-repos-scanner-appliance/memory/local-dev-environment.md\\\")\\ns = p.read_text()\\nold = \\\"- A throwaway Postgres 17 container on port 55433 was used for the store conformance suite.\\\\n\\\"\\nnew = old + \\\"\\\"\\\"- naabu refuses host discovery (`-sn`) without root, so a native dev scan is a job with `--modules portscan` and an explicit `--ports` list. Unprivileged connect scans of unused LAN addresses run at about 3 probes per second on macOS, so a /24 with 20 ports takes about 20 minutes. Full discovery needs the daemon under sudo or the container stack.\\n- `make dev-cp` is an in-memory control plane: appliance ids and enrollment codes die with the process. Run `make dev-cp` and `make dev-appliance` in the app's terminal tabs so they outlive a turn, and clear `dev/state` before re-enrolling (a consumed seed is never re-read). First real LAN scan done 2026-10-02: 4 hosts, 12 open ports.\\n\\\"\\\"\\\"\\nassert s.count(old) == 1\\np.write_text(s.replace(old, new))\\nprint(\\\"memory updated\\\")\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:49:57.429Z",
+      "lastAccessed": "2026-10-03T00:49:57.429Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:49:57.429Z"
+    },
+    "cmd-1790988695009": {
+      "key": "cmd-1790988695009",
+      "value": "{\"command\":\"go test -count=1 ./daemon/internal/engine/ 2>&1 | tail -3 && go test -count=1 -race -timeout 15m ./daemon/internal/e2e/ 2>&1 | tail -3\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:51:35.009Z",
+      "lastAccessed": "2026-10-03T00:51:35.009Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:51:35.009Z"
+    },
+    "cmd-1790988697888": {
+      "key": "cmd-1790988697888",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\np = pathlib.Path(\\\"/Users/richardtang/.claude/projects/-Users-richardtang-Desktop-repos-scanner-appliance/memory/local-dev-environment.md\\\")\\ns = p.read_text()\\nold = \\\"openvas and ospd do not run on macOS, so only discovery jobs work outside the container stack.\\\\n\\\"\\nnew = \\\"openvas and ospd do not run on macOS, so only naabu port scans work outside the container stack.\\\\n\\\"\\nassert s.count(old) == 1\\np.write_text(s.replace(old, new))\\nprint(\\\"memory line fixed\\\")\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:51:37.888Z",
+      "lastAccessed": "2026-10-03T00:51:37.888Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:51:37.888Z"
+    },
+    "cmd-1790988763659": {
+      "key": "cmd-1790988763659",
+      "value": "{\"command\":\"export CP_URL=https://localhost:9443 CP_ADMIN_TOKEN=dev CP_ROOT_CA=dev/pki/root.pem; CP=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/cp-api; for i in $(seq 1 45); do r=$(python3 -c 'import json; d=json.load(open(\\\"dev/run/status.json\\\")); print(d[\\\"state\\\"], d[\\\"reachable\\\"], d[\\\"updated_at\\\"])' 2>/dev/null); case \\\"$r\\\" in \\\"idle True\\\"*) echo \\\"daemon up after ${i}x2s: $r\\\"; break;; esac; sleep 2; done; echo \\\"--- create verification job\\\"; jid=$($CP admin create-job --appliance apl_06GFY7JK3ZX0VS3A3347J9AY94 --mode discovery --modules portscan --ports 53,80,443,8080 --targets 192.168.1.254,192.168.1.128 --now | python3 -c 'import json,sys; print(json.load(sys.stdin)[\\\"id\\\"])'); echo \\\"job $jid\\\"; t0=$(date +%s); for i in $(seq 1 40); do out=$($CP admin job \\\"$jid\\\"); st=$(printf '%s' \\\"$out\\\" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[\\\"status\\\"])'); case \\\"$st\\\" in queued|dispatched|running) sleep 5;; *) break;; esac; done; echo \\\"status $st after $(( $(date +%s) - t0 ))s of polling\\\"; printf '%s' \\\"$out\\\" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(\\\"stats:\\\", json.dumps(d.get(\\\"stats\\\")))'; echo \\\"--- hosts\\\"; $CP admin job-hosts \\\"$jid\\\" | python3 -c 'import json,sys; [print(\\\" \\\", h[\\\"ip\\\"], sorted(p[\\\"port\\\"] for p in h[\\\"ports\\\"])) for h in json.load(sys.stdin)]'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:52:43.659Z",
+      "lastAccessed": "2026-10-03T00:52:43.659Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:52:43.659Z"
+    },
+    "cmd-1790988772175": {
+      "key": "cmd-1790988772175",
+      "value": "{\"command\":\"git status --short | grep -v '\\\\.claude-flow'; echo \\\"--- lab processes\\\"; pgrep -fl 'cp-api|applianced' | sed 's/ .*go-build.*\\\\//  /' | head -4\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:52:52.175Z",
+      "lastAccessed": "2026-10-03T00:52:52.175Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:52:52.175Z"
+    },
+    "cmd-1790988779250": {
+      "key": "cmd-1790988779250",
+      "value": "{\"command\":\"git log --oneline -2 && git show --stat --format='%h %s' HEAD | tail -8\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-03T00:52:59.250Z",
+      "lastAccessed": "2026-10-03T00:52:59.250Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-02T00:52:59.250Z"
+    },
+    "cmd-1791207094462": {
+      "key": "cmd-1791207094462",
+      "value": "{\"command\":\"echo \\\"=== git\\\"; git status --short | grep -v '\\\\.claude-flow'; git log --oneline -3; echo \\\"=== listeners on lab ports\\\"; lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':8443|:9443|:5432|:55433' || echo \\\"nothing on 8443/9443/5432\\\"; echo \\\"=== lab processes\\\"; pgrep -fl 'cp-api|applianced' | cut -c1-140 || echo \\\"none\\\"; echo \\\"=== docker\\\"; docker ps -a --format '{{.Names}}\\\\t{{.Image}}\\\\t{{.Status}}'; echo \\\"--- images\\\"; docker images --format '{{.Repository}}:{{.Tag}}\\\\t{{.Size}}\\\\t{{.CreatedSince}}' | head -20; echo \\\"--- docker resources\\\"; docker info --format 'cpus={{.NCPU}} mem={{.MemTotal}} arch={{.Architecture}} server={{.ServerVersion}}'; docker system df; echo \\\"=== disk\\\"; df -h / | tail -1; echo \\\"=== compose version\\\"; docker compose version\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:31:34.462Z",
+      "lastAccessed": "2026-10-05T13:31:34.462Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:31:34.462Z"
+    },
+    "cmd-1791207095841": {
+      "key": "cmd-1791207095841",
+      "value": "{\"command\":\"echo \\\"===== docker/docker-compose.yml\\\"; cat docker/docker-compose.yml; echo; echo \\\"===== docker dir\\\"; ls -la docker/\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:31:35.841Z",
+      "lastAccessed": "2026-10-05T13:31:35.841Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:31:35.841Z"
+    },
+    "cmd-1791207095918": {
+      "key": "cmd-1791207095918",
+      "value": "{\"command\":\"echo \\\"===== docker/Dockerfile\\\"; cat docker/Dockerfile\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:31:35.918Z",
+      "lastAccessed": "2026-10-05T13:31:35.918Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:31:35.918Z"
+    },
+    "cmd-1791207164261": {
+      "key": "cmd-1791207164261",
+      "value": "{\"command\":\"echo \\\"===== docker/feed\\\"; ls -la docker/feed; for f in docker/feed/*; do [ -f \\\"$f\\\" ] && { echo \\\"--- $f\\\"; cat \\\"$f\\\"; }; done; echo \\\"===== docker/.gitignore\\\"; cat docker/.gitignore; echo \\\"===== .dockerignore\\\"; cat .dockerignore 2>/dev/null || echo \\\"(no .dockerignore)\\\"; echo \\\"===== docker/.env (secrets masked)\\\"; sed -E 's/^(CP_ADMIN_TOKEN|POSTGRES_PASSWORD|APPLIANCE_CODE|CP_OWNER_TOKEN)=.*/\\\\1=…masked…/' docker/.env | grep -v '^#' | grep -v '^$'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:32:44.261Z",
+      "lastAccessed": "2026-10-05T13:32:44.261Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:32:44.261Z"
+    },
+    "cmd-1791207165512": {
+      "key": "cmd-1791207165512",
+      "value": "{\"command\":\"echo \\\"===== packer/scripts/seed-feed.sh\\\"; cat packer/scripts/seed-feed.sh\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:32:45.512Z",
+      "lastAccessed": "2026-10-05T13:32:45.512Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:32:45.512Z"
+    },
+    "cmd-1791207165633": {
+      "key": "cmd-1791207165633",
+      "value": "{\"command\":\"echo \\\"===== install-openvas.sh: pins and layout\\\"; grep -n -E '^[A-Z_]+=|TAG|SHA256|plugins|redis|ospd-openvas.conf|openvas.conf|RUNTIME_DEPS|notus|mqtt|vt_data|feed' packer/scripts/install-openvas.sh | head -120; echo \\\"lines: $(wc -l < packer/scripts/install-openvas.sh)\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:32:45.633Z",
+      "lastAccessed": "2026-10-05T13:32:45.633Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:32:45.633Z"
+    },
+    "cmd-1791207165836": {
+      "key": "cmd-1791207165836",
+      "value": "{\"command\":\"echo \\\"===== docker/entrypoint.sh\\\"; cat docker/entrypoint.sh; echo; echo \\\"===== docker/cp-api-entrypoint.sh\\\"; cat docker/cp-api-entrypoint.sh; echo; echo \\\"===== docker/Dockerfile.cp-api\\\"; cat docker/Dockerfile.cp-api; echo; echo \\\"===== ci/build.sh\\\"; cat ci/build.sh\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:32:45.836Z",
+      "lastAccessed": "2026-10-05T13:32:45.836Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:32:45.836Z"
+    },
+    "cmd-1791207166937": {
+      "key": "cmd-1791207166937",
+      "value": "{\"command\":\"echo \\\"=== commit dates\\\"; git log -4 --format='%h %ci %s'; echo \\\"=== image dates\\\"; docker image inspect --format '{{.RepoTags}} {{.Created}}' cp-api:dev ghcr.io/tprm/scanner-appliance:dev; echo \\\"=== lab processes with start time and parent\\\"; ps -o pid,ppid,lstart,command -p 5123,5623,15846,15852,77893,77897 | cut -c1-170; echo \\\"=== files changed in docker-relevant paths since the image build\\\"; git log --since='2026-09-27' --format='%h %ci' --name-only -- packer/scripts/install-openvas.sh packer/scripts/seed-feed.sh docker/ | head -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:32:46.937Z",
+      "lastAccessed": "2026-10-05T13:32:46.937Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:32:46.937Z"
+    },
+    "cmd-1791207249565": {
+      "key": "cmd-1791207249565",
+      "value": "{\"command\":\"echo \\\"=== compose project volumes/networks\\\"; docker volume ls --format '{{.Name}}' | grep -iE 'scanner-appliance|appliance|openvas' || echo \\\"no project volumes\\\"; docker network ls --format '{{.Name}}\\\\t{{.Driver}}' | grep -iE 'scanner|appliance' || echo \\\"no project networks\\\"; echo \\\"=== sizes of context dirs\\\"; du -sh .git dev bin dist packer/output-* .claude-flow 2>/dev/null; echo \\\"=== dev/pki\\\"; ls -la dev/pki; echo \\\"=== workflows: docker builds\\\"; grep -n -E 'docker (build|buildx|compose)|build-push-action|context:|dockerfile|file:' .github/workflows/*.yml | head -30; echo \\\"=== scratchpad feed listing still there?\\\"; ls -la /private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/ 2>/dev/null | head -20; echo \\\"=== rsync\\\"; which rsync; rsync --version 2>&1 | head -2\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:34:09.565Z",
+      "lastAccessed": "2026-10-05T13:34:09.565Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:34:09.565Z"
+    },
+    "cmd-1791207250723": {
+      "key": "cmd-1791207250723",
+      "value": "{\"command\":\"echo \\\"=== DEPLOY.md feed mentions\\\"; grep -n -iE 'feed|vt_cache|8 ?g|memory|network host' docs/DEPLOY.md | head -40; echo \\\"=== engine health in heartbeat\\\"; grep -rn --include='*.go' -E 'VTCacheLoaded|vt_cache_loaded|VTCount|OSPDUp|func \\\\(.*\\\\) Ready\\\\(\\\\)' daemon/internal api/v1 | grep -v _test | head -20\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:34:10.723Z",
+      "lastAccessed": "2026-10-05T13:34:10.723Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:34:10.723Z"
+    },
+    "cmd-1791207250793": {
+      "key": "cmd-1791207250793",
+      "value": "{\"command\":\"echo \\\"===== daemon/internal/osp/supervise.go\\\"; cat daemon/internal/osp/supervise.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:34:10.793Z",
+      "lastAccessed": "2026-10-05T13:34:10.793Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:34:10.793Z"
+    },
+    "cmd-1791207298197": {
+      "key": "cmd-1791207298197",
+      "value": "{\"command\":\"echo \\\"=== feed releases on the community server\\\"; rsync rsync://feed.community.greenbone.net/community/vulnerability-feed/ 2>&1 | head -20\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:34:58.197Z",
+      "lastAccessed": "2026-10-05T13:34:58.197Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:34:58.197Z"
+    },
+    "cmd-1791207299654": {
+      "key": "cmd-1791207299654",
+      "value": "{\"command\":\"echo \\\"=== context dir sizes\\\"; du -sh .git dev bin dist .claude-flow 2>/dev/null; echo \\\"=== cp-api usage: feed and bundle\\\"; go run ./controlplane/cmd/cp-api 2>&1 | grep -n -iE 'feed|bundle' | head -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:34:59.654Z",
+      "lastAccessed": "2026-10-05T13:34:59.654Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:34:59.654Z"
+    },
+    "cmd-1791207300656": {
+      "key": "cmd-1791207300656",
+      "value": "{\"command\":\"grep -n -E 'func (feedCmd|bundleCmd)' controlplane/cmd/cp-api/*.go; awk '/^func feedCmd/{f=1} f{print NR\\\": \\\"$0} /^}/{if(f){exit}}' controlplane/cmd/cp-api/main.go | head -90\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:35:00.656Z",
+      "lastAccessed": "2026-10-05T13:35:00.656Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:35:00.656Z"
+    },
+    "cmd-1791207308600": {
+      "key": "cmd-1791207308600",
+      "value": "{\"command\":\"sed -n 300,420p controlplane/cmd/cp-api/ops.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:35:08.600Z",
+      "lastAccessed": "2026-10-05T13:35:08.600Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:35:08.600Z"
+    },
+    "cmd-1791207308721": {
+      "key": "cmd-1791207308721",
+      "value": "{\"command\":\"sed -n 60,175p controlplane/cmd/cp-api/ops.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:35:08.721Z",
+      "lastAccessed": "2026-10-05T13:35:08.721Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:35:08.721Z"
+    },
+    "cmd-1791207317328": {
+      "key": "cmd-1791207317328",
+      "value": "{\"command\":\"grep -rn 'DefaultFeedSource' controlplane/ | head -3; echo \\\"=== openrsync option support\\\"; rsync --help 2>&1 | grep -n -E -- '--stats|--timeout|--delete|-z|--compress' | head; ls /opt/homebrew/bin/rsync 2>/dev/null || echo \\\"no homebrew rsync\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:35:17.328Z",
+      "lastAccessed": "2026-10-05T13:35:17.328Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:35:17.328Z"
+    },
+    "cmd-1791207348373": {
+      "key": "cmd-1791207348373",
+      "value": "{\"command\":\"mkdir -p dev/feed && go run ./controlplane/cmd/cp-api feed sync --dest dev/feed/nasl > dev/feed/sync.log 2>&1; echo \\\"feed sync exit=$?\\\" >> dev/feed/sync.log; tail -25 dev/feed/sync.log\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:35:48.373Z",
+      "lastAccessed": "2026-10-05T13:35:48.373Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:35:48.373Z"
+    },
+    "cmd-1791207349547": {
+      "key": "cmd-1791207349547",
+      "value": "{\"command\":\"cat > .dockerignore <<'EOF'\\n# Keep local dev state and host build outputs out of the image build\\n# context: dev/ holds the dev CA keys, daemon state and the feed mirror\\n# (about 100,000 files). docker/feed/ stays in the context on purpose; the\\n# feed stage of docker/Dockerfile copies the tarball from there.\\ndev\\nbin\\ndist\\npacker/output-*\\n.claude-flow\\nEOF\\necho \\\"--- .dockerignore\\\"; cat .dockerignore; echo \\\"--- embed dev PKI for the image build\\\"; cp dev/pki/root.pem daemon/internal/pki/roots.pem && cp dev/pki/release-pub.pem daemon/internal/pki/release-pub.pem && wc -c daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem; echo \\\"--- control plane server certificate\\\"; openssl x509 -in dev/pki/server.pem -noout -subject -dates -ext subjectAltName 2>&1; echo \\\"--- root + intermediate validity\\\"; for c in root intermediate; do openssl x509 -in dev/pki/$c.pem -noout -subject -enddate; done\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:35:49.547Z",
+      "lastAccessed": "2026-10-05T13:35:49.547Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:35:49.547Z"
+    },
+    "cmd-1791207350587": {
+      "key": "cmd-1791207350587",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib, re\\np = pathlib.Path(\\\"docker/.env\\\")\\ns = p.read_text()\\nfor key, val in ((\\\"CP_ENROLL_PORT\\\", \\\"18443\\\"), (\\\"CP_MTLS_PORT\\\", \\\"19443\\\")):\\n    assert len(re.findall(rf\\\"^{key}=\\\", s, flags=re.M)) == 1, key\\n    s = re.sub(rf\\\"^{key}=.*$\\\", f\\\"{key}={val}\\\", s, flags=re.M)\\np.write_text(s)\\nprint(\\\"ports set\\\")\\nEOF\\ngrep -n -E '^CP_(ENROLL|MTLS)_PORT=' docker/.env; echo \\\"--- lib.sh defaults for reference\\\"; grep -n -E 'CP_ADMIN_TOKEN|CP_MTLS_PORT|CP_ENROLL_PORT' ci/smoke/lib.sh | head -8\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:35:50.587Z",
+      "lastAccessed": "2026-10-05T13:35:50.587Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:35:50.587Z"
+    },
+    "cmd-1791207367802": {
+      "key": "cmd-1791207367802",
+      "value": "{\"command\":\"{ echo \\\"### cp-api image\\\"; docker compose -f docker/docker-compose.yml build cp-api 2>&1 | tail -15; echo \\\"### appliance: openvas stage\\\"; docker buildx build -f docker/Dockerfile --target openvas --progress=plain . 2>&1 | grep -E '^#[0-9]+ (CACHED|DONE|ERROR)|^#[0-9]+ \\\\[|ERROR|error:' | tail -40; echo \\\"### appliance: engine stage\\\"; docker buildx build -f docker/Dockerfile --target engine --progress=plain . 2>&1 | grep -E '^#[0-9]+ (CACHED|DONE|ERROR)|^#[0-9]+ \\\\[|ERROR|error:' | tail -20; echo \\\"### appliance: daemon build stage\\\"; docker buildx build -f docker/Dockerfile --target build --build-arg VERSION=dev --progress=plain . 2>&1 | grep -E '^#[0-9]+ (CACHED|DONE|ERROR)|^#[0-9]+ \\\\[|ERROR|error:' | tail -20; echo \\\"### warm build finished\\\"; } > dev/build-warm.log 2>&1; tail -60 dev/build-warm.log\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:36:07.802Z",
+      "lastAccessed": "2026-10-05T13:36:07.802Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:36:07.802Z"
+    },
+    "cmd-1791207369112": {
+      "key": "cmd-1791207369112",
+      "value": "{\"command\":\"echo \\\"=== scan config defaults\\\"; f=$(grep -rl 'func Defaults' --include='*.go' . | grep -v _test | head -1); echo \\\"$f\\\"; sed -n 1,140p \\\"$f\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:36:09.112Z",
+      "lastAccessed": "2026-10-05T13:36:09.112Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:36:09.112Z"
+    },
+    "cmd-1791207370217": {
+      "key": "cmd-1791207370217",
+      "value": "{\"command\":\"echo \\\"=== daemon/internal/osp/scan.go\\\"; sed -n 1,200p daemon/internal/osp/scan.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:36:10.217Z",
+      "lastAccessed": "2026-10-05T13:36:10.217Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:36:10.217Z"
+    },
+    "cmd-1791207420309": {
+      "key": "cmd-1791207420309",
+      "value": "{\"command\":\"echo \\\"=== feed sync\\\"; cat dev/feed/sync.log 2>/dev/null | tail -5; echo \\\"files so far: $(find dev/feed/nasl -type f 2>/dev/null | wc -l | tr -d ' ')  size: $(du -sh dev/feed/nasl 2>/dev/null | cut -f1)\\\"; echo \\\"=== warm build log\\\"; tail -15 dev/build-warm.log 2>/dev/null; echo \\\"=== mac memory\\\"; sysctl -n hw.memsize | awk '{printf \\\"%.0f GB\\\\n\\\", $1/1024/1024/1024}'; echo \\\"=== docker stats\\\"; docker stats --no-stream --format '{{.Name}}\\\\t{{.MemUsage}}' 2>/dev/null\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:37:00.309Z",
+      "lastAccessed": "2026-10-05T13:37:00.309Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:37:00.309Z"
+    },
+    "cmd-1791207481666": {
+      "key": "cmd-1791207481666",
+      "value": "{\"command\":\"for img in httpd:2.4.49 tomcat:9.0.30 redis:5.0.7 nginx:1.16.1; do echo \\\"=== $img\\\"; docker pull -q --platform linux/arm64 \\\"$img\\\" 2>&1 | tail -2; docker image inspect --format '{{.Architecture}} {{.Os}} created={{.Created}}' \\\"$img\\\" 2>&1 | head -1; done\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:38:01.666Z",
+      "lastAccessed": "2026-10-05T13:38:01.666Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:38:01.666Z"
+    },
+    "cmd-1791207484685": {
+      "key": "cmd-1791207484685",
+      "value": "{\"command\":\"echo \\\"=== admin appliance routes\\\"; grep -n -E 'HandleFunc\\\\(\\\"[A-Z]+ /admin/(appliances|sites)[^\\\"]*\\\"' controlplane/pkg/server/*.go | head -20; echo \\\"=== smoke helpers\\\"; grep -n -E '^cp_[a-z_]+\\\\(\\\\)' ci/smoke/lib.sh; echo \\\"=== cp_wait_engine + cp_create_appliance\\\"; awk '/^cp_create_appliance\\\\(\\\\)/,/^}/' ci/smoke/lib.sh; awk '/^cp_wait_engine\\\\(\\\\)/,/^}/' ci/smoke/lib.sh\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:38:04.685Z",
+      "lastAccessed": "2026-10-05T13:38:04.685Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:38:04.685Z"
+    },
+    "cmd-1791207493245": {
+      "key": "cmd-1791207493245",
+      "value": "{\"command\":\"echo \\\"=== warm build log (summary)\\\"; grep -n -E '^###|ERROR|error:|CACHED|DONE [0-9]{2,}' dev/build-warm.log | tail -40; echo \\\"=== images\\\"; docker images --format '{{.Repository}}:{{.Tag}}\\\\t{{.Size}}\\\\t{{.CreatedSince}}' | grep -E 'cp-api:dev|scanner-appliance:dev'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:38:13.245Z",
+      "lastAccessed": "2026-10-05T13:38:13.245Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:38:13.245Z"
+    },
+    "cmd-1791207498379": {
+      "key": "cmd-1791207498379",
+      "value": "{\"command\":\"for i in 1 2 3; do if docker pull -q --platform linux/arm64 redis:5.0.7 2>&1 | tail -1 | grep -q 'redis:5.0.7'; then echo \\\"pulled on attempt $i\\\"; break; else echo \\\"attempt $i failed\\\"; sleep 8; fi; done; docker image inspect --format '{{.Architecture}} {{.Os}} created={{.Created}}' redis:5.0.7 2>&1 | head -1\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:38:18.379Z",
+      "lastAccessed": "2026-10-05T13:38:18.379Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:38:18.379Z"
+    },
+    "cmd-1791207499575": {
+      "key": "cmd-1791207499575",
+      "value": "{\"command\":\"echo \\\"feed files so far: $(find dev/feed/nasl -type f 2>/dev/null | wc -l | tr -d ' ')  size: $(du -sh dev/feed/nasl 2>/dev/null | cut -f1)\\\"; tail -3 dev/feed/sync.log\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:38:19.575Z",
+      "lastAccessed": "2026-10-05T13:38:19.575Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:38:19.575Z"
+    },
+    "cmd-1791207533366": {
+      "key": "cmd-1791207533366",
+      "value": "{\"command\":\"mkdir -p dev/lab && cat > dev/lab/cp <<'EOF'\\n#!/usr/bin/env bash\\n# Admin CLI against the container stack: reads the token and host port from\\n# docker/.env so commands stay short. Usage: dev/lab/cp hosts site_...\\ncd \\\"$(dirname \\\"$0\\\")/../..\\\" || exit 1\\nset -a; . docker/.env; set +a\\nexec env CP_URL=\\\"https://localhost:${CP_MTLS_PORT:-9443}\\\" CP_ROOT_CA=dev/pki/root.pem \\\\\\n  go run ./controlplane/cmd/cp-api admin \\\"$@\\\"\\nEOF\\nchmod +x dev/lab/cp && docker compose -f docker/docker-compose.yml up -d db cp-api 2>&1 | tail -6; for i in $(seq 1 40); do h=$(docker inspect --format '{{.State.Health.Status}}' scanner-appliance-cp-api-1 2>/dev/null); [ \\\"$h\\\" = \\\"healthy\\\" ] && { echo \\\"cp-api healthy after ${i}x3s\\\"; break; }; sleep 3; done; docker compose -f docker/docker-compose.yml ps --format '{{.Name}}\\\\t{{.Status}}\\\\t{{.Ports}}'; echo \\\"--- cp-api log tail\\\"; docker logs --tail 8 scanner-appliance-cp-api-1 2>&1 | cut -c1-200; echo \\\"--- network\\\"; docker network inspect scanner-appliance_default --format '{{range .IPAM.Config}}{{.Subnet}} gw {{.Gateway}}{{end}}'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:38:53.366Z",
+      "lastAccessed": "2026-10-05T13:38:53.366Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:38:53.366Z"
+    },
+    "cmd-1791207569070": {
+      "key": "cmd-1791207569070",
+      "value": "{\"command\":\"dev/lab/cp create-appliance --vendor \\\"Lab\\\" --site \\\"Container lab\\\" --cidrs 172.16.0.0/12,10.0.0.0/8,192.168.0.0/16 --tz America/Los_Angeles > dev/lab/appliance.json && python3 - <<'EOF'\\nimport json, pathlib, re\\nd = json.load(open(\\\"dev/lab/appliance.json\\\"))\\np = pathlib.Path(\\\"docker/.env\\\")\\ns = p.read_text()\\nassert len(re.findall(r\\\"^APPLIANCE_CODE=\\\", s, flags=re.M)) == 1\\np.write_text(re.sub(r\\\"^APPLIANCE_CODE=.*$\\\", \\\"APPLIANCE_CODE=\\\" + d[\\\"code\\\"], s, flags=re.M))\\nprint(\\\"appliance:\\\", d[\\\"appliance_id\\\"]); print(\\\"site:\\\", d[\\\"site_id\\\"]); print(\\\"code written to docker/.env, expires\\\", d[\\\"expires_at\\\"])\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:39:29.070Z",
+      "lastAccessed": "2026-10-05T13:39:29.070Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:39:29.070Z"
+    },
+    "cmd-1791207577055": {
+      "key": "cmd-1791207577055",
+      "value": "{\"command\":\"cat > dev/lab/targets.yml <<'EOF'\\n# Deliberately outdated servers for the first OpenVAS scan. They join the\\n# appliance stack's network and publish no host ports, so nothing outside\\n# Docker can reach them.\\n#\\n#   docker compose -f dev/lab/targets.yml up -d\\n#   docker compose -f dev/lab/targets.yml down\\nname: scanner-lab\\n\\nservices:\\n  httpd:\\n    image: httpd:2.4.49\\n    # CVE-2021-41773 is only reachable with \\\"Require all granted\\\" on the\\n    # filesystem root, so the first occurrence in httpd.conf is flipped.\\n    command: [\\\"sh\\\", \\\"-c\\\", \\\"sed -i '0,/Require all denied/s//Require all granted/' /usr/local/apache2/conf/httpd.conf && exec httpd-foreground\\\"]\\n  tomcat:\\n    image: tomcat:9.0.30\\n    # Some builds of this image ship the default webapps in webapps.dist.\\n    command: [\\\"sh\\\", \\\"-c\\\", \\\"[ -d webapps.dist ] && cp -rn webapps.dist/. webapps/; exec catalina.sh run\\\"]\\n  redis:\\n    image: redis:5.0.7\\n  nginx:\\n    image: nginx:1.16.1\\n\\nnetworks:\\n  default:\\n    name: scanner-appliance_default\\n    external: true\\nEOF\\ndocker compose -f dev/lab/targets.yml up -d 2>&1 | tail -5; sleep 6; echo \\\"--- targets\\\"; for c in httpd tomcat redis nginx; do n=\\\"scanner-lab-$c-1\\\"; printf '%s\\\\t%s\\\\t%s\\\\n' \\\"$n\\\" \\\"$(docker inspect --format '{{.State.Status}}' $n)\\\" \\\"$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{.MacAddress}}{{end}}' $n)\\\"; done; echo \\\"--- stack containers\\\"; for n in scanner-appliance-db-1 scanner-appliance-cp-api-1; do printf '%s\\\\t%s\\\\n' \\\"$n\\\" \\\"$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $n)\\\"; done\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:39:37.055Z",
+      "lastAccessed": "2026-10-05T13:39:37.055Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:39:37.055Z"
+    },
+    "cmd-1791207590847": {
+      "key": "cmd-1791207590847",
+      "value": "{\"command\":\"echo \\\"feed files so far: $(find dev/feed/nasl -type f 2>/dev/null | wc -l | tr -d ' ')  size: $(du -sh dev/feed/nasl 2>/dev/null | cut -f1)\\\"; tail -3 dev/feed/sync.log\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:39:50.847Z",
+      "lastAccessed": "2026-10-05T13:39:50.847Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:39:50.847Z"
+    },
+    "cmd-1791207598720": {
+      "key": "cmd-1791207598720",
+      "value": "{\"command\":\"x() { docker exec scanner-appliance-cp-api-1 \\\"$@\\\"; }; echo \\\"--- httpd\\\"; x curl -sI http://172.18.0.7/ | grep -i '^server'; x curl -s --path-as-is 'http://172.18.0.7/cgi-bin/.%2e/.%2e/.%2e/.%2e/etc/passwd' | head -2; echo \\\"--- tomcat\\\"; x curl -s -o /dev/null -w 'http %{http_code}\\\\n' http://172.18.0.5:8080/; x curl -s http://172.18.0.5:8080/ | grep -o -m1 'Apache Tomcat/[0-9.]*'; x bash -c 'exec 3<>/dev/tcp/172.18.0.5/8009 && echo \\\"ajp 8009 open\\\"'; echo \\\"--- nginx\\\"; x curl -sI http://172.18.0.4/ | grep -i '^server'; echo \\\"--- redis\\\"; x bash -c 'exec 3<>/dev/tcp/172.18.0.6/6379; printf \\\"PING\\\\r\\\\n\\\" >&3; head -c 7 <&3'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:39:58.720Z",
+      "lastAccessed": "2026-10-05T13:39:58.720Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:39:58.720Z"
+    },
+    "cmd-1791207626234": {
+      "key": "cmd-1791207626234",
+      "value": "{\"command\":\"echo \\\"=== standard port list extras\\\"; grep -n -B3 -A12 'standardExtraPorts' daemon/internal/engine/configs.go | sed -n 1,45p; echo \\\"=== naabu top-1000 contains 6379/8009?\\\"; NA=\\\"$HOME/go/pkg/mod/github.com/projectdiscovery/naabu/v2@v2.3.6\\\"; f=$(grep -rl 'NmapTop1000' \\\"$NA/pkg\\\" | head -1); echo \\\"$f\\\"; grep -o -E '(^|,)(6379|8009|8080|27017|11211)(,|$)' \\\"$f\\\" | tr -d ',' | sort -u | tr '\\\\n' ' '; echo\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:40:26.234Z",
+      "lastAccessed": "2026-10-05T13:40:26.234Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:40:26.234Z"
+    },
+    "cmd-1791207703636": {
+      "key": "cmd-1791207703636",
+      "value": "{\"command\":\"for i in $(seq 1 110); do if grep -q 'feed sync exit=' dev/feed/sync.log 2>/dev/null; then break; fi; sleep 5; done; echo \\\"files: $(find dev/feed/nasl -type f | wc -l | tr -d ' ')  nasl: $(find dev/feed/nasl -type f -name '*.nasl' | wc -l | tr -d ' ')  size: $(du -sh dev/feed/nasl | cut -f1)\\\"; tail -25 dev/feed/sync.log\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:41:43.636Z",
+      "lastAccessed": "2026-10-05T13:41:43.636Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:41:43.636Z"
+    },
+    "cmd-1791207731074": {
+      "key": "cmd-1791207731074",
+      "value": "{\"command\":\"rm -f docker/feed/vt-feed.tar.gz && COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -C dev/feed -czf docker/feed/vt-feed.tar.gz nasl && ls -la docker/feed/ && echo \\\"--- entries: $(tar -tzf docker/feed/vt-feed.tar.gz | wc -l | tr -d ' ')  nasl: $(tar -tzf docker/feed/vt-feed.tar.gz | grep -c '\\\\.nasl$')  appledouble: $(tar -tzf docker/feed/vt-feed.tar.gz | grep -c '/\\\\._')\\\" && tar -tzf docker/feed/vt-feed.tar.gz | grep -E 'plugin_feed_info.inc|sha256sums' && shasum -a 256 docker/feed/vt-feed.tar.gz && git status --short | grep -v '\\\\.claude-flow'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:42:11.074Z",
+      "lastAccessed": "2026-10-05T13:42:11.074Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:42:11.074Z"
+    },
+    "cmd-1791207736990": {
+      "key": "cmd-1791207736990",
+      "value": "{\"command\":\"start=$(date +%s); docker compose -f docker/docker-compose.yml --profile appliance --progress plain build appliance > dev/build-appliance.log 2>&1; rc=$?; echo \\\"appliance image build exit=$rc after $(( $(date +%s) - start ))s\\\" >> dev/build-appliance.log; grep -E '\\\\[seed-feed\\\\]|ERROR|error:|exit=' dev/build-appliance.log | tail -30; docker images --format '{{.Repository}}:{{.Tag}}\\\\t{{.Size}}\\\\t{{.CreatedSince}}' | grep 'scanner-appliance:dev'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:42:16.990Z",
+      "lastAccessed": "2026-10-05T13:42:16.990Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:42:16.990Z"
+    },
+    "cmd-1791207744698": {
+      "key": "cmd-1791207744698",
+      "value": "{\"command\":\"grep -n -E 'func \\\\(r \\\\*run\\\\) (openvas|web|fingerprint|emitAll)|MinQoD|QoD|AliveTest|max_hosts|max_checks|safe_checks|StartScan\\\\(' daemon/internal/engine/*.go | grep -v _test | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:42:24.698Z",
+      "lastAccessed": "2026-10-05T13:42:24.698Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:42:24.698Z"
+    },
+    "cmd-1791207751431": {
+      "key": "cmd-1791207751431",
+      "value": "{\"command\":\"sed -n 403,565p daemon/internal/engine/engine.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:42:31.431Z",
+      "lastAccessed": "2026-10-05T13:42:31.431Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:42:31.431Z"
+    },
+    "cmd-1791207751511": {
+      "key": "cmd-1791207751511",
+      "value": "{\"command\":\"echo \\\"=== build progress\\\"; grep -n -E '^#[0-9]+ \\\\[|\\\\[seed-feed\\\\]|CACHED|ERROR|error:' dev/build-appliance.log | tail -25\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:42:31.511Z",
+      "lastAccessed": "2026-10-05T13:42:31.511Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:42:31.511Z"
+    },
+    "cmd-1791207765596": {
+      "key": "cmd-1791207765596",
+      "value": "{\"command\":\"echo \\\"=== admin CLI calls to /admin/appliances\\\"; grep -n '/admin/appliances' controlplane/cmd/cp-api/*.go | head; echo \\\"=== usage text (admin lines)\\\"; go run ./controlplane/cmd/cp-api 2>&1 | sed -n 14,40p | cut -c1-220\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:42:45.596Z",
+      "lastAccessed": "2026-10-05T13:42:45.596Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:42:45.596Z"
+    },
+    "cmd-1791207770697": {
+      "key": "cmd-1791207770697",
+      "value": "{\"command\":\"sed -n 944,990p controlplane/cmd/cp-api/main.go | grep -n -E 'case |errors.New' ; echo \\\"=== build progress\\\"; grep -n -E '\\\\[seed-feed\\\\]|ERROR|error:|exit=' dev/build-appliance.log | tail -8; echo \\\"now: $(date +%H:%M:%S)\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:42:50.697Z",
+      "lastAccessed": "2026-10-05T13:42:50.697Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:42:50.697Z"
+    },
+    "cmd-1791207779775": {
+      "key": "cmd-1791207779775",
+      "value": "{\"command\":\"until grep -q -E 'VT load finished|appliance image build exit=|ERROR' dev/build-appliance.log; do sleep 5; done; grep -n -E '\\\\[seed-feed\\\\]|ERROR|error:|exit=' dev/build-appliance.log | tail -12; echo \\\"now: $(date +%H:%M:%S)\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:42:59.775Z",
+      "lastAccessed": "2026-10-05T13:42:59.775Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:42:59.775Z"
+    },
+    "cmd-1791207790044": {
+      "key": "cmd-1791207790044",
+      "value": "{\"command\":\"sed -n 581,631p dev/build-appliance.log | cut -c1-230\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:43:10.044Z",
+      "lastAccessed": "2026-10-05T13:43:10.044Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:43:10.044Z"
+    },
+    "cmd-1791207799658": {
+      "key": "cmd-1791207799658",
+      "value": "{\"command\":\"tail -4 dev/build-appliance.log | cut -c1-200; docker images --format '{{.Repository}}:{{.Tag}}\\\\t{{.Size}}\\\\t{{.CreatedSince}}' | grep -E 'scanner-appliance:dev|cp-api:dev'; echo \\\"--- restore the embedded PKI placeholders\\\"; git checkout daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem && wc -c daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem | head -2; git status --short | grep -v '\\\\.claude-flow'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:43:19.658Z",
+      "lastAccessed": "2026-10-05T13:43:19.658Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:43:19.658Z"
+    },
+    "cmd-1791207818542": {
+      "key": "cmd-1791207818542",
+      "value": "{\"command\":\"docker compose -f docker/docker-compose.yml --profile appliance up -d appliance 2>&1 | tail -6; until docker logs scanner-appliance-appliance-1 2>&1 | grep -q -E 'msg=enrolled|enroll.*(fail|error)|level=ERROR'; do sleep 2; done; docker logs scanner-appliance-appliance-1 2>&1 | head -40 | cut -c1-260\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:43:38.542Z",
+      "lastAccessed": "2026-10-05T13:43:38.542Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:43:38.542Z"
+    },
+    "cmd-1791207880057": {
+      "key": "cmd-1791207880057",
+      "value": "{\"command\":\"set -a && . docker/.env && set +a && APL=$(python3 -c 'import json; print(json.load(open(\\\"dev/lab/appliance.json\\\"))[\\\"appliance_id\\\"])') && get() { curl -s --max-time 10 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/appliances/$APL\\\"; } && t0=$(date +%s) && until get | python3 -c 'import json,sys; e=(json.load(sys.stdin).get(\\\"last_heartbeat\\\") or {}).get(\\\"engine\\\") or {}; sys.exit(0 if (e.get(\\\"ospd_up\\\") and e.get(\\\"vt_cache_loaded\\\")) else 1)' 2>/dev/null; do [ $(( $(date +%s) - t0 )) -gt 840 ] && { echo \\\"still not ready after 14 min\\\"; break; }; sleep 10; done; echo \\\"waited $(( $(date +%s) - t0 ))s\\\"; get | python3 -c 'import json,sys; d=json.load(sys.stdin); hb=d.get(\\\"last_heartbeat\\\") or {}; print(\\\"status:\\\", d.get(\\\"status\\\"), \\\"online:\\\", d.get(\\\"online\\\"), \\\"version:\\\", d.get(\\\"version\\\")); print(\\\"engine:\\\", json.dumps(hb.get(\\\"engine\\\"), indent=1))'; echo \\\"--- ospd log tail\\\"; docker logs scanner-appliance-appliance-1 2>&1 | grep -E 'OSPD|level=(WARN|ERROR)' | tail -12 | cut -c1-240\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:44:40.057Z",
+      "lastAccessed": "2026-10-05T13:44:40.057Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:44:40.057Z"
+    },
+    "cmd-1791207896586": {
+      "key": "cmd-1791207896586",
+      "value": "{\"command\":\"sed -n 100,160p daemon/internal/osp/osp.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:44:56.586Z",
+      "lastAccessed": "2026-10-05T13:44:56.586Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:44:56.586Z"
+    },
+    "cmd-1791207897727": {
+      "key": "cmd-1791207897727",
+      "value": "{\"command\":\"docker exec scanner-appliance-appliance-1 python3 - <<'EOF'\\nimport socket, time\\ndef ask(cmd, limit=600, wait=60):\\n    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\\n    s.settimeout(wait)\\n    s.connect(\\\"/run/ospd/ospd.sock\\\")\\n    s.sendall(cmd.encode())\\n    t0 = time.time()\\n    buf = b\\\"\\\"\\n    total = 0\\n    try:\\n        while True:\\n            chunk = s.recv(65536)\\n            if not chunk:\\n                break\\n            total += len(chunk)\\n            if len(buf) < limit:\\n                buf += chunk\\n    except socket.timeout:\\n        pass\\n    s.close()\\n    return buf[:limit].decode(errors=\\\"replace\\\"), total, time.time() - t0\\nfor cmd in ('<get_version/>', '<get_vts details=\\\"0\\\"/>'):\\n    head, total, dt = ask(cmd)\\n    print(\\\"==\\\", cmd, \\\"->\\\", total, \\\"bytes in %.1fs\\\" % dt)\\n    print(head)\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:44:57.727Z",
+      "lastAccessed": "2026-10-05T13:44:57.727Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:44:57.727Z"
+    },
+    "cmd-1791207940773": {
+      "key": "cmd-1791207940773",
+      "value": "{\"command\":\"docker exec -i scanner-appliance-appliance-1 python3 - <<'EOF'\\nimport socket, time\\ndef ask(cmd, limit=500, wait=90):\\n    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\\n    s.settimeout(wait)\\n    s.connect(\\\"/run/ospd/ospd.sock\\\")\\n    s.sendall(cmd.encode())\\n    t0 = time.time()\\n    buf = b\\\"\\\"\\n    total = 0\\n    tail = b\\\"\\\"\\n    try:\\n        while True:\\n            chunk = s.recv(65536)\\n            if not chunk:\\n                break\\n            total += len(chunk)\\n            if len(buf) < limit:\\n                buf += chunk\\n            tail = (tail + chunk)[-200:]\\n    except socket.timeout:\\n        pass\\n    s.close()\\n    return buf[:limit].decode(errors=\\\"replace\\\"), tail.decode(errors=\\\"replace\\\"), total, time.time() - t0\\nfor cmd in ('<get_version/>', '<get_vts details=\\\"0\\\" filter=\\\"id=none\\\"/>', '<get_vts details=\\\"0\\\"/>'):\\n    head, tail, total, dt = ask(cmd)\\n    print(\\\"==\\\", cmd, \\\"->\\\", total, \\\"bytes in %.1fs\\\" % dt)\\n    print(\\\"head:\\\", head)\\n    if total > 500:\\n        print(\\\"tail:\\\", tail)\\n        print(\\\"vt elements counted in stream: n/a (see total bytes)\\\")\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T13:45:40.773Z",
+      "lastAccessed": "2026-10-05T13:45:40.773Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T13:45:40.773Z"
+    }
+  },
+  "version": "3.0.0"
+}

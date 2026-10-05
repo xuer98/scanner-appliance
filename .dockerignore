@@ -1,0 +1,9 @@
+# Keep local dev state and host build outputs out of the image build
+# context: dev/ holds the dev CA keys, daemon state and the feed mirror
+# (about 100,000 files). docker/feed/ stays in the context on purpose; the
+# feed stage of docker/Dockerfile copies the tarball from there.
+dev
+bin
+dist
+packer/output-*
+.claude-flow

@@ -117,10 +117,13 @@ func parseNaabu(out []byte) *naabuRun {
 }
 
 // naabuArgs builds the common argument list (output mode is added per phase).
+// naabu 2.3 parses -timeout as a duration and reads a bare number as
+// seconds (its help text still says milliseconds), so the unit is explicit:
+// a bare 1000 made every connect-scan probe to a filtered port wait 1000 s.
 func (e *Engine) naabuArgs(spec v1.JobSpec, site v1.SiteConfig, hosts []string) []string {
 	args := []string{"-host", strings.Join(hosts, ","), "-silent", "-no-color", "-disable-update-check",
 		"-rate", strconv.Itoa(spec.Rate.PPS), "-c", strconv.Itoa(clamp(spec.Rate.PerHostParallel*10, 10, 80)),
-		"-retries", "1", "-timeout", "1000", "-warm-up-time", "1"}
+		"-retries", "1", "-timeout", "1000ms", "-warm-up-time", "1"}
 	var excl []string
 	excl = append(excl, spec.Excludes...)
 	excl = append(excl, site.Excludes...)
