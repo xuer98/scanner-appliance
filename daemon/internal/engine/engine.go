@@ -14,6 +14,7 @@ import (
 	"github.com/tprm/scanner-appliance/daemon/internal/nvt"
 	"github.com/tprm/scanner-appliance/daemon/internal/osp"
 	"github.com/tprm/scanner-appliance/internal/guard"
+	"github.com/tprm/scanner-appliance/internal/scanconfig"
 )
 
 // Phase names reported in progress and stats.
@@ -31,6 +32,12 @@ var ErrStopped = errors.New("scan stopped")
 
 // ErrTimeout is returned when the job exceeded max_duration_s.
 var ErrTimeout = errors.New("scan exceeded max_duration_s")
+
+// ErrBlind is returned when openvas finished without seeing an open port
+// on any host it was given, although naabu had found some on each. The
+// engine then tested nothing, and a job that reported success would close
+// every open finding on those hosts.
+var ErrBlind = errors.New("openvas saw no open port")
 
 // DefaultFragilePorts applies when the site does not list its own (PLAN §10.6).
 var DefaultFragilePorts = []int{9100, 515, 631, 161, 502, 44818}
@@ -454,7 +461,7 @@ func (r *run) openvas(ctx context.Context) (map[string]*nvt.Meta, error) {
 		}
 	}
 	target := osp.Target{Hosts: scanHosts, Ports: openvasPortList(tcp, cfg.UDPPorts), ExcludeHosts: excludes, AliveTest: osp.AliveTestConsiderAlive}
-	scanID, err := r.e.OSP.StartScan(ctx, target, params, osp.VTSelection{Families: cfg.Families})
+	scanID, err := r.e.OSP.StartScan(ctx, target, params, osp.VTSelection{Families: cfg.Families, OIDs: []string{scanconfig.PortScannerVT}})
 	if err != nil {
 		return nil, fmt.Errorf("openvas start_scan: %w", err)
 	}
@@ -505,6 +512,16 @@ func (r *run) openvas(ctx context.Context) (map[string]*nvt.Meta, error) {
 			r.stopScan(scanID)
 			return nil, ctx.Err()
 		}
+	}
+
+	seen := 0
+	for _, ip := range scanHosts {
+		if r.hosts[ip].enginePorts {
+			seen++
+		}
+	}
+	if seen == 0 {
+		return nil, fmt.Errorf("%w on any host (%d had open ports): its port scanner test did not run, or the hosts stopped answering", ErrBlind, len(scanHosts))
 	}
 
 	var oids []string

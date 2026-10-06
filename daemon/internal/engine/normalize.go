@@ -27,8 +27,11 @@ type hostAgg struct {
 	logs     []osp.Result
 	notes    []string
 	scanned  bool // reached openvas
-	findings []v1.Finding
-	errors   int
+	// enginePorts: openvas reported on a real port of the host or listed
+	// its open ports, so its port scanner test worked there.
+	enginePorts bool
+	findings    []v1.Finding
+	errors      int
 	// nmapOS is the fingerprint pass's OS match (Phase 5); it competes
 	// with openvas's guess on confidence in finalize.
 	nmapOS *v1.OSGuess
@@ -80,6 +83,12 @@ func (h *hostAgg) absorb(r osp.Result) {
 		h.logs = append(h.logs, r)
 	case "Error Message":
 		h.errors++
+		return
+	default:
+		return
+	}
+	if p, _ := r.PortNumber(); p > 0 {
+		h.enginePorts = true
 	}
 }
 
@@ -115,6 +124,8 @@ func (h *hostAgg) absorbDetail(r osp.Result) {
 			}
 		case "services":
 			h.serviceDetail(value)
+		case "ports", "tcp_ports":
+			h.enginePorts = true // the engine's own list of open ports
 		case "hostname":
 			if h.hostname == "" {
 				h.hostname = value

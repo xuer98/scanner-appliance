@@ -100,7 +100,10 @@ func TestPhase3(t *testing.T) {
 	plugins := t.TempDir()
 	_ = os.WriteFile(filepath.Join(plugins, "plugin_feed_info.inc"), []byte("PLUGIN_SET = \"202609010000\";\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(plugins, "old.nasl"), []byte("old"), 0o644)
-	fake := osptest.Start(t, &osptest.Fake{PluginsDir: plugins})
+	// Like a real engine, every scan reports at least a service on an open port.
+	fake := osptest.Start(t, &osptest.Fake{PluginsDir: plugins, Script: []osptest.Step{{Progress: 100, Results: []osp.Result{
+		{Host: "10.30.5.20", Type: "Log Message", Port: "3389/tcp", TestID: "1.3.6.1.4.1.25623.1.0.10330", Name: "Services", QoD: "80", Text: "A Remote Desktop Protocol (RDP) service is running on this port."},
+	}}}})
 
 	st := state.New(t.TempDir(), t.TempDir())
 	s, _ := st.Load()

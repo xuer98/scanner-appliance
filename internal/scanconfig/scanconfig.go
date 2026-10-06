@@ -32,6 +32,16 @@ var UDPSmallSet = []int{53, 67, 69, 111, 123, 137, 161, 162, 500, 514, 520, 1434
 // detection and populate the port and os_guess fields.
 var DetectionFamilies = []string{"Service detection", "Product detection", "General"}
 
+// PortScannerVT is the feed's "SYN Scan" test, selected in every scan on
+// top of the config's families. openvas treats a port as closed until one
+// of its own port scanner tests has checked it, so a scan without one
+// probes nothing and still finishes cleanly. This test checks only the
+// port list the job pins from naabu. It is selected on its own because the
+// "Port scanners" family also holds wrappers that run nmap, snmpwalk and
+// pnscan when those tools are installed, and the feed's other built-in
+// scanner ("OpenVAS TCP scanner") does not unblock the engine by itself.
+const PortScannerVT = "1.3.6.1.4.1.25623.1.0.11219"
+
 // RemoteFamilies are the unauthenticated network-check families of the
 // Greenbone community feed. Authenticated-only families ("* Local Security
 // Checks", Credentials, Compliance, Policy, IT-Grundschutz) are never

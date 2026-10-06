@@ -128,6 +128,11 @@ func TestInventoryRun(t *testing.T) {
 	if !strings.Contains(start, "<hosts>10.30.5.20</hosts>") || !strings.Contains(start, "<ports>T:445,3389,U:53,") || !strings.Contains(start, "<max_hosts>4</max_hosts>") || !strings.Contains(start, "<safe_checks>1</safe_checks>") || !strings.Contains(start, `filter="family=Service detection"`) || strings.Contains(start, "Denial of Service") {
 		t.Fatalf("start_scan: %s", start)
 	}
+	// Without one of its own port scanner tests openvas treats every port as
+	// closed, whatever the config's families are.
+	if !strings.Contains(start, `<vt_single id="1.3.6.1.4.1.25623.1.0.11219"/>`) {
+		t.Fatalf("start_scan selects no port scanner test: %s", start)
+	}
 	// Interim chunk after portscan (2 hosts per chunk → 2 chunks), then final chunks.
 	if len(sink.batches) != 4 || sink.batches[0].Final || sink.batches[1].Final || sink.batches[2].Final || !sink.batches[3].Final || sink.batches[3].Stats == nil {
 		for _, b := range sink.batches {
@@ -242,6 +247,58 @@ func TestStopHaltsOSPScan(t *testing.T) {
 	}
 	if len(sink.batches) < 2 {
 		t.Fatalf("partial results: %d", len(sink.batches))
+	}
+}
+
+// What openvas reports for a host when none of its port scanner tests ran:
+// the host-level results arrive, nothing on a port does, and the scan still
+// finishes. Captured from an inventory scan before PortScannerVT existed.
+func blindResults(host string) []osp.Result {
+	return []osp.Result{
+		{Host: host, Type: "Log Message", Name: "HOST_START", Text: "Mon Oct  5 22:23:27 2026"},
+		{Host: host, Type: "Log Message", Port: "general/tcp", TestID: "1.3.6.1.4.1.25623.1.0.105937", Name: "OS Detection Consolidation and Reporting", QoD: "80", Text: "Best matching OS:\n\nOS:           Linux Kernel\nCPE:          cpe:/o:linux:kernel"},
+		{Host: host, Type: "Alarm", Severity: "2.1", Port: "general/icmp", TestID: "1.3.6.1.4.1.25623.1.0.103190", Name: "ICMP Timestamp Reply Information Disclosure", QoD: "80", Text: "The remote host responded to an ICMP timestamp request."},
+		{Host: host, Type: "Log Message", Port: "general/Host_Details", TestID: "1.3.6.1.4.1.25623.1.0.103997", Name: "Host Details", QoD: "80", Text: "<host><detail><name>best_os_txt</name><value>Linux Kernel</value></detail></host>"},
+		{Host: host, Type: "Log Message", Name: "HOST_END", Text: "Mon Oct  5 22:25:12 2026"},
+	}
+}
+
+func TestBlindEngineFailsTheJob(t *testing.T) {
+	run := func(results []osp.Result) (*memSink, error) {
+		f := osptest.Start(t, &osptest.Fake{Script: []osptest.Step{{Progress: 100, Results: results}}})
+		e := newEngine(t, f, fakeNaabu(t, filepath.Join(t.TempDir(), "l")))
+		spec, site := inventorySpec()
+		sink := &memSink{}
+		_, err := e.Run(context.Background(), spec, site, sink)
+		return sink, err
+	}
+
+	// naabu found ports on 10.30.5.20 and the engine saw none of them: the
+	// job fails, keeps the hosts and ports it has, and sends no final chunk,
+	// so the control plane does not take the silence for fixed findings.
+	sink, err := run(blindResults("10.30.5.20"))
+	if !errors.Is(err, ErrBlind) || !strings.Contains(err.Error(), "openvas saw no open port on any host (1 had open ports)") {
+		t.Fatalf("blind engine: err=%v", err)
+	}
+	if len(sink.batches) == 0 {
+		t.Fatal("partial results were dropped")
+	}
+	for _, b := range sink.batches {
+		if b.Final {
+			t.Fatal("final chunk after a blind scan")
+		}
+	}
+
+	// Either sign that the engine's port scanner worked is enough: a result
+	// on a real port, or the engine's own list of open ports.
+	for name, extra := range map[string]osp.Result{
+		"service on a port": {Host: "10.30.5.20", Type: "Log Message", Port: "3389/tcp", TestID: "1.3.6.1.4.1.25623.1.0.10330", Name: "Services", QoD: "80", Text: "A Remote Desktop Protocol (RDP) service is running on this port."},
+		"open port list":    {Host: "10.30.5.20", Type: "Log Message", Port: "general/Host_Details", TestID: "1.3.6.1.4.1.25623.1.0.103997", Name: "Host Details", QoD: "80", Text: "<host><detail><name>tcp_ports</name><value>445,3389</value></detail></host>"},
+	} {
+		sink, err := run(append(blindResults("10.30.5.20"), extra))
+		if err != nil || len(sink.batches) == 0 || !sink.batches[len(sink.batches)-1].Final {
+			t.Fatalf("%s: err=%v batches=%d", name, err, len(sink.batches))
+		}
 	}
 }
 

@@ -158,8 +158,11 @@ func TestPhase6(t *testing.T) {
 		}
 	}
 
-	// Cycle 2: the host is patched; the same scope no longer sees BlueKeep → fixed.
-	fake.Script = []osptest.Step{{Progress: 100}}
+	// Cycle 2: the host is patched; the engine still sees its services, but
+	// the same scope no longer sees BlueKeep → fixed.
+	fake.Script = []osptest.Step{{Progress: 100, Results: []osp.Result{
+		{Host: "10.30.5.20", Type: "Log Message", Port: "3389/tcp", TestID: "1.3.6.1.4.1.25623.1.0.10330", Name: "Services", QoD: "80", Text: "A Remote Desktop Protocol (RDP) service is running on this port."},
+	}}}
 	job2 := runInventory()
 	if job2.Stats.Findings != 0 {
 		t.Fatalf("cycle 2: %+v", job2.Stats)

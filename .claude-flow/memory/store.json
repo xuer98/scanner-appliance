@@ -1583,6 +1583,429 @@
       "lastAccessed": "2026-10-05T23:03:54.447Z",
       "accessCount": 0,
       "expiresAt": "2026-11-04T23:03:54.447Z"
+    },
+    "cmd-1791243995550": {
+      "key": "cmd-1791243995550",
+      "value": "{\"command\":\"git status --short | grep -v '\\\\.claude-flow'; git log --oneline -3; echo \\\"=== tests in the feed's Port scanners family\\\"; grep -rl -E 'script_family\\\\( *\\\"Port scanners\\\" *\\\\)' dev/feed/nasl | while read f; do printf '%s\\\\t%s\\\\t%s\\\\n' \\\"$(basename $f)\\\" \\\"$(grep -o -m1 -E 'script_oid\\\\( *\\\"[^\\\"]+' $f | sed 's/.*\\\"//')\\\" \\\"$(grep -o -m1 -E 'script_name\\\\( *\\\"[^\\\"]+' $f | sed 's/.*\\\"//')\\\"; done; echo \\\"=== which feed files mark a host as port-scanned\\\"; grep -rl -E '\\\"Host/scanned\\\"' dev/feed/nasl | sed 's#dev/feed/nasl/##' | head -20\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:46:35.550Z",
+      "lastAccessed": "2026-10-05T23:46:35.550Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:46:35.550Z"
+    },
+    "cmd-1791244027139": {
+      "key": "cmd-1791244027139",
+      "value": "{\"command\":\"f=dev/feed/nasl/2018/gb_portscanner_missing.nasl; echo \\\"=== $(basename $f)\\\"; grep -v -E '^\\\\s*#|^\\\\s*$' $f | sed -n 1,60p | cut -c1-200; echo; echo \\\"=== nmap.nasl when the nmap binary is absent\\\"; grep -n -i -E 'find_in_path|not found|missing|Host/scanned|exit\\\\( *0 *\\\\)' dev/feed/nasl/nmap.nasl | cut -c1-170 | head -14\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:47:07.139Z",
+      "lastAccessed": "2026-10-05T23:47:07.139Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:47:07.139Z"
+    },
+    "cmd-1791244063756": {
+      "key": "cmd-1791244063756",
+      "value": "{\"command\":\"for f in openvas_tcp_scanner.nasl synscan.nasl; do p=$(find dev/feed/nasl -name $f | head -1); echo \\\"=== $f\\\"; grep -v -E '^\\\\s*#|^\\\\s*$' \\\"$p\\\" | grep -E 'script_(oid|name|category|family|dependencies|add_preference|timeout|require|exclude|mandatory)|summary|plugin_run|scanner_|exit|get_preference|Host/scanned' | cut -c1-190; done\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:47:43.756Z",
+      "lastAccessed": "2026-10-05T23:47:43.756Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:47:43.756Z"
+    },
+    "cmd-1791244090212": {
+      "key": "cmd-1791244090212",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && cat > $S/capture3.py <<'EOF'\\n# One scan straight through ospd, saving the raw result stream.\\n#   FAMILIES=\\\"A|B\\\"  OIDS=\\\"1.2|3.4\\\"  EXTRA=\\\"k=v|k=v\\\"  OUT=/tmp/x.xml\\nimport os, socket, time, re, sys\\nSOCK = \\\"/run/ospd/ospd.sock\\\"\\ndef cmd(xml, wait=120):\\n    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(wait)\\n    s.connect(SOCK); s.sendall(xml.encode())\\n    out = b\\\"\\\"\\n    while True:\\n        b = s.recv(1 << 16)\\n        if not b: break\\n        out += b\\n    s.close()\\n    return out.decode(errors=\\\"replace\\\")\\nparams = {\\\"optimize_test\\\": \\\"1\\\", \\\"auto_enable_dependencies\\\": \\\"1\\\", \\\"timeout_retry\\\": \\\"2\\\", \\\"scanner_plugins_timeout\\\": \\\"3600\\\",\\n          \\\"report_host_details\\\": \\\"1\\\", \\\"safe_checks\\\": \\\"1\\\", \\\"max_hosts\\\": \\\"4\\\", \\\"max_checks\\\": \\\"4\\\"}\\nfor kv in filter(None, os.environ.get(\\\"EXTRA\\\", \\\"\\\").split(\\\"|\\\")):\\n    k, v = kv.split(\\\"=\\\", 1); params[k] = v\\nsel = \\\"\\\".join('<vt_group filter=\\\"family=%s\\\"/>' % f for f in filter(None, os.environ.get(\\\"FAMILIES\\\", \\\"\\\").split(\\\"|\\\")))\\nsel += \\\"\\\".join('<vt_single id=\\\"%s\\\"/>' % o for o in filter(None, os.environ.get(\\\"OIDS\\\", \\\"\\\").split(\\\"|\\\")))\\nstart = (\\\"<start_scan><targets><target><hosts>172.18.0.4,172.18.0.5,172.18.0.6,172.18.0.7</hosts>\\\"\\n         \\\"<ports>T:80,6379,8009,8080,U:53,67,69,111,123,137,161,162,500,514,520,1434,1900,4500,5353</ports><alive_test>16</alive_test></target></targets><scanner_params>\\\"\\n         + \\\"\\\".join(\\\"<%s>%s</%s>\\\" % (k, v, k) for k, v in sorted(params.items()))\\n         + \\\"</scanner_params><vt_selection>\\\" + sel + \\\"</vt_selection></start_scan>\\\")\\nr = cmd(start)\\nm = re.search(r\\\"<id>([^<]+)</id>\\\", r)\\nif not m:\\n    print(\\\"start_scan failed:\\\", r[:400]); sys.exit(1)\\nsid = m.group(1); t0 = time.time()\\nwith open(os.environ[\\\"OUT\\\"], \\\"w\\\") as f:\\n    while True:\\n        r = cmd('<get_scans scan_id=\\\"%s\\\" details=\\\"1\\\" pop_results=\\\"1\\\" progress=\\\"1\\\"/>' % sid)\\n        f.write(r + \\\"\\\\n\\\"); f.flush()\\n        st = re.search(r'<scan [^>]*status=\\\"([^\\\"]+)\\\"', r); st = st.group(1) if st else \\\"?\\\"\\n        if st in (\\\"finished\\\", \\\"stopped\\\", \\\"interrupted\\\"): break\\n        if time.time() - t0 > 1500:\\n            cmd('<stop_scan scan_id=\\\"%s\\\"/>' % sid); st = \\\"timeout\\\"; break\\n        time.sleep(10)\\nprint(\\\"status\\\", st, \\\"after %.0fs\\\" % (time.time() - t0), flush=True)\\ncmd('<delete_scan scan_id=\\\"%s\\\"/>' % sid)\\nEOF\\ncat > $S/summarize.py <<'EOF'\\nimport re, html, collections, sys\\nraw = open(sys.argv[1]).read()\\nrows = []\\nfor attrs, body in re.findall(r'<result ([^>]*)>(.*?)</result>', raw, flags=re.S):\\n    a = {k: html.unescape(v) for k, v in re.findall(r'(\\\\w+)=\\\"([^\\\"]*)\\\"', attrs)}\\n    rows.append((a, html.unescape(body)))\\nreal = [(a, b) for a, b in rows if a.get(\\\"port\\\") != \\\"general/Host_Details\\\" and a.get(\\\"name\\\") not in (\\\"HOST_START\\\", \\\"HOST_END\\\")]\\nprint(\\\"results:\\\", len(rows), \\\"| alarms:\\\", sum(1 for a, _ in rows if a.get(\\\"type\\\") == \\\"Alarm\\\"), \\\"| errors:\\\", sum(1 for a, _ in rows if a.get(\\\"type\\\") == \\\"Error Message\\\"))\\nsvc = sorted({(a.get(\\\"host\\\"), a.get(\\\"port\\\")) for a, _ in real if re.match(r\\\"\\\\d+/\\\", a.get(\\\"port\\\") or \\\"\\\")})\\nprint(\\\"results on real ports:\\\", svc)\\nprod = sorted((a.get(\\\"host\\\"), m.group(1)) for a, b in real for m in [re.search(r\\\"^Detected (.+)$\\\", b, flags=re.M)] if m)\\nprint(\\\"products detected:\\\", prod)\\nprint(\\\"alarms by port:\\\", dict(collections.Counter(a.get(\\\"port\\\") for a, _ in rows if a.get(\\\"type\\\") == \\\"Alarm\\\")))\\nnotes = [b.strip()[:160].replace(\\\"\\\\n\\\", \\\" \\\") for a, b in real if \\\"wasn't scanned\\\" in b or \\\"port scanner\\\" in b.lower()]\\nprint(\\\"engine notes about port scanning:\\\", notes[:2])\\nEOF\\ndocker cp $S/capture3.py scanner-appliance-appliance-1:/tmp/capture3.py && docker exec -e FAMILIES=\\\"Service detection|Product detection|General|Web Servers|Databases\\\" -e EXTRA=\\\"unscanned_closed=0\\\" -e OUT=/tmp/raw-a.xml scanner-appliance-appliance-1 python3 /tmp/capture3.py && docker cp scanner-appliance-appliance-1:/tmp/raw-a.xml $S/raw-a.xml && echo \\\"=== A: no port scanner test, unscanned ports treated as open\\\" && python3 $S/summarize.py $S/raw-a.xml\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:48:10.212Z",
+      "lastAccessed": "2026-10-05T23:48:10.212Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:48:10.212Z"
+    },
+    "cmd-1791244091683": {
+      "key": "cmd-1791244091683",
+      "value": "{\"command\":\"echo \\\"=== scanconfig.go (rest of file)\\\"; sed -n 140,200p internal/scanconfig/scanconfig.go; echo \\\"=== scanconfig tests\\\"; grep -n -E 'func Test|Port scanners|DetectionFamilies|Resolved|Families' internal/scanconfig/*_test.go | cut -c1-200 | head -30; echo \\\"=== engine configFor / ScanConfig\\\"; sed -n 1,60p daemon/internal/engine/configs.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:48:11.683Z",
+      "lastAccessed": "2026-10-05T23:48:11.683Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:48:11.683Z"
+    },
+    "cmd-1791244091772": {
+      "key": "cmd-1791244091772",
+      "value": "{\"command\":\"echo \\\"=== transparency.go: what vendors are shown about scan configs\\\"; sed -n 70,130p controlplane/pkg/server/transparency.go | cut -c1-220; echo \\\"=== docs/README mentions of inventory families / port scanners\\\"; grep -n -i -E 'port scanners|families|inventory.*(mode|config)|pinned' README.md docs/*.md | cut -c1-240 | head -24\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:48:11.772Z",
+      "lastAccessed": "2026-10-05T23:48:11.772Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:48:11.772Z"
+    },
+    "cmd-1791244126073": {
+      "key": "cmd-1791244126073",
+      "value": "{\"command\":\"for f in openvas_tcp_scanner.nasl synscan.nasl nmap.nasl host_alive_detection.nasl; do p=$(find dev/feed/nasl -name $f | head -1); printf '%s\\\\t%s\\\\t%s\\\\n' \\\"$f\\\" \\\"$(grep -o -m1 -E 'last_modification\\\", value:\\\"[0-9-]+' $p | sed 's/.*\\\"//')\\\" \\\"$(grep -o -m1 -E 'creation_date\\\", value:\\\"[0-9-]+' $p | sed 's/.*\\\"//')\\\"; done; echo \\\"=== how job warnings are recorded\\\"; grep -n -E 'Warnings|func \\\\(r \\\\*run\\\\) (webWarn|fingerprintWarn)' -A5 daemon/internal/engine/web.go | sed -n 1,16p; awk '/^type ScanStats struct/,/^}/' api/v1/types.go; echo \\\"=== where the control plane surfaces stats warnings\\\"; grep -rn --include='*.go' -E 'Stats\\\\.Warnings|\\\\.Warnings\\\\b' controlplane/pkg daemon/internal | grep -v _test | cut -c1-170 | head\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:48:46.073Z",
+      "lastAccessed": "2026-10-05T23:48:46.073Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:48:46.073Z"
+    },
+    "cmd-1791244170041": {
+      "key": "cmd-1791244170041",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport json, collections\\nfs = json.load(open(\\\"dev/lab/findings-after.json\\\"))\\nprint(\\\"fields:\\\", sorted(fs[0].keys()))\\nkeys = [k for k in (\\\"reopens\\\", \\\"reopened_at\\\", \\\"fixed_at\\\", \\\"fixed_job_id\\\", \\\"status\\\") if any(k in f for f in fs)]\\nprint(\\\"lifecycle fields present:\\\", keys)\\nprint(\\\"findings ever reopened:\\\", sum(1 for f in fs if f.get(\\\"reopens\\\") or f.get(\\\"reopened_at\\\")), \\\"of\\\", len(fs))\\nc = collections.Counter((f.get(\\\"reopens\\\") or 0) for f in fs)\\nprint(\\\"reopen counts:\\\", dict(c))\\nex = [f for f in fs if f.get(\\\"reopened_at\\\")][:3]\\nfor f in ex:\\n    print(\\\"  example:\\\", f.get(\\\"name\\\", \\\"\\\")[:50], \\\"| first_seen\\\", f.get(\\\"first_seen\\\", \\\"\\\")[:19], \\\"| reopened_at\\\", f.get(\\\"reopened_at\\\", \\\"\\\")[:19], \\\"| scope\\\", f.get(\\\"scope\\\"))\\nEOF\\necho \\\"=== how a finding becomes fixed\\\"; grep -n -E 'FindingFixed|FixedAt|scopeCovers|covers|func \\\\(ix \\\\*siteIndex\\\\) (closeMissing|markFixed|fixMissing)|Scanned' controlplane/pkg/store/correlate.go | cut -c1-190 | head -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:49:30.041Z",
+      "lastAccessed": "2026-10-05T23:49:30.041Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:49:30.041Z"
+    },
+    "cmd-1791244174610": {
+      "key": "cmd-1791244174610",
+      "value": "{\"command\":\"sed -n 425,480p controlplane/pkg/store/correlate.go; echo \\\"=== resolveScopes\\\"; sed -n 565,600p controlplane/pkg/store/correlate.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:49:34.610Z",
+      "lastAccessed": "2026-10-05T23:49:34.610Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:49:34.610Z"
+    },
+    "cmd-1791244184196": {
+      "key": "cmd-1791244184196",
+      "value": "{\"command\":\"grep -rn --include='*.go' -E 'FindingFixed' controlplane/pkg | grep -v _test | cut -c1-170; echo \\\"=== the close-out rule\\\"; f=$(grep -rln --include='*.go' -E 'func \\\\(ix \\\\*siteIndex\\\\) (closeUnseen|closeFindings|fixUnseen|sweep)' controlplane/pkg/store | head -1); echo \\\"file: ${f:-not found by name}\\\"; grep -n -E 'Scanned|scanned|Notes|openvas:skipped|covered|Fixed\\\\+\\\\+' controlplane/pkg/store/correlate.go | cut -c1-190 | head -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:49:44.196Z",
+      "lastAccessed": "2026-10-05T23:49:44.196Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:49:44.196Z"
+    },
+    "cmd-1791244188869": {
+      "key": "cmd-1791244188869",
+      "value": "{\"command\":\"sed -n 1,60p controlplane/pkg/store/memory_replace.go; echo \\\"=== caller\\\"; grep -rn --include='*.go' -E 'CloseUnseen|MarkFixed|FixUnseen|closeUnseen' controlplane/pkg | grep -v _test | cut -c1-200 | head; \",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:49:48.869Z",
+      "lastAccessed": "2026-10-05T23:49:48.869Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:49:48.869Z"
+    },
+    "cmd-1791244197149": {
+      "key": "cmd-1791244197149",
+      "value": "{\"command\":\"grep -rn --include='*.go' 'ResolveFindings' controlplane/pkg | grep -v _test | cut -c1-200; echo \\\"=== results.go around the final chunk\\\"; sed -n 100,170p controlplane/pkg/server/results.go; echo \\\"=== scope helpers\\\"; grep -n -E 'func (jobScopes|scopesFor|scopeOf)|ScopeFull|ScopeInventory|ScopeWeb|ScopeFingerprint' -r api/v1/*.go controlplane/pkg/server/*.go | grep -v _test | cut -c1-190 | head -20\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:49:57.149Z",
+      "lastAccessed": "2026-10-05T23:49:57.149Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:49:57.149Z"
+    },
+    "cmd-1791244218290": {
+      "key": "cmd-1791244218290",
+      "value": "{\"command\":\"sed -n 104,122p controlplane/pkg/server/replace.go; sed -n 150,200p controlplane/pkg/server/replace.go; echo \\\"=== callers of completeJob\\\"; grep -rn 'completeJob(' controlplane/pkg/server/*.go | grep -v _test | cut -c1-160\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:50:18.290Z",
+      "lastAccessed": "2026-10-05T23:50:18.290Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:50:18.290Z"
+    },
+    "cmd-1791244294699": {
+      "key": "cmd-1791244294699",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f && until grep -q -E '^results:|failed|Error|No such' $S/tasks/bqxlwm1fv.output 2>/dev/null; do sleep 5; done; cat $S/tasks/bqxlwm1fv.output | tail -12\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:51:34.699Z",
+      "lastAccessed": "2026-10-05T23:51:34.699Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:51:34.699Z"
+    },
+    "cmd-1791244312869": {
+      "key": "cmd-1791244312869",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport re, html, collections\\nS = \\\"/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/\\\"\\ndef load(name):\\n    raw = open(S + name).read()\\n    rows = []\\n    for attrs, body in re.findall(r'<result ([^>]*)>(.*?)</result>', raw, flags=re.S):\\n        a = {k: html.unescape(v) for k, v in re.findall(r'(\\\\w+)=\\\"([^\\\"]*)\\\"', attrs)}\\n        rows.append((a, html.unescape(body)))\\n    return rows\\na = load(\\\"raw-a.xml\\\")\\nprint(\\\"A total:\\\", len(a), \\\"| by type:\\\", dict(collections.Counter(x.get(\\\"type\\\") for x, _ in a)))\\nbyport = collections.Counter(x.get(\\\"port\\\") for x, _ in a)\\nprint(\\\"A by port (top 12):\\\", byport.most_common(12))\\nprint(\\\"A distinct ports:\\\", len(byport))\\nhd = [(x, b) for x, b in a if x.get(\\\"port\\\") == \\\"general/Host_Details\\\"]\\nnames = collections.Counter(re.search(r\\\"<detail><name>([^<]*)</name>\\\", b).group(1) if re.search(r\\\"<detail><name>([^<]*)</name>\\\", b) else \\\"?\\\" for _, b in hd)\\nprint(\\\"A host detail names (top 12):\\\", [(n if not n.startswith(\\\"cpe:\\\") else \\\"cpe…\\\", c) for n, c in names.most_common(12)])\\nfor x, b in hd:\\n    m = re.search(r\\\"<detail><name>(tcp_ports|ports)</name><value>([^<]*)</value>\\\", b)\\n    if m: print(\\\"   \\\", x.get(\\\"host\\\"), m.group(1), \\\"=\\\", m.group(2)[:120])\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:51:52.869Z",
+      "lastAccessed": "2026-10-05T23:51:52.869Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:51:52.869Z"
+    },
+    "cmd-1791244365384": {
+      "key": "cmd-1791244365384",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && cat > $S/sniff.py <<'EOF'\\n# Counts what the appliance sends to the lab targets while a scan runs:\\n# TCP connection attempts (SYN) and UDP datagrams, per destination port.\\nimport socket, struct, json, os, time, sys\\nout, stop = sys.argv[1], sys.argv[2]\\ntargets = {\\\"172.18.0.4\\\", \\\"172.18.0.5\\\", \\\"172.18.0.6\\\", \\\"172.18.0.7\\\"}\\ns = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))\\ns.bind((\\\"eth0\\\", 0)); s.settimeout(1.0)\\ntcp, udp = {}, {}\\nt0 = time.time()\\nwhile not os.path.exists(stop) and time.time() - t0 < 1800:\\n    try:\\n        pkt, addr = s.recvfrom(65535)\\n    except socket.timeout:\\n        continue\\n    if addr[2] != 4 or len(pkt) < 34 or pkt[12:14] != b\\\"\\\\x08\\\\x00\\\":   # outgoing IPv4 only\\n        continue\\n    ihl = (pkt[14] & 0x0F) * 4\\n    proto = pkt[23]\\n    dst = socket.inet_ntoa(pkt[30:34])\\n    if dst not in targets:\\n        continue\\n    l4 = 14 + ihl\\n    if proto == 6 and len(pkt) >= l4 + 14:\\n        dport, flags = struct.unpack(\\\"!H\\\", pkt[l4 + 2:l4 + 4])[0], pkt[l4 + 13]\\n        if flags & 0x02 and not flags & 0x10:\\n            tcp[(dst, dport)] = tcp.get((dst, dport), 0) + 1\\n    elif proto == 17 and len(pkt) >= l4 + 4:\\n        dport = struct.unpack(\\\"!H\\\", pkt[l4 + 2:l4 + 4])[0]\\n        udp[(dst, dport)] = udp.get((dst, dport), 0) + 1\\njson.dump({\\\"tcp\\\": [[h, p, n] for (h, p), n in tcp.items()], \\\"udp\\\": [[h, p, n] for (h, p), n in udp.items()]}, open(out, \\\"w\\\"))\\nEOF\\ncat > $S/sniffsum.py <<'EOF'\\nimport json, sys, collections\\nd = json.load(open(sys.argv[1]))\\npinned = {80, 6379, 8009, 8080}\\nudpset = {53, 67, 69, 111, 123, 137, 161, 162, 500, 514, 520, 1434, 1900, 4500, 5353}\\non = sum(n for h, p, n in d[\\\"tcp\\\"] if p in pinned); off = [(h, p, n) for h, p, n in d[\\\"tcp\\\"] if p not in pinned]\\nprint(\\\"TCP connection attempts to pinned ports:\\\", on)\\nprint(\\\"TCP connection attempts to other ports:\\\", sum(n for _, _, n in off), \\\"| distinct other ports:\\\", len({p for _, p, _ in off}))\\ntop = collections.Counter()\\nfor h, p, n in off: top[p] += n\\nprint(\\\"   most-hit other ports:\\\", top.most_common(12))\\nperhost = collections.Counter()\\nfor h, p, n in off: perhost[h] += 1\\nprint(\\\"   distinct other ports per host:\\\", dict(sorted(perhost.items())))\\nu_in = sum(n for h, p, n in d[\\\"udp\\\"] if p in udpset); u_off = [(h, p, n) for h, p, n in d[\\\"udp\\\"] if p not in udpset]\\nprint(\\\"UDP datagrams to the configured UDP set:\\\", u_in, \\\"| to other UDP ports:\\\", sum(n for _, _, n in u_off), \\\"| distinct:\\\", len({p for _, p, _ in u_off}))\\nEOF\\nINV=\\\"Service detection|Product detection|General|Web Servers|Windows|Windows : Microsoft Bulletins|SSL and TLS|Databases|Default Accounts\\\"; C=scanner-appliance-appliance-1; docker cp $S/sniff.py $C:/tmp/sniff.py && docker cp $S/capture3.py $C:/tmp/capture3.py && docker exec $C sh -c 'rm -f /tmp/sniff.stop /tmp/sniff-a.json' && docker exec -d $C python3 /tmp/sniff.py /tmp/sniff-a.json /tmp/sniff.stop && docker exec -e FAMILIES=\\\"$INV\\\" -e EXTRA=\\\"unscanned_closed=0\\\" -e OUT=/tmp/raw-a2.xml $C python3 /tmp/capture3.py; docker exec $C sh -c 'touch /tmp/sniff.stop; sleep 3; ls -la /tmp/sniff-a.json' && docker cp $C:/tmp/sniff-a.json $S/sniff-a.json && docker cp $C:/tmp/raw-a2.xml $S/raw-a2.xml && echo \\\"=== A: no port scanner test, unscanned ports treated as open (inventory families)\\\" && python3 $S/summarize.py $S/raw-a2.xml && python3 $S/sniffsum.py $S/sniff-a.json\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:52:45.384Z",
+      "lastAccessed": "2026-10-05T23:52:45.384Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:52:45.384Z"
+    },
+    "cmd-1791244366658": {
+      "key": "cmd-1791244366658",
+      "value": "{\"command\":\"cat internal/scanconfig/scanconfig_test.go; echo \\\"=== other tests asserting family lists\\\"; grep -rn --include='*_test.go' -E 'Port scanners|family=|Families' daemon controlplane internal | grep -v 'internal/scanconfig/' | cut -c1-200 | head -20\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:52:46.658Z",
+      "lastAccessed": "2026-10-05T23:52:46.658Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:52:46.658Z"
+    },
+    "cmd-1791244593631": {
+      "key": "cmd-1791244593631",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f && until grep -q -E '^UDP datagrams|failed|Error|No such' $S/tasks/b6vq27eub.output 2>/dev/null; do sleep 5; done; tail -14 $S/tasks/b6vq27eub.output\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:56:33.631Z",
+      "lastAccessed": "2026-10-05T23:56:33.631Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:56:33.631Z"
+    },
+    "cmd-1791244604097": {
+      "key": "cmd-1791244604097",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && INV=\\\"Service detection|Product detection|General|Port scanners|Web Servers|Windows|Windows : Microsoft Bulletins|SSL and TLS|Databases|Default Accounts\\\"; C=scanner-appliance-appliance-1; docker exec $C sh -c 'rm -f /tmp/sniff.stop /tmp/sniff-f.json' && docker exec -d $C python3 /tmp/sniff.py /tmp/sniff-f.json /tmp/sniff.stop && docker exec -e FAMILIES=\\\"$INV\\\" -e OUT=/tmp/raw-f.xml $C python3 /tmp/capture3.py; docker exec $C sh -c 'touch /tmp/sniff.stop; sleep 3; ls -la /tmp/sniff-f.json' && docker cp $C:/tmp/sniff-f.json $S/sniff-f.json && docker cp $C:/tmp/raw-f.xml $S/raw-f.xml && echo \\\"=== F: inventory families plus the Port scanners family\\\" && python3 $S/summarize.py $S/raw-f.xml && python3 $S/sniffsum.py $S/sniff-f.json\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:56:44.097Z",
+      "lastAccessed": "2026-10-05T23:56:44.097Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:56:44.097Z"
+    },
+    "cmd-1791244614969": {
+      "key": "cmd-1791244614969",
+      "value": "{\"command\":\"echo \\\"=== nmap wrapper: preferences and their defaults\\\"; grep -o -E 'script_add_preference\\\\(name:\\\"[^\\\"]+\\\", type:\\\"[^\\\"]+\\\", value:\\\"[^\\\"]*\\\"' dev/feed/nasl/nmap.nasl | sed -E 's/script_add_preference\\\\(name:\\\"([^\\\"]+)\\\", type:\\\"([^\\\"]+)\\\", value:\\\"([^\\\"]*)\\\"/  \\\\1 = \\\\3/' | head -40; echo \\\"=== snmpwalk and pnscan wrappers: what they need\\\"; for f in snmpwalk_portscan.nasl pnscan.nasl netstat_portscan.nasl labrea.nasl nmap_net.nasl; do p=$(find dev/feed/nasl -name $f | head -1); printf '%s\\\\t' \\\"$f\\\"; grep -o -E 'find_in_path\\\\( *\\\"[^\\\"]+\\\"|script_mandatory_keys\\\\([^)]*\\\\)|script_require_keys\\\\([^)]*\\\\)|script_add_preference\\\\(name:\\\"[^\\\"]+\\\", type:\\\"[^\\\"]+\\\", value:\\\"[^\\\"]*\\\"' \\\"$p\\\" | head -4 | tr '\\\\n' ' '; echo; done; echo \\\"=== tools present in the appliance image\\\"; docker exec scanner-appliance-appliance-1 sh -c 'for t in nmap snmpwalk pnscan; do printf \\\"%s: \\\" $t; command -v $t || echo absent; done'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-05T23:56:54.969Z",
+      "lastAccessed": "2026-10-05T23:56:54.969Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-04T23:56:54.969Z"
+    },
+    "cmd-1791244909495": {
+      "key": "cmd-1791244909495",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f && until grep -q -E '^UDP datagrams|failed|Error|No such' $S/tasks/bclcphbt3.output 2>/dev/null; do sleep 5; done; tail -13 $S/tasks/bclcphbt3.output\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:01:49.495Z",
+      "lastAccessed": "2026-10-06T00:01:49.495Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:01:49.495Z"
+    },
+    "cmd-1791244932685": {
+      "key": "cmd-1791244932685",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && INV=\\\"Service detection|Product detection|General|Web Servers|Windows|Windows : Microsoft Bulletins|SSL and TLS|Databases|Default Accounts\\\"; C=scanner-appliance-appliance-1; docker exec $C sh -c 'rm -f /tmp/sniff.stop /tmp/sniff-o.json' && docker exec -d $C python3 /tmp/sniff.py /tmp/sniff-o.json /tmp/sniff.stop && docker exec -e FAMILIES=\\\"$INV\\\" -e OIDS=\\\"1.3.6.1.4.1.25623.1.0.10335\\\" -e OUT=/tmp/raw-o.xml $C python3 /tmp/capture3.py; docker exec $C sh -c 'touch /tmp/sniff.stop; sleep 3; ls -la /tmp/sniff-o.json' && docker cp $C:/tmp/sniff-o.json $S/sniff-o.json && docker cp $C:/tmp/raw-o.xml $S/raw-o.xml && echo \\\"=== O: inventory families plus only the engine's TCP connect scanner test\\\" && python3 $S/summarize.py $S/raw-o.xml && python3 $S/sniffsum.py $S/sniff-o.json\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:02:12.685Z",
+      "lastAccessed": "2026-10-06T00:02:12.685Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:02:12.685Z"
+    },
+    "cmd-1791245077934": {
+      "key": "cmd-1791245077934",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f && until grep -q -E '^UDP datagrams|failed|Error|No such' $S/tasks/by5eiimvt.output 2>/dev/null; do sleep 5; done; tail -13 $S/tasks/by5eiimvt.output\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:04:37.934Z",
+      "lastAccessed": "2026-10-06T00:04:37.934Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:04:37.934Z"
+    },
+    "cmd-1791245096167": {
+      "key": "cmd-1791245096167",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && INV=\\\"Service detection|Product detection|General|Web Servers|Windows|Windows : Microsoft Bulletins|SSL and TLS|Databases|Default Accounts\\\"; C=scanner-appliance-appliance-1; docker exec $C sh -c 'rm -f /tmp/sniff.stop /tmp/sniff-o2.json' && docker exec -d $C python3 /tmp/sniff.py /tmp/sniff-o2.json /tmp/sniff.stop && docker exec -e FAMILIES=\\\"$INV\\\" -e OIDS=\\\"1.3.6.1.4.1.25623.1.0.11219\\\" -e OUT=/tmp/raw-o2.xml $C python3 /tmp/capture3.py; docker exec $C sh -c 'touch /tmp/sniff.stop; sleep 3; ls -la /tmp/sniff-o2.json' && docker cp $C:/tmp/sniff-o2.json $S/sniff-o2.json && docker cp $C:/tmp/raw-o2.xml $S/raw-o2.xml && echo \\\"=== O2: inventory families plus only the engine's SYN scanner test\\\" && python3 $S/summarize.py $S/raw-o2.xml && python3 $S/sniffsum.py $S/sniff-o2.json\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:04:56.167Z",
+      "lastAccessed": "2026-10-06T00:04:56.167Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:04:56.167Z"
+    },
+    "cmd-1791245097373": {
+      "key": "cmd-1791245097373",
+      "value": "{\"command\":\"echo \\\"=== ospd unit in the VM image: user and privileges\\\"; sed -n 445,472p packer/scripts/install-openvas.sh; echo \\\"=== how openvas is invoked (sudo?)\\\"; grep -n -i -E 'sudo|setcap|cap_net|CapabilityBoundingSet|AmbientCapabilities|User=|Group=' packer/scripts/install-openvas.sh | cut -c1-170 | head -20\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:04:57.373Z",
+      "lastAccessed": "2026-10-06T00:04:57.373Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:04:57.373Z"
+    },
+    "cmd-1791245405229": {
+      "key": "cmd-1791245405229",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f && until grep -q -E '^UDP datagrams|failed|Error|No such' $S/tasks/b6czi2eny.output 2>/dev/null; do sleep 5; done; tail -12 $S/tasks/b6czi2eny.output; echo \\\"=== the 18 other ports, and where the feed lists them\\\"; python3 -c '\\nimport json\\nd=json.load(open(\\\"'$S'/scratchpad/sniff-f.json\\\"))\\nprint(sorted({p for h,p,n in d[\\\"tcp\\\"] if p not in (80,6379,8009,8080)}))'; cd /Users/richardtang/Desktop/repos/scanner-appliance && grep -rl -E '\\\"139\\\", *\\\"135\\\", *\\\"445\\\"|139, *135, *445|21, *22, *23, *25, *53, *80, *110, *111, *135, *139' dev/feed/nasl 2>/dev/null | sed 's#dev/feed/nasl/##' | head -5\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:10:05.229Z",
+      "lastAccessed": "2026-10-06T00:10:05.229Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:10:05.229Z"
+    },
+    "cmd-1791245486728": {
+      "key": "cmd-1791245486728",
+      "value": "{\"command\":\"grep -n -E 'Err[A-Z][A-Za-z]+ += errors.New|^var \\\\($|^\\\\)$' daemon/internal/engine/engine.go | head -12; sed -n 20,40p daemon/internal/engine/engine.go; echo \\\"=== how the runner turns engine errors into job status\\\"; sed -n 228,250p daemon/internal/jobs/runner.go; echo \\\"=== fake scripts that return no results\\\"; grep -rn --include='*_test.go' -E 'Script *[:=] *\\\\[\\\\]osptest\\\\.Step\\\\{\\\\{Progress: *[0-9]+\\\\}' daemon | cut -c1-170\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:11:26.728Z",
+      "lastAccessed": "2026-10-06T00:11:26.728Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:11:26.728Z"
+    },
+    "cmd-1791245508327": {
+      "key": "cmd-1791245508327",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\n\\ndef edit(path, pairs):\\n    p = pathlib.Path(path)\\n    s = p.read_text()\\n    for old, new in pairs:\\n        assert s.count(old) == 1, (path, s.count(old), old[:70])\\n        s = s.replace(old, new)\\n    p.write_text(s)\\n\\nedit(\\\"internal/scanconfig/scanconfig.go\\\", [(\\n'''// RemoteFamilies are the unauthenticated network-check families of the\\n''',\\n'''// PortScannerVT is the feed's \\\"SYN Scan\\\" test, selected in every scan on\\n// top of the config's families. openvas treats a port as closed until one\\n// of its own port scanner tests has checked it, so a scan without one\\n// probes nothing and still finishes cleanly. This test checks only the\\n// port list the job pins from naabu. It is selected on its own because the\\n// \\\"Port scanners\\\" family also holds wrappers that run nmap, snmpwalk and\\n// pnscan when those tools are installed, and the feed's other built-in\\n// scanner (\\\"OpenVAS TCP scanner\\\") does not unblock the engine by itself.\\nconst PortScannerVT = \\\"1.3.6.1.4.1.25623.1.0.11219\\\"\\n\\n// RemoteFamilies are the unauthenticated network-check families of the\\n''')])\\n\\nedit(\\\"daemon/internal/engine/engine.go\\\", [(\\n'''// ErrTimeout is returned when the job exceeded max_duration_s.\\nvar ErrTimeout = errors.New(\\\"scan exceeded max_duration_s\\\")\\n''',\\n'''// ErrTimeout is returned when the job exceeded max_duration_s.\\nvar ErrTimeout = errors.New(\\\"scan exceeded max_duration_s\\\")\\n\\n// ErrBlind is returned when openvas finished without seeing an open port\\n// on any host it was given, although naabu had found some on each. The\\n// engine then tested nothing, and a job that reported success would close\\n// every open finding on those hosts.\\nvar ErrBlind = errors.New(\\\"openvas saw no open port\\\")\\n'''), (\\n'''\\tscanID, err := r.e.OSP.StartScan(ctx, target, params, osp.VTSelection{Families: cfg.Families})\\n''',\\n'''\\tscanID, err := r.e.OSP.StartScan(ctx, target, params, osp.VTSelection{Families: cfg.Families, OIDs: []string{scanconfig.PortScannerVT}})\\n'''), (\\n'''\\tvar oids []string\\n\\tfor _, h := range r.hosts {\\n\\t\\tfor _, a := range h.alarms {\\n''',\\n'''\\tseen := 0\\n\\tfor _, ip := range scanHosts {\\n\\t\\tif r.hosts[ip].enginePorts {\\n\\t\\t\\tseen++\\n\\t\\t}\\n\\t}\\n\\tif seen == 0 {\\n\\t\\treturn nil, fmt.Errorf(\\\"%w on any of the %d hosts with open ports: its port scanner test did not run or the hosts stopped answering\\\", ErrBlind, len(scanHosts))\\n\\t}\\n\\n\\tvar oids []string\\n\\tfor _, h := range r.hosts {\\n\\t\\tfor _, a := range h.alarms {\\n''')])\\n\\nedit(\\\"daemon/internal/engine/normalize.go\\\", [(\\n'''\\tscanned  bool // reached openvas\\n''',\\n'''\\tscanned  bool // reached openvas\\n\\t// enginePorts: openvas reported on a real port of the host or listed\\n\\t// its open ports, so its port scanner test worked there.\\n\\tenginePorts bool\\n'''), (\\n'''\\tswitch r.Type {\\n\\tcase \\\"Alarm\\\":\\n\\t\\th.alarms = append(h.alarms, r)\\n\\tcase \\\"Log Message\\\":\\n\\t\\th.logs = append(h.logs, r)\\n\\tcase \\\"Error Message\\\":\\n\\t\\th.errors++\\n\\t}\\n}\\n''',\\n'''\\tswitch r.Type {\\n\\tcase \\\"Alarm\\\":\\n\\t\\th.alarms = append(h.alarms, r)\\n\\tcase \\\"Log Message\\\":\\n\\t\\th.logs = append(h.logs, r)\\n\\tcase \\\"Error Message\\\":\\n\\t\\th.errors++\\n\\t\\treturn\\n\\tdefault:\\n\\t\\treturn\\n\\t}\\n\\tif p, _ := r.PortNumber(); p > 0 {\\n\\t\\th.enginePorts = true\\n\\t}\\n}\\n'''), (\\n'''\\t\\tcase \\\"services\\\":\\n\\t\\t\\th.serviceDetail(value)\\n''',\\n'''\\t\\tcase \\\"services\\\":\\n\\t\\t\\th.serviceDetail(value)\\n\\t\\tcase \\\"ports\\\", \\\"tcp_ports\\\":\\n\\t\\t\\th.enginePorts = true // the engine's own list of open ports\\n''')])\\nprint(\\\"edited\\\")\\nEOF\\ngrep -n '\\\"github.com/tprm/scanner-appliance/internal/scanconfig\\\"' daemon/internal/engine/engine.go || echo \\\"engine.go does not import scanconfig yet\\\"; gofmt -l daemon/ internal/; go build ./... 2>&1 | head\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:11:48.327Z",
+      "lastAccessed": "2026-10-06T00:11:48.327Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:11:48.327Z"
+    },
+    "cmd-1791245511908": {
+      "key": "cmd-1791245511908",
+      "value": "{\"command\":\"sed -n 1,19p daemon/internal/engine/engine.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:11:51.908Z",
+      "lastAccessed": "2026-10-06T00:11:51.908Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:11:51.908Z"
+    },
+    "cmd-1791245644265": {
+      "key": "cmd-1791245644265",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\np = pathlib.Path(\\\"daemon/internal/engine/engine.go\\\")\\ns = p.read_text()\\nold = '''\\t\\\"github.com/tprm/scanner-appliance/internal/guard\\\"\\n)\\n'''\\nassert s.count(old) == 1\\np.write_text(s.replace(old, '''\\t\\\"github.com/tprm/scanner-appliance/internal/guard\\\"\\n\\t\\\"github.com/tprm/scanner-appliance/internal/scanconfig\\\"\\n)\\n'''))\\nEOF\\ngofmt -w daemon/internal/engine/normalize.go && gofmt -l daemon/ internal/; go build ./... && go vet ./daemon/... ./internal/... && echo \\\"build+vet ok\\\"; git diff -- daemon/internal/engine/normalize.go | grep -E '^[+-]' | grep -v -E '^(\\\\+\\\\+\\\\+|---)'; echo \\\"=== which tests now fail\\\"; go test -count=1 ./daemon/... ./internal/... ./controlplane/... 2>&1 | grep -v -E '^ok|no test files' | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:14:04.265Z",
+      "lastAccessed": "2026-10-06T00:14:04.265Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:14:04.265Z"
+    },
+    "cmd-1791245772191": {
+      "key": "cmd-1791245772191",
+      "value": "{\"command\":\"go test -count=1 ./daemon/... ./internal/... ./controlplane/... 2>&1 | grep -E '^(--- FAIL|FAIL|ok )|_test\\\\.go:[0-9]+:' | grep -v '^ok' | cut -c1-300 | head -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:16:12.191Z",
+      "lastAccessed": "2026-10-06T00:16:12.191Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:16:12.191Z"
+    },
+    "cmd-1791245780010": {
+      "key": "cmd-1791245780010",
+      "value": "{\"command\":\"echo \\\"=== phase3_test.go 98-116 and 160-172\\\"; sed -n 98,116p daemon/internal/e2e/phase3_test.go; sed -n 160,172p daemon/internal/e2e/phase3_test.go; echo \\\"=== phase6_test.go 68-84 and 155-175\\\"; sed -n 68,84p daemon/internal/e2e/phase6_test.go | cut -c1-260; sed -n 155,175p daemon/internal/e2e/phase6_test.go | cut -c1-220; echo \\\"=== the lab naabu fake: which hosts and ports\\\"; grep -n -A14 'func labNaabu' daemon/internal/e2e/phase2_test.go | cut -c1-200\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:16:20.010Z",
+      "lastAccessed": "2026-10-06T00:16:20.010Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:16:20.010Z"
+    },
+    "cmd-1791245794524": {
+      "key": "cmd-1791245794524",
+      "value": "{\"command\":\"sed -n 20,60p daemon/internal/engine/engine_test.go; sed -n 192,260p daemon/internal/engine/engine_test.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:16:34.524Z",
+      "lastAccessed": "2026-10-06T00:16:34.524Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:16:34.524Z"
+    },
+    "cmd-1791245824583": {
+      "key": "cmd-1791245824583",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\n\\ndef edit(path, pairs):\\n    p = pathlib.Path(path)\\n    s = p.read_text()\\n    for old, new in pairs:\\n        assert s.count(old) == 1, (path, s.count(old), old[:70])\\n        s = s.replace(old, new)\\n    p.write_text(s)\\n\\nsvc = '{Host: \\\"10.30.5.20\\\", Type: \\\"Log Message\\\", Port: \\\"3389/tcp\\\", TestID: \\\"1.3.6.1.4.1.25623.1.0.10330\\\", Name: \\\"Services\\\", QoD: \\\"80\\\", Text: \\\"A Remote Desktop Protocol (RDP) service is running on this port.\\\"}'\\n\\nedit(\\\"daemon/internal/e2e/phase3_test.go\\\", [(\\n'''\\tfake := osptest.Start(t, &osptest.Fake{PluginsDir: plugins})\\n''',\\n'''\\t// Like a real engine, every scan reports at least a service on an open port.\\n\\tfake := osptest.Start(t, &osptest.Fake{PluginsDir: plugins, Script: []osptest.Step{{Progress: 100, Results: []osp.Result{\\n\\t\\t''' + svc + ''',\\n\\t}}}})\\n''')])\\n\\nedit(\\\"daemon/internal/e2e/phase6_test.go\\\", [(\\n'''\\t// Cycle 2: the host is patched; the same scope no longer sees BlueKeep → fixed.\\n\\tfake.Script = []osptest.Step{{Progress: 100}}\\n''',\\n'''\\t// Cycle 2: the host is patched; the engine still sees its services, but\\n\\t// the same scope no longer sees BlueKeep → fixed.\\n\\tfake.Script = []osptest.Step{{Progress: 100, Results: []osp.Result{\\n\\t\\t''' + svc + ''',\\n\\t}}}\\n''')])\\n\\nedit(\\\"daemon/internal/engine/engine_test.go\\\", [(\\n'''!strings.Contains(start, `filter=\\\"family=Service detection\\\"`) || strings.Contains(start, \\\"Denial of Service\\\") {\\n\\t\\tt.Fatalf(\\\"start_scan: %s\\\", start)\\n\\t}\\n''',\\n'''!strings.Contains(start, `filter=\\\"family=Service detection\\\"`) || strings.Contains(start, \\\"Denial of Service\\\") {\\n\\t\\tt.Fatalf(\\\"start_scan: %s\\\", start)\\n\\t}\\n\\t// Without one of its own port scanner tests openvas treats every port as\\n\\t// closed, whatever the config's families are.\\n\\tif !strings.Contains(start, `<vt_single id=\\\"1.3.6.1.4.1.25623.1.0.11219\\\"/>`) {\\n\\t\\tt.Fatalf(\\\"start_scan selects no port scanner test: %s\\\", start)\\n\\t}\\n'''), (\\n'''func TestTimeout(t *testing.T) {\\n''',\\n'''// What openvas reports for a host when none of its port scanner tests ran:\\n// the host-level results arrive, nothing on a port does, and the scan still\\n// finishes. Captured from an inventory scan before PortScannerVT existed.\\nfunc blindResults(host string) []osp.Result {\\n\\treturn []osp.Result{\\n\\t\\t{Host: host, Type: \\\"Log Message\\\", Name: \\\"HOST_START\\\", Text: \\\"Mon Oct  5 22:23:27 2026\\\"},\\n\\t\\t{Host: host, Type: \\\"Log Message\\\", Port: \\\"general/tcp\\\", TestID: \\\"1.3.6.1.4.1.25623.1.0.105937\\\", Name: \\\"OS Detection Consolidation and Reporting\\\", QoD: \\\"80\\\", Text: \\\"Best matching OS:\\\\\\\\n\\\\\\\\nOS:           Linux Kernel\\\\\\\\nCPE:          cpe:/o:linux:kernel\\\"},\\n\\t\\t{Host: host, Type: \\\"Alarm\\\", Severity: \\\"2.1\\\", Port: \\\"general/icmp\\\", TestID: \\\"1.3.6.1.4.1.25623.1.0.103190\\\", Name: \\\"ICMP Timestamp Reply Information Disclosure\\\", QoD: \\\"80\\\", Text: \\\"The remote host responded to an ICMP timestamp request.\\\"},\\n\\t\\t{Host: host, Type: \\\"Log Message\\\", Port: \\\"general/Host_Details\\\", TestID: \\\"1.3.6.1.4.1.25623.1.0.103997\\\", Name: \\\"Host Details\\\", QoD: \\\"80\\\", Text: \\\"<host><detail><name>best_os_txt</name><value>Linux Kernel</value></detail></host>\\\"},\\n\\t\\t{Host: host, Type: \\\"Log Message\\\", Name: \\\"HOST_END\\\", Text: \\\"Mon Oct  5 22:25:12 2026\\\"},\\n\\t}\\n}\\n\\nfunc TestBlindEngineFailsTheJob(t *testing.T) {\\n\\trun := func(results []osp.Result) (*memSink, error) {\\n\\t\\tf := osptest.Start(t, &osptest.Fake{Script: []osptest.Step{{Progress: 100, Results: results}}})\\n\\t\\te := newEngine(t, f, fakeNaabu(t, filepath.Join(t.TempDir(), \\\"l\\\")))\\n\\t\\tspec, site := inventorySpec()\\n\\t\\tsink := &memSink{}\\n\\t\\t_, err := e.Run(context.Background(), spec, site, sink)\\n\\t\\treturn sink, err\\n\\t}\\n\\n\\t// naabu found ports on 10.30.5.20 and the engine saw none of them: the\\n\\t// job fails, keeps the hosts and ports it has, and sends no final chunk,\\n\\t// so the control plane does not take the silence for fixed findings.\\n\\tsink, err := run(blindResults(\\\"10.30.5.20\\\"))\\n\\tif !errors.Is(err, ErrBlind) || !strings.Contains(err.Error(), \\\"any of the 1 hosts\\\") {\\n\\t\\tt.Fatalf(\\\"blind engine: err=%v\\\", err)\\n\\t}\\n\\tif len(sink.batches) == 0 {\\n\\t\\tt.Fatal(\\\"partial results were dropped\\\")\\n\\t}\\n\\tfor _, b := range sink.batches {\\n\\t\\tif b.Final {\\n\\t\\t\\tt.Fatal(\\\"final chunk after a blind scan\\\")\\n\\t\\t}\\n\\t}\\n\\n\\t// Either sign that the engine's port scanner worked is enough: a result\\n\\t// on a real port, or the engine's own list of open ports.\\n\\tfor name, extra := range map[string]osp.Result{\\n\\t\\t\\\"service on a port\\\": {Host: \\\"10.30.5.20\\\", Type: \\\"Log Message\\\", Port: \\\"3389/tcp\\\", TestID: \\\"1.3.6.1.4.1.25623.1.0.10330\\\", Name: \\\"Services\\\", QoD: \\\"80\\\", Text: \\\"A Remote Desktop Protocol (RDP) service is running on this port.\\\"},\\n\\t\\t\\\"open port list\\\":    {Host: \\\"10.30.5.20\\\", Type: \\\"Log Message\\\", Port: \\\"general/Host_Details\\\", TestID: \\\"1.3.6.1.4.1.25623.1.0.103997\\\", Name: \\\"Host Details\\\", QoD: \\\"80\\\", Text: \\\"<host><detail><name>tcp_ports</name><value>445,3389</value></detail></host>\\\"},\\n\\t} {\\n\\t\\tsink, err := run(append(blindResults(\\\"10.30.5.20\\\"), extra))\\n\\t\\tif err != nil || len(sink.batches) == 0 || !sink.batches[len(sink.batches)-1].Final {\\n\\t\\t\\tt.Fatalf(\\\"%s: err=%v batches=%d\\\", name, err, len(sink.batches))\\n\\t\\t}\\n\\t}\\n}\\n\\nfunc TestTimeout(t *testing.T) {\\n''')])\\nprint(\\\"tests edited\\\")\\nEOF\\ngofmt -l daemon/ internal/; go vet ./daemon/... && go test -count=1 -race ./daemon/internal/engine/ ./internal/scanconfig/ 2>&1 | grep -E '^(--- FAIL|FAIL|ok )|_test\\\\.go:[0-9]+:' | cut -c1-260\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:17:04.583Z",
+      "lastAccessed": "2026-10-06T00:17:04.583Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:17:04.583Z"
+    },
+    "cmd-1791245829808": {
+      "key": "cmd-1791245829808",
+      "value": "{\"command\":\"echo \\\"=== README scan configs line\\\"; sed -n 469p README.md; echo \\\"=== transparency tests that pin the phase text\\\"; grep -rn --include='*_test.go' -E 'pinned to what|detection: openvas|Phases' controlplane | cut -c1-200 | head; echo \\\"=== DEPLOY troubleshooting rows about jobs\\\"; grep -n -E '^\\\\| .*(job|scan).*\\\\|' docs/DEPLOY.md | sed -n 1,14p | cut -c1-230\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:17:09.808Z",
+      "lastAccessed": "2026-10-06T00:17:09.808Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:17:09.808Z"
+    },
+    "cmd-1791245929874": {
+      "key": "cmd-1791245929874",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\n\\ndef edit(path, pairs):\\n    p = pathlib.Path(path)\\n    s = p.read_text()\\n    for old, new in pairs:\\n        assert s.count(old) == 1, (path, s.count(old), old[:70])\\n        s = s.replace(old, new)\\n    p.write_text(s)\\n\\nedit(\\\"README.md\\\", [(\\n\\\"are kept out of openvas and tagged `fragile:<port>`; hosts with no open TCP port are skipped. The exact\\\",\\n\\\"are kept out of openvas and tagged `fragile:<port>`; hosts with no open TCP port are skipped. Every scan also selects the feed's SYN Scan test, whatever the config's families are: openvas treats a port as closed until one of its own port scanner tests has checked it, and this one checks only the pinned list. A scan in which openvas sees no open port on any host fails with `openvas saw no open port` instead of reporting an empty success, which would close every open finding on those hosts. The exact\\\")])\\n\\nedit(\\\"controlplane/pkg/server/transparency.go\\\", [(\\n'''\\t\\t\\t\\\"detection: openvas service and product detection plus the vulnerability-test families of the selected scan config, port list pinned to what the port scan found\\\",\\n''',\\n'''\\t\\t\\t\\\"detection: openvas re-checks the ports the port scan found with its own SYN scan, then runs service and product detection plus the vulnerability-test families of the selected scan config on those ports\\\",\\n''')])\\nprint(\\\"docs edited\\\")\\nEOF\\ngofmt -l . | grep -v '^\\\\.claude'; go build ./... && go vet ./... && echo \\\"build+vet ok\\\"; for t in windows/amd64 linux/amd64 linux/arm64; do GOOS=${t%/*} GOARCH=${t#*/} go vet ./daemon/... ./internal/... >/dev/null 2>&1 && echo \\\"vet ok $t\\\" || echo \\\"VET FAILED $t\\\"; done; go test -count=1 -race -timeout 20m ./... 2>&1 | grep -E '^(--- FAIL|FAIL|ok )|_test\\\\.go:[0-9]+:' | awk '{print $1, $2}' | sort | uniq -c | awk '{printf \\\"%s %s; \\\", $2, $3}'; echo\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:18:49.874Z",
+      "lastAccessed": "2026-10-06T00:18:49.874Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:18:49.874Z"
+    },
+    "cmd-1791246022586": {
+      "key": "cmd-1791246022586",
+      "value": "{\"command\":\"cp dev/pki/root.pem daemon/internal/pki/roots.pem && cp dev/pki/release-pub.pem daemon/internal/pki/release-pub.pem && dev/lab/compose --progress plain build cp-api appliance > dev/build-appliance.log 2>&1; rc=$?; git checkout daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem 2>&1 | tail -1; echo \\\"build exit=$rc; placeholders: $(wc -c < daemon/internal/pki/roots.pem | tr -d ' ') and $(wc -c < daemon/internal/pki/release-pub.pem | tr -d ' ') bytes\\\"; grep -E 'ERROR|error:' dev/build-appliance.log | head -3; dev/lab/compose up -d 2>&1 | tail -3; until [ \\\"$(docker inspect --format '{{.State.Health.Status}}' scanner-appliance-cp-api-1 2>/dev/null)\\\" = \\\"healthy\\\" ]; do sleep 2; done; set -a && . docker/.env && set +a && APL=apl_06GGRJKKP85W1AGRNT5FZY0YV8 && get() { curl -s --max-time 10 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443/admin/appliances/$APL\\\"; } && until get | python3 -c 'import json,sys; d=json.load(sys.stdin); e=(d.get(\\\"last_heartbeat\\\") or {}).get(\\\"engine\\\") or {}; sys.exit(0 if (d.get(\\\"online\\\") and e.get(\\\"ospd_up\\\") and e.get(\\\"vt_cache_loaded\\\")) else 1)' 2>/dev/null; do sleep 5; done; echo \\\"stack up, engine ready\\\"; curl -s --max-time 10 --cacert dev/pki/root.pem \\\"https://localhost:19443/transparency.json\\\" | python3 -c 'import json,sys; d=json.load(sys.stdin); ph=d.get(\\\"phases\\\") or d.get(\\\"Phases\\\") or []; print(\\\"transparency detection phase:\\\", [p for p in ph if p.startswith(\\\"detection\\\")][0][:140] if ph else list(d.keys()))'; for n in nginx tomcat redis httpd; do printf '%s=%s ' $n \\\"$(docker inspect --format '{{.State.Status}}' scanner-lab-$n-1)\\\"; done; echo\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:20:22.586Z",
+      "lastAccessed": "2026-10-06T00:20:22.586Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:20:22.586Z"
+    },
+    "cmd-1791246400862": {
+      "key": "cmd-1791246400862",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && C=scanner-appliance-appliance-1 && docker cp $S/sniff.py $C:/tmp/sniff.py && docker exec $C sh -c 'rm -f /tmp/sniff.stop /tmp/sniff-inv.json' && docker exec -d $C python3 /tmp/sniff.py /tmp/sniff-inv.json /tmp/sniff.stop && set -a && . docker/.env && set +a && api() { curl -s --max-time 30 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443$1\\\"; } && dev/lab/cp create-job --appliance apl_06GGRJKKP85W1AGRNT5FZY0YV8 --mode inventory --targets 172.18.0.4,172.18.0.5,172.18.0.6,172.18.0.7 --now > dev/lab/job-inv-fixed.json && J=$(python3 -c 'import json; print(json.load(open(\\\"dev/lab/job-inv-fixed.json\\\"))[\\\"id\\\"])') && echo \\\"job $J\\\" && until api /admin/jobs/$J | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)[\\\"status\\\"] not in (\\\"queued\\\",\\\"dispatched\\\",\\\"running\\\") else 1)'; do sleep 10; done; docker exec $C sh -c 'touch /tmp/sniff.stop; sleep 3' ; docker cp $C:/tmp/sniff-inv.json $S/sniff-inv.json; api /admin/jobs/$J | python3 -c '\\nimport json,sys\\nd=json.load(sys.stdin); s=d.get(\\\"stats\\\") or {}\\nprint(\\\"status:\\\", d[\\\"status\\\"], \\\"| reason:\\\", d.get(\\\"reject_reason\\\",\\\"-\\\") or \\\"-\\\")\\nprint(\\\"stats:\\\", {k:s.get(k) for k in (\\\"hosts_alive\\\",\\\"hosts_scanned\\\",\\\"open_ports\\\",\\\"findings\\\",\\\"duration_s\\\")}, \\\"| phases:\\\", s.get(\\\"phase_duration_s\\\"), \\\"| warnings:\\\", s.get(\\\"warnings\\\"))'; echo \\\"--- what the daemon asked the engine for\\\"; docker logs --since 15m $C 2>&1 | grep -E \\\"openvas scan started.*$J\\\" | sed -E 's/.*(hosts=[0-9]+).*(config=[a-z]+).*/\\\\1 \\\\2/'; echo \\\"--- traffic during the whole job (naabu included)\\\"; python3 $S/sniffsum.py $S/sniff-inv.json\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:26:40.862Z",
+      "lastAccessed": "2026-10-06T00:26:40.862Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:26:40.862Z"
+    },
+    "cmd-1791246418530": {
+      "key": "cmd-1791246418530",
+      "value": "{\"command\":\"set -a && . docker/.env && set +a && api() { curl -s --max-time 30 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443$1\\\"; } && SITE=site_06GGRJKKNW9M0D471MZ6HBTMT8 && J=job_06GGX5B8FCQGKTQW1K9Y191G7M && api /admin/sites/$SITE/findings > dev/lab/findings-inv.json && api /admin/sites/$SITE/hosts > dev/lab/hosts-inv.json && python3 - <<'EOF'\\nimport json, collections\\nJ = \\\"job_06GGX5B8FCQGKTQW1K9Y191G7M\\\"\\nfs = json.load(open(\\\"dev/lab/findings-inv.json\\\")); hs = json.load(open(\\\"dev/lab/hosts-inv.json\\\"))\\nipof = {h[\\\"id\\\"]: h[\\\"ip\\\"] for h in hs}\\nseen = [f for f in fs if any((e.get(\\\"job_id\\\") == J) for e in (f.get(\\\"evidence\\\") or []))]\\nprint(\\\"findings on the site:\\\", len(fs), \\\"| by status:\\\", dict(collections.Counter(f.get(\\\"status\\\") for f in fs)))\\nprint(\\\"re-observed by the inventory job:\\\", len(seen), \\\"| per host:\\\", dict(sorted(collections.Counter(ipof.get(f[\\\"host_id\\\"]) for f in seen).items())))\\nprint(\\\"confirmed by an active check in this job (QoD >= 95):\\\", sum(1 for f in seen if (f.get(\\\"qod\\\") or 0) >= 95))\\nprint(\\\"hosts:\\\", len(hs))\\nfor h in sorted(hs, key=lambda h: h[\\\"ip\\\"]):\\n    for p in h.get(\\\"ports\\\") or []:\\n        print(f\\\"  {h['ip']} {p['port']:>5}  {p.get('service','-'):<6} {p.get('product','-'):<19} {p.get('version','-'):<7} last job …{h.get('last_job_id','')[-6:]}\\\")\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:26:58.530Z",
+      "lastAccessed": "2026-10-06T00:26:58.530Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:26:58.530Z"
+    },
+    "cmd-1791246430836": {
+      "key": "cmd-1791246430836",
+      "value": "{\"command\":\"C=scanner-appliance-appliance-1 && set -a && . docker/.env && set +a && api() { curl -s --max-time 30 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443$1\\\"; } && dev/lab/cp create-job --appliance apl_06GGRJKKP85W1AGRNT5FZY0YV8 --mode inventory --targets 172.18.0.4 --now > dev/lab/job-guard.json && J=$(python3 -c 'import json; print(json.load(open(\\\"dev/lab/job-guard.json\\\"))[\\\"id\\\"])') && echo \\\"job $J targets only the nginx host\\\" && until docker logs --since 5m $C 2>&1 | grep -q \\\"msg=portscan job=$J\\\"; do sleep 0.5; done; docker stop -t 0 scanner-lab-nginx-1 >/dev/null && echo \\\"nginx stopped right after the port scan: $(docker logs --since 5m $C 2>&1 | grep \\\"msg=portscan job=$J\\\" | sed -E 's/.*(hosts=[0-9]+ open_ports=[0-9]+).*/\\\\1/')\\\" && until api /admin/jobs/$J | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)[\\\"status\\\"] not in (\\\"queued\\\",\\\"dispatched\\\",\\\"running\\\") else 1)'; do sleep 10; done; api /admin/jobs/$J | python3 -c '\\nimport json,sys\\nd=json.load(sys.stdin)\\nprint(\\\"status:\\\", d[\\\"status\\\"])\\nprint(\\\"reason:\\\", d.get(\\\"reject_reason\\\",\\\"-\\\"))\\nprint(\\\"batches:\\\", d.get(\\\"batches\\\"), \\\"| started:\\\", (d.get(\\\"started_at\\\") or \\\"\\\")[:19], \\\"| finished:\\\", (d.get(\\\"finished_at\\\") or \\\"\\\")[:19])'; echo \\\"--- appliance log\\\"; docker logs --since 20m $C 2>&1 | grep -E \\\"$J\\\" | grep -E 'openvas scan started|job failed|job done|result chunk' | sed -E 's/^time=[^ ]+ //' | cut -c1-260\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:27:10.836Z",
+      "lastAccessed": "2026-10-06T00:27:10.836Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:27:10.836Z"
+    },
+    "cmd-1791246458090": {
+      "key": "cmd-1791246458090",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\ndef edit(path, pairs):\\n    p = pathlib.Path(path); s = p.read_text()\\n    for old, new in pairs:\\n        assert s.count(old) == 1, (path, s.count(old), old[:70])\\n        s = s.replace(old, new)\\n    p.write_text(s)\\nedit(\\\"daemon/internal/engine/engine.go\\\", [(\\n'''\\t\\treturn nil, fmt.Errorf(\\\"%w on any of the %d hosts with open ports: its port scanner test did not run or the hosts stopped answering\\\", ErrBlind, len(scanHosts))\\n''',\\n'''\\t\\treturn nil, fmt.Errorf(\\\"%w on any host (%d had open ports): its port scanner test did not run, or the hosts stopped answering\\\", ErrBlind, len(scanHosts))\\n''')])\\nedit(\\\"daemon/internal/engine/engine_test.go\\\", [(\\n'''\\tif !errors.Is(err, ErrBlind) || !strings.Contains(err.Error(), \\\"any of the 1 hosts\\\") {\\n''',\\n'''\\tif !errors.Is(err, ErrBlind) || !strings.Contains(err.Error(), \\\"openvas saw no open port on any host (1 had open ports)\\\") {\\n''')])\\nEOF\\ngofmt -l daemon/; go vet ./daemon/internal/engine/ && go test -count=1 -race ./daemon/internal/engine/ 2>&1 | tail -2; echo \\\"=== full diff summary\\\"; git status --short | grep -v '\\\\.claude-flow'; git diff --stat | tail -12\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:27:38.090Z",
+      "lastAccessed": "2026-10-06T00:27:38.090Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:27:38.090Z"
+    },
+    "cmd-1791246485119": {
+      "key": "cmd-1791246485119",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f && until grep -q -E '^--- appliance log|Error|No such' $S/tasks/b1v4i6dhl.output 2>/dev/null; do sleep 10; done; sleep 2; cat $S/tasks/b1v4i6dhl.output\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:28:05.119Z",
+      "lastAccessed": "2026-10-06T00:28:05.119Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:28:05.119Z"
+    },
+    "cmd-1791246503226": {
+      "key": "cmd-1791246503226",
+      "value": "{\"command\":\"set -a && . docker/.env && set +a && api() { curl -s --max-time 30 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443$1\\\"; } && SITE=site_06GGRJKKNW9M0D471MZ6HBTMT8 && api /admin/sites/$SITE/findings | python3 -c '\\nimport json,sys,collections\\nfs=json.load(sys.stdin)\\nprint(\\\"after the failed scan: findings\\\", len(fs), \\\"| by status:\\\", dict(collections.Counter(f.get(\\\"status\\\") for f in fs)))'; docker compose -f dev/lab/targets.yml up -d 2>&1 | tail -1; until [ \\\"$(docker exec scanner-appliance-cp-api-1 curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://172.18.0.4/)\\\" = \\\"200\\\" ]; do sleep 2; done; echo \\\"nginx back at 172.18.0.4\\\"; cp dev/pki/root.pem daemon/internal/pki/roots.pem && cp dev/pki/release-pub.pem daemon/internal/pki/release-pub.pem && dev/lab/compose --progress plain build appliance > dev/build-appliance.log 2>&1; rc=$?; git checkout daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem 2>&1 | tail -1; echo \\\"build exit=$rc; placeholders: $(wc -c < daemon/internal/pki/roots.pem | tr -d ' ') and $(wc -c < daemon/internal/pki/release-pub.pem | tr -d ' ') bytes\\\"; dev/lab/compose up -d appliance 2>&1 | tail -1; APL=apl_06GGRJKKP85W1AGRNT5FZY0YV8; until api /admin/appliances/$APL | python3 -c 'import json,sys; d=json.load(sys.stdin); e=(d.get(\\\"last_heartbeat\\\") or {}).get(\\\"engine\\\") or {}; sys.exit(0 if (d.get(\\\"online\\\") and e.get(\\\"ospd_up\\\") and e.get(\\\"vt_cache_loaded\\\")) else 1)' 2>/dev/null; do sleep 5; done; dev/lab/cp create-job --appliance $APL --mode full --targets 172.18.0.4,172.18.0.5,172.18.0.6,172.18.0.7 --now > dev/lab/job-full-final.json; python3 -c 'import json; d=json.load(open(\\\"dev/lab/job-full-final.json\\\")); print(\\\"full-mode regression job:\\\", d.get(\\\"id\\\"), d.get(\\\"status\\\"))'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:28:23.226Z",
+      "lastAccessed": "2026-10-06T00:28:23.226Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:28:23.226Z"
+    },
+    "cmd-1791246519436": {
+      "key": "cmd-1791246519436",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\nm = pathlib.Path(\\\"/Users/richardtang/.claude/projects/-Users-richardtang-Desktop-repos-scanner-appliance/memory\\\")\\np = m / \\\"first-real-feed-scan-open-issues.md\\\"\\ns = p.read_text()\\nold_open = s[s.index(\\\"**Open, verified, not fixed:**\\\"):s.index(\\\"\\\\n**Why:**\\\")]\\nnew_open = \\\"\\\"\\\"**Fixed on 2026-10-05, in the working tree, not committed by me:**\\n- Inventory mode saw no services with the real engine: openvas treats a port as closed until one of its own port scanner tests has checked it (`unscanned_closed = yes`), and the inventory config selected none. Every scan now also selects the feed's \\\"SYN Scan\\\" test (`scanconfig.PortScannerVT`), and a scan in which the engine sees no open port on any host fails with `engine.ErrBlind` instead of reporting an empty success that would close findings. Measured before choosing: `unscanned_closed=0` also works but makes the engine probe about 330 ports outside the pinned list per host; the \\\"OpenVAS TCP scanner\\\" test alone does not unblock the engine; the whole \\\"Port scanners\\\" family works too but also runs nmap, snmpwalk and pnscan wrappers when those tools exist.\\n\\n**Open, verified, not fixed:**\\n- The UDP port set in the scan configs is never probed (0 datagrams measured): nothing marks UDP ports as scanned, so UDP tests such as SNMP never run.\\n- The engine's \\\"Ping Host\\\" test sends one SYN to 18 well-known ports per host (21, 22, 23, 25, 53, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1723, 3306, 3389, 5900) in every scan, so \\\"port list pinned\\\" on the transparency page is not exact.\\n- Full mode still selects the whole \\\"Port scanners\\\" family, so on an image built with nmap the engine's nmap wrapper runs in every full scan.\\n- One product per port on the wire (`v1.Port`). The engine registers nginx under two CPEs (`nginx:nginx` and `f5:nginx`); only the first is kept. Advisory matching will want all of them.\\n- The job record's phase stays at \\\"discovery\\\" and progress at 0 for the whole run; progress only travels in the heartbeat's `current_job`.\\n- `vt_count` in engine health is always 0: ospd answers the daemon's `filter=\\\"id=none\\\"` count query with 400.\\n- No MAC addresses are recorded: naabu's discovery output is parsed as bare IPs and the engine emits no MAC detail when its alive test is skipped.\\n- Cosmetic: CVSS values carry float32 noise such as 7.800000190734863, and finding names keep HTML entities such as `&lt;`.\\n\\\"\\\"\\\"\\ns = s.replace(old_open, new_open)\\nold_how = s[s.index(\\\"**How to apply:**\\\"):]\\nnew_how = \\\"\\\"\\\"**How to apply:** check whether each item is still present before repeating it. When changing how results are parsed or what the engine is asked to run, capture real engine output and count packets in the lab first; do not trust `daemon/internal/osp/osptest` or a reading of the openvas source to reflect real behavior. Two of my predictions about the engine were wrong on 2026-10-05 and only measurement caught them.\\n\\\"\\\"\\\"\\ns = s.replace(old_how, new_how)\\np.write_text(s)\\nidx = m / \\\"MEMORY.md\\\"\\nt = idx.read_text()\\nold_line = [l for l in t.splitlines() if \\\"first-real-feed-scan-open-issues.md\\\" in l][0]\\nidx.write_text(t.replace(old_line, \\\"- [First real-feed scans: fixed and open issues](first-real-feed-scan-open-issues.md) — inventory, slow fetch and inventory mode fixed 2026-10-05; UDP set never probed and others still open; measure the engine, don't predict it\\\"))\\nprint(p.read_text()[:400]); print(\\\"...\\\"); print(idx.read_text())\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:28:39.436Z",
+      "lastAccessed": "2026-10-06T00:28:39.436Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:28:39.436Z"
+    },
+    "cmd-1791246526993": {
+      "key": "cmd-1791246526993",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\np = pathlib.Path(\\\"/Users/richardtang/.claude/projects/-Users-richardtang-Desktop-repos-scanner-appliance/memory/first-real-feed-scan-open-issues.md\\\")\\ns = p.read_text()\\nfirst = \\\"**Fixed on 2026-10-05, in the working tree, not committed by me:**\\\\n- Product inventory.\\\"\\nassert s.count(first) == 1\\ns = s.replace(first, \\\"**Fixed on 2026-10-05, committed by the user as `48fc5cb`:**\\\\n- Product inventory.\\\")\\nsecond = \\\"**Fixed on 2026-10-05, in the working tree, not committed by me:**\\\\n- Inventory mode saw\\\"\\nassert s.count(second) == 1\\ns = s.replace(second, \\\"**Fixed on 2026-10-05, left uncommitted for the user:**\\\\n- Inventory mode saw\\\")\\np.write_text(s)\\nprint(s)\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:28:46.993Z",
+      "lastAccessed": "2026-10-06T00:28:46.993Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:28:46.993Z"
+    },
+    "cmd-1791246913747": {
+      "key": "cmd-1791246913747",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport pathlib\\np = pathlib.Path(\\\"/Users/richardtang/.claude/projects/-Users-richardtang-Desktop-repos-scanner-appliance/memory/first-real-feed-scan-open-issues.md\\\")\\ns = p.read_text()\\nold = \\\"- Full mode still selects the whole \\\\\\\"Port scanners\\\\\\\" family, so on an image built with nmap the engine's nmap wrapper runs in every full scan.\\\\n\\\"\\nassert s.count(old) == 1\\np.write_text(s.replace(old, \\\"- Full mode still selects the whole \\\\\\\"Port scanners\\\\\\\" family. Read from the feed source and not tested, because the lab image has no nmap: on an image built with nmap the engine's nmap wrapper would then run in every full scan.\\\\n\\\"))\\nEOF\\ncd /Users/richardtang/Desktop/repos/scanner-appliance && set -a && . docker/.env && set +a && api() { curl -s --max-time 30 --cacert dev/pki/root.pem -H \\\"Authorization: Bearer $CP_ADMIN_TOKEN\\\" \\\"https://localhost:19443$1\\\"; } && J=job_06GGX74AM8PHV6EB9GCP55EZER && until api /admin/jobs/$J | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)[\\\"status\\\"] not in (\\\"queued\\\",\\\"dispatched\\\",\\\"running\\\") else 1)'; do sleep 10; done; api /admin/jobs/$J | python3 -c '\\nimport json,sys\\nd=json.load(sys.stdin); s=d.get(\\\"stats\\\") or {}\\nprint(\\\"full mode on the final build -> status:\\\", d[\\\"status\\\"], \\\"| reason:\\\", d.get(\\\"reject_reason\\\") or \\\"-\\\")\\nprint(\\\"stats:\\\", {k:s.get(k) for k in (\\\"hosts_alive\\\",\\\"hosts_scanned\\\",\\\"open_ports\\\",\\\"findings\\\",\\\"duration_s\\\")}, \\\"| phases:\\\", s.get(\\\"phase_duration_s\\\"))'; SITE=site_06GGRJKKNW9M0D471MZ6HBTMT8; api /admin/sites/$SITE/findings | python3 -c '\\nimport json,sys,collections\\nfs=json.load(sys.stdin)\\nJ=\\\"job_06GGX74AM8PHV6EB9GCP55EZER\\\"\\nprint(\\\"findings:\\\", len(fs), \\\"| by status:\\\", dict(collections.Counter(f.get(\\\"status\\\") for f in fs)), \\\"| re-observed by this job:\\\", sum(1 for f in fs if any(e.get(\\\"job_id\\\")==J for e in (f.get(\\\"evidence\\\") or []))))'; api /admin/sites/$SITE/hosts | python3 -c '\\nimport json,sys\\nhs=json.load(sys.stdin)\\nprint(\\\"hosts:\\\", len(hs), \\\"| ports with a product:\\\", sum(1 for h in hs for p in h.get(\\\"ports\\\") or [] if p.get(\\\"product\\\")), \\\"of\\\", sum(len(h.get(\\\"ports\\\") or []) for h in hs), \\\"| hosts with an OS guess:\\\", sum(1 for h in hs if h.get(\\\"os_guess\\\")))'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:35:13.747Z",
+      "lastAccessed": "2026-10-06T00:35:13.747Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:35:13.747Z"
+    },
+    "cmd-1791246982332": {
+      "key": "cmd-1791246982332",
+      "value": "{\"command\":\"go vet ./... && gofmt -l . | grep -v '^\\\\.claude'; go test -count=1 -race -timeout 20m ./... 2>&1 | grep -E '^(--- FAIL|FAIL|ok )' | awk '{print $1}' | sort | uniq -c | tr '\\\\n' ' '; echo; git status --short | grep -v '\\\\.claude-flow'; wc -c daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem | head -2; docker ps --format '{{.Names}}\\\\t{{.Status}}' | grep -E 'scanner-' | sort\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-06T00:36:22.332Z",
+      "lastAccessed": "2026-10-06T00:36:22.332Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-05T00:36:22.332Z"
     }
   },
   "version": "3.0.0"
