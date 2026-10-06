@@ -89,6 +89,9 @@ func (s *Server) buildJob(ctx context.Context, req v1.AdminJobRequest) (*store.J
 		return nil, http.StatusBadRequest, "mode must be discovery|inventory|full", "bad_mode"
 	}
 	spec.DefaultsFor(req.Mode)
+	if req.UDP && !spec.HasModule(v1.ModuleUDP) {
+		spec.Modules = append(spec.Modules, v1.ModuleUDP)
+	}
 	if spec.Window != nil && spec.Window.TZ == "" {
 		spec.Window.TZ = site.TZ
 	}

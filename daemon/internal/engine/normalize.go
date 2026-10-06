@@ -27,8 +27,9 @@ type hostAgg struct {
 	logs     []osp.Result
 	notes    []string
 	scanned  bool // reached openvas
-	// enginePorts: openvas reported on a real port of the host or listed
-	// its open ports, so its port scanner test worked there.
+	// enginePorts: openvas reported on a TCP port of the host or listed its
+	// open TCP ports, so its port scanner test worked there. A UDP answer
+	// says nothing about that: UDP tests run without any port scan.
 	enginePorts bool
 	findings    []v1.Finding
 	errors      int
@@ -87,7 +88,7 @@ func (h *hostAgg) absorb(r osp.Result) {
 	default:
 		return
 	}
-	if p, _ := r.PortNumber(); p > 0 {
+	if p, proto := r.PortNumber(); p > 0 && proto == "tcp" {
 		h.enginePorts = true
 	}
 }
@@ -125,7 +126,7 @@ func (h *hostAgg) absorbDetail(r osp.Result) {
 		case "services":
 			h.serviceDetail(value)
 		case "ports", "tcp_ports":
-			h.enginePorts = true // the engine's own list of open ports
+			h.enginePorts = true // the engine's own list of open TCP ports
 		case "hostname":
 			if h.hostname == "" {
 				h.hostname = value

@@ -125,8 +125,12 @@ func TestInventoryRun(t *testing.T) {
 		t.Fatalf("portscan args: %q", lines[1])
 	}
 	start := f.Starts()[0]
-	if !strings.Contains(start, "<hosts>10.30.5.20</hosts>") || !strings.Contains(start, "<ports>T:445,3389,U:53,") || !strings.Contains(start, "<max_hosts>4</max_hosts>") || !strings.Contains(start, "<safe_checks>1</safe_checks>") || !strings.Contains(start, `filter="family=Service detection"`) || strings.Contains(start, "Denial of Service") {
+	if !strings.Contains(start, "<hosts>10.30.5.20</hosts>") || !strings.Contains(start, "<ports>T:445,3389</ports>") || !strings.Contains(start, "<max_hosts>4</max_hosts>") || !strings.Contains(start, "<safe_checks>1</safe_checks>") || !strings.Contains(start, `filter="family=Service detection"`) || strings.Contains(start, "Denial of Service") {
 		t.Fatalf("start_scan: %s", start)
+	}
+	// UDP is only touched by a job that asks for it.
+	if strings.Contains(start, "unscanned_closed_udp") || strings.Contains(start, "U:") {
+		t.Fatalf("start_scan enables UDP without the udp module: %s", start)
 	}
 	// Without one of its own port scanner tests openvas treats every port as
 	// closed, whatever the config's families are.
@@ -299,6 +303,83 @@ func TestBlindEngineFailsTheJob(t *testing.T) {
 		if err != nil || len(sink.batches) == 0 || !sink.batches[len(sink.batches)-1].Final {
 			t.Fatalf("%s: err=%v batches=%d", name, err, len(sink.batches))
 		}
+	}
+}
+
+func TestUDPModule(t *testing.T) {
+	snmp := osp.Result{Host: "10.30.5.99", Type: "Log Message", Port: "161/udp", TestID: "1.3.6.1.4.1.25623.1.0.10265", Name: "An SNMP Agent is running", QoD: "80", Text: "An SNMP server is running on this host."}
+	rdp := osp.Result{Host: "10.30.5.20", Type: "Log Message", Port: "3389/tcp", TestID: "1.3.6.1.4.1.25623.1.0.10330", Name: "Services", QoD: "80", Text: "A Remote Desktop Protocol (RDP) service is running on this port."}
+	run := func(site v1.SiteConfig, results []osp.Result) (*osptest.Fake, *v1.ScanStats, map[string]v1.Host, error) {
+		f := osptest.Start(t, &osptest.Fake{Script: []osptest.Step{{Progress: 100, Results: results}}})
+		e := newEngine(t, f, fakeNaabu(t, filepath.Join(t.TempDir(), "l")))
+		spec, _ := inventorySpec()
+		spec.Modules = append(spec.Modules, v1.ModuleUDP)
+		sink := &memSink{}
+		stats, err := e.Run(context.Background(), spec, site, sink)
+		hosts := map[string]v1.Host{}
+		for _, b := range sink.batches {
+			for _, h := range b.Hosts {
+				hosts[h.IP] = h // later chunks replace the interim one
+			}
+		}
+		return f, stats, hosts, err
+	}
+	hasNote := func(h v1.Host, note string) bool {
+		for _, n := range h.Notes {
+			if n == note {
+				return true
+			}
+		}
+		return false
+	}
+
+	// naabu: .20 has two TCP ports, .21 a fragile-device port, .99 none.
+	_, site := inventorySpec()
+	f, stats, hosts, err := run(site, append(blindResults("10.30.5.99"), snmp, rdp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := f.Starts()[0]
+	for _, want := range []string{"<hosts>10.30.5.20,10.30.5.99</hosts>", "<ports>T:445,3389,U:53,67,", "<unscanned_closed_udp>0</unscanned_closed_udp>"} {
+		if !strings.Contains(start, want) {
+			t.Fatalf("start_scan lacks %q: %s", want, start)
+		}
+	}
+	if stats.HostsScanned != 2 || stats.FragileExcluded != 1 {
+		t.Fatalf("stats: %+v", stats)
+	}
+	// The host without a TCP port was tested and its UDP service recorded.
+	h99 := hosts["10.30.5.99"]
+	if len(h99.Ports) != 1 || h99.Ports[0].Port != 161 || h99.Ports[0].Proto != "udp" || h99.Ports[0].Service != "snmp" {
+		t.Fatalf("udp-only host: %+v", h99.Ports)
+	}
+	if !hasNote(h99, v1.NoteUDPTested) || hasNote(h99, "openvas:skipped-no-open-ports") || !hasNote(hosts["10.30.5.20"], v1.NoteUDPTested) {
+		t.Fatalf("notes: %v / %v", h99.Notes, hosts["10.30.5.20"].Notes)
+	}
+	// A fragile device stays away from every test, UDP included.
+	if h21 := hosts["10.30.5.21"]; hasNote(h21, v1.NoteUDPTested) || !hasNote(h21, "fragile:9100") {
+		t.Fatalf("fragile host: %v", h21.Notes)
+	}
+
+	// Only hosts with TCP ports can show a blind engine: when the one such
+	// host says nothing on a port, the job fails even though UDP answered.
+	if _, _, _, err := run(site, append(blindResults("10.30.5.20"), snmp)); !errors.Is(err, ErrBlind) {
+		t.Fatalf("blind on TCP with a UDP answer: %v", err)
+	}
+	// The same when that UDP answer comes from the host itself.
+	own := snmp
+	own.Host = "10.30.5.20"
+	if _, _, _, err := run(site, append(blindResults("10.30.5.20"), own)); !errors.Is(err, ErrBlind) {
+		t.Fatalf("blind on TCP with a UDP answer from the same host: %v", err)
+	}
+	// And when no scanned host has a TCP port, silence proves nothing.
+	site.FragilePorts = []int{9100, 3389}
+	f, stats, hosts, err = run(site, blindResults("10.30.5.99"))
+	if err != nil || stats.HostsScanned != 1 || !strings.Contains(f.Starts()[0], "<hosts>10.30.5.99</hosts><ports>U:53,") {
+		t.Fatalf("udp-only job: err=%v stats=%+v start=%s", err, stats, f.Starts()[0])
+	}
+	if !hasNote(hosts["10.30.5.99"], v1.NoteUDPTested) {
+		t.Fatalf("notes: %v", hosts["10.30.5.99"].Notes)
 	}
 }
 

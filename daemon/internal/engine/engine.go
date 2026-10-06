@@ -415,12 +415,15 @@ func (r *run) openvas(ctx context.Context) (map[string]*nvt.Meta, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The udp module (v1.ModuleUDP) is the only way a host without an open
+	// TCP port reaches openvas: naabu cannot tell which UDP ports answer.
+	udp := r.spec.HasModule(v1.ModuleUDP)
 	fragile := r.fragilePorts()
-	var scanHosts []string
+	var scanHosts, withPorts []string
 	tcp := map[int]bool{}
 	for _, ip := range r.order {
 		h := r.hosts[ip]
-		if len(h.ports) == 0 {
+		if len(h.ports) == 0 && !udp {
 			h.notes = append(h.notes, "openvas:skipped-no-open-ports")
 			continue
 		}
@@ -432,6 +435,9 @@ func (r *run) openvas(ctx context.Context) (map[string]*nvt.Meta, error) {
 			}
 		}
 		scanHosts = append(scanHosts, ip)
+		if len(h.ports) > 0 {
+			withPorts = append(withPorts, ip)
+		}
 		for _, p := range h.ports {
 			if p.Proto == "tcp" {
 				tcp[p.Port] = true
@@ -452,6 +458,15 @@ func (r *run) openvas(ctx context.Context) (map[string]*nvt.Meta, error) {
 	}
 	params["max_hosts"] = strconv.Itoa(r.spec.OpenVAS.MaxHosts)
 	params["max_checks"] = strconv.Itoa(r.spec.OpenVAS.MaxChecks)
+	// openvas treats a UDP port as closed until one of its tests has
+	// port-scanned UDP, and without nmap none can. Lifting that makes every
+	// selected UDP test probe its own port on every host; the UDP part of
+	// the port list then only matters to a port scanner test, if one runs.
+	var udpPorts []int
+	if udp {
+		params["unscanned_closed_udp"] = "0"
+		udpPorts = cfg.UDPPorts
+	}
 	var excludes []string
 	excludes = append(excludes, r.spec.Excludes...)
 	excludes = append(excludes, r.site.Excludes...)
@@ -460,13 +475,13 @@ func (r *run) openvas(ctx context.Context) (map[string]*nvt.Meta, error) {
 			r.log.Warn("could not bind openvas to interface", "iface", iface, "err", err)
 		}
 	}
-	target := osp.Target{Hosts: scanHosts, Ports: openvasPortList(tcp, cfg.UDPPorts), ExcludeHosts: excludes, AliveTest: osp.AliveTestConsiderAlive}
+	target := osp.Target{Hosts: scanHosts, Ports: openvasPortList(tcp, udpPorts), ExcludeHosts: excludes, AliveTest: osp.AliveTestConsiderAlive}
 	scanID, err := r.e.OSP.StartScan(ctx, target, params, osp.VTSelection{Families: cfg.Families, OIDs: []string{scanconfig.PortScannerVT}})
 	if err != nil {
 		return nil, fmt.Errorf("openvas start_scan: %w", err)
 	}
 	r.stats.HostsScanned = len(scanHosts)
-	r.log.Info("openvas scan started", "scan_id", scanID, "hosts", len(scanHosts), "ports", target.Ports, "config", cfg.Name)
+	r.log.Info("openvas scan started", "scan_id", scanID, "hosts", len(scanHosts), "ports", target.Ports, "config", cfg.Name, "udp", udp)
 
 	failures := 0
 	for {
@@ -514,14 +529,22 @@ func (r *run) openvas(ctx context.Context) (map[string]*nvt.Meta, error) {
 		}
 	}
 
+	// Only hosts naabu found ports on can show that the engine was blind.
 	seen := 0
-	for _, ip := range scanHosts {
+	for _, ip := range withPorts {
 		if r.hosts[ip].enginePorts {
 			seen++
 		}
 	}
-	if seen == 0 {
-		return nil, fmt.Errorf("%w on any host (%d had open ports): its port scanner test did not run, or the hosts stopped answering", ErrBlind, len(scanHosts))
+	if len(withPorts) > 0 && seen == 0 {
+		return nil, fmt.Errorf("%w on any host (%d had open ports): its port scanner test did not run, or the hosts stopped answering", ErrBlind, len(withPorts))
+	}
+	if udp {
+		for _, ip := range scanHosts {
+			if h := r.hosts[ip]; h.scanned {
+				h.notes = append(h.notes, v1.NoteUDPTested)
+			}
+		}
 	}
 
 	var oids []string

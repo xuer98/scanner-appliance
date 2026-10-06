@@ -11,7 +11,7 @@ import (
 // KnownModes / KnownModules are the closed sets accepted on both sides.
 var (
 	KnownModes   = map[string]bool{ModeDiscovery: true, ModeInventory: true, ModeFull: true}
-	KnownModules = map[string]bool{ModuleDiscovery: true, ModulePortscan: true, ModuleOpenVAS: true, ModuleWeb: true, ModuleFingerprint: true}
+	KnownModules = map[string]bool{ModuleDiscovery: true, ModulePortscan: true, ModuleOpenVAS: true, ModuleWeb: true, ModuleFingerprint: true, ModuleUDP: true}
 )
 
 // DefaultsFor fills a spec's mode-dependent fields (PLAN §10.5, §11).
@@ -112,8 +112,11 @@ func (j *JobSpec) ValidateShape() error {
 		}
 		seen[m] = true
 	}
-	if j.Mode == ModeDiscovery && (seen[ModuleOpenVAS] || seen[ModuleWeb] || seen[ModuleFingerprint]) {
-		return errors.New("discovery mode cannot run openvas, web or fingerprint modules")
+	if j.Mode == ModeDiscovery && (seen[ModuleOpenVAS] || seen[ModuleWeb] || seen[ModuleFingerprint] || seen[ModuleUDP]) {
+		return errors.New("discovery mode cannot run openvas, web, fingerprint or udp modules")
+	}
+	if seen[ModuleUDP] && !seen[ModuleOpenVAS] {
+		return errors.New("udp module needs the openvas module (it adds UDP tests to that phase)")
 	}
 	if seen[ModuleOpenVAS] {
 		if j.OpenVAS == nil {

@@ -5,6 +5,7 @@ package v1
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -255,7 +256,19 @@ const (
 	// control plane refuses the module until the legal sign-off is recorded
 	// (AdminSignoffRequest) and the appliance skips it when nmap is absent.
 	ModuleFingerprint = "fingerprint"
+	// ModuleUDP adds UDP tests to the openvas phase. It is never part of a
+	// mode's defaults: openvas has no UDP port scanner of its own, so the
+	// only way to run its UDP tests is to let each of them probe its
+	// well-known port on every host, whether or not anything listens. That
+	// is slower and reaches ports no port scan pinned, so a job has to ask
+	// for it. Hosts without an open TCP port are tested too in such a job.
+	ModuleUDP = "udp"
 )
+
+// NoteUDPTested is the host note the appliance sets when the UDP tests ran
+// against the host. Without it the control plane keeps the UDP ports it
+// already knows, because the scan could not have seen them.
+const NoteUDPTested = "openvas:udp"
 
 // Port presets for the portscan module; anything else is an explicit
 // comma-separated list of ports and ranges (e.g. "22,80,443,8000-8100").
@@ -962,6 +975,8 @@ type AdminJobRequest struct {
 	// Fingerprint (Phase 5) enables the nmap pass with these parameters;
 	// after the legal sign-off full-mode jobs include it by default.
 	Fingerprint *FingerprintParams `json:"fingerprint,omitempty"`
+	// UDP adds the udp module to the job's modules (see ModuleUDP).
+	UDP bool `json:"udp,omitempty"`
 }
 
 type AdminJobView struct {
@@ -1224,6 +1239,21 @@ const (
 	ScopeFull      = "full"
 	ScopeWeb       = "web"
 )
+
+// UDPScope is the scope of a finding that only a job with the udp module
+// and that openvas config is known to see, so only such a job may resolve
+// it. It holds for a finding on a UDP port, for one on a host that has no
+// open TCP port, and for one that rests on something UDP revealed, such as
+// a product version read over SNMP.
+func UDPScope(config string) string { return config + udpScopeSuffix }
+
+// SplitScope undoes UDPScope: the openvas config and whether the udp module
+// is needed.
+func SplitScope(scope string) (config string, udp bool) {
+	return strings.CutSuffix(scope, udpScopeSuffix)
+}
+
+const udpScopeSuffix = "+udp"
 
 // SourceExternal marks a host only an external scanner has seen.
 const SourceExternal = "external"

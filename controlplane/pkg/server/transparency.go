@@ -106,6 +106,7 @@ func (s *Server) transparencyData(ctx context.Context) transparencyData {
 			"discovery: ARP / ICMP / TCP-SYN probes to 3 ports on the attested ranges (naabu)",
 			"port scan: TCP SYN scan of the top ~1000 ports plus warehouse/OT ports on live hosts (naabu); a job may ask for all 65535 ports, which is only accepted when it fits the agreed window at the agreed packet rate",
 			"detection: openvas re-checks the ports the port scan found with its own SYN scan, then runs service and product detection plus the vulnerability-test families of the selected scan config on those ports",
+			"UDP tests (only in jobs that ask for them, never by default): openvas has no UDP port scan to pin a list from, so each of its UDP tests probes its own well-known port on every host in scope, including hosts with no open TCP port; in our lab that was about 90 UDP ports and 1,300 datagrams per host, most of them SNMP requests that try about 170 common community names",
 			fingerprintPhase,
 			"web add-on (full scans only): httpx fingerprint of HTTP services, then nuclei HTTP templates at medium severity and above",
 		},

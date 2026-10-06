@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,6 +54,7 @@ func TestStoreConformance(t *testing.T) {
 			opsScenario(t, ctx, st, site, apl)
 			pilotScenario(t, ctx, st, site, apl)
 			replaceScenario(t, ctx, st, site, apl)
+			udpScenario(t, ctx, st, vendor, apl)
 		})
 	}
 }
@@ -910,6 +914,124 @@ func replaceScenario(t *testing.T, ctx context.Context, st Store, site *Site, ap
 		t.Fatal("lock not released")
 	}
 	release2()
+}
+
+// udpScenario: the UDP tests only run in jobs with the udp module. What
+// such a job finds is resolvable only by such a job until a job without
+// the module has seen it too, and its UDP ports outlast jobs that could
+// not have seen them.
+func udpScenario(t *testing.T, ctx context.Context, st Store, vendor *Vendor, apl *Appliance) {
+	t.Helper()
+	site, err := st.EnsureSite(ctx, vendor.ID, "UDP lab", []string{"10.40.0.0/16"}, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 6, 8, 0, 0, 0, time.UTC)
+	n := 0
+	// scan ingests one final chunk for the host and resolves with the scopes
+	// a job of that kind covers; it returns the names it fixed.
+	scan := func(config string, udp bool, ports []v1.Port, findings ...v1.Finding) string {
+		t.Helper()
+		n++
+		at := now.Add(time.Duration(n) * time.Hour)
+		j := &Job{ID: fmt.Sprintf("job_u%d", n), SiteID: site.ID, ApplianceID: apl.ID, Status: v1.JobRunning, StartedAt: &at}
+		j.Spec.DefaultsFor(v1.ModeInventory)
+		if err := st.CreateJob(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+		host := v1.Host{IP: "10.40.0.9", Ports: ports, Findings: findings}
+		scopes := []string{v1.ScopeInventory}
+		if config == v1.ScopeFull {
+			scopes = append(scopes, v1.ScopeFull)
+		}
+		if udp {
+			host.Notes = []string{v1.NoteUDPTested}
+			for _, sc := range append([]string{}, scopes...) {
+				scopes = append(scopes, v1.UDPScope(sc))
+			}
+		}
+		if _, err := st.IngestScan(ctx, ScanIngest{SiteID: site.ID, JobID: j.ID, FeedVersion: "f1", At: at.Add(time.Minute), Scope: config, Hosts: []v1.Host{host}}); err != nil {
+			t.Fatal(err)
+		}
+		fixed, err := st.ResolveFindings(ctx, site.ID, j.ID, scopes, at, at.Add(2*time.Minute))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, f := range fixed {
+			names = append(names, f.Name)
+		}
+		sort.Strings(names)
+		return strings.Join(names, ",")
+	}
+	// state renders the host's UDP ports and every finding as name=scope/status.
+	state := func() string {
+		t.Helper()
+		var host *Host
+		for _, h := range must(st.ListHosts(ctx, site.ID)) {
+			if h.IP == "10.40.0.9" {
+				host = h
+			}
+		}
+		if host == nil {
+			t.Fatal("host missing")
+		}
+		var out []string
+		for _, p := range host.Ports {
+			if p.Proto == "udp" {
+				out = append(out, fmt.Sprintf("%d/udp:%s", p.Port, p.Service))
+			}
+		}
+		for _, f := range must(st.ListFindings(ctx, site.ID, host.ID)) {
+			out = append(out, fmt.Sprintf("%s=%s/%s", f.Name, f.Scope, f.Status))
+		}
+		sort.Strings(out)
+		return strings.Join(out, " ")
+	}
+	expect := func(step, fixed, wantFixed, want string) {
+		t.Helper()
+		if got := state(); fixed != wantFixed || got != want {
+			t.Fatalf("%s:\n fixed %q, want %q\n state %s\n  want %s", step, fixed, wantFixed, got, want)
+		}
+	}
+	dns := v1.Finding{Source: "openvas", NVTOID: "1.3.6.1.4.1.25623.1.0.9001", Name: "dns", Severity: v1.SeverityMedium, CVSS: 5.0, QoD: 80, Port: 53, Proto: "tcp"}
+	snmp := v1.Finding{Source: "openvas", NVTOID: "1.3.6.1.4.1.25623.1.0.9002", Name: "snmp", Severity: v1.SeverityHigh, CVSS: 7.5, QoD: 99, Port: 161, Proto: "udp"}
+	ntp := v1.Finding{Source: "openvas", NVTOID: "1.3.6.1.4.1.25623.1.0.9003", Name: "ntp", Severity: v1.SeverityMedium, CVSS: 5.0, QoD: 80, Port: 123, Proto: "udp"}
+	// A version read over SNMP puts this one on no port at all.
+	gear := v1.Finding{Source: "openvas", NVTOID: "1.3.6.1.4.1.25623.1.0.9004", Name: "gear", Severity: v1.SeverityHigh, CVSS: 8.0, QoD: 80, Port: 0, Proto: "tcp"}
+	tcp53 := v1.Port{Port: 53, Proto: "tcp", Service: "dns", Source: "naabu"}
+	udp161 := v1.Port{Port: 161, Proto: "udp", Service: "snmp", Source: "openvas:find_service"}
+	udp123 := v1.Port{Port: 123, Proto: "udp", Service: "ntp", Source: "openvas:find_service"}
+
+	// A full job with the udp module: everything it finds is, for now,
+	// only known to be visible to such a job.
+	fixed := scan(v1.ScopeFull, true, []v1.Port{tcp53, udp161, udp123}, dns, snmp, ntp, gear)
+	expect("full+udp", fixed, "", "123/udp:ntp 161/udp:snmp dns=full+udp/open gear=full+udp/open ntp=full+udp/open snmp=full+udp/open")
+
+	// An inventory job with the module sees two of them again: those become
+	// resolvable by such a job. It did not look for the other two.
+	fixed = scan(v1.ScopeInventory, true, []v1.Port{tcp53, udp161, udp123}, dns, snmp)
+	expect("inventory+udp", fixed, "", "123/udp:ntp 161/udp:snmp dns=inventory+udp/open gear=full+udp/open ntp=full+udp/open snmp=inventory+udp/open")
+
+	// A plain full job tests no UDP port and reads nothing over SNMP. It
+	// sees the TCP finding, which a plain inventory job is still not known
+	// to see, so that scope stays. The UDP ports stay, and nothing that
+	// needed UDP is resolved, the portless finding included.
+	fixed = scan(v1.ScopeFull, false, []v1.Port{tcp53}, dns)
+	expect("plain full", fixed, "", "123/udp:ntp 161/udp:snmp dns=inventory+udp/open gear=full+udp/open ntp=full+udp/open snmp=inventory+udp/open")
+
+	// A plain inventory job sees it: from now on any inventory job resolves it.
+	fixed = scan(v1.ScopeInventory, false, []v1.Port{tcp53}, dns)
+	expect("plain inventory", fixed, "", "123/udp:ntp 161/udp:snmp dns=inventory/open gear=full+udp/open ntp=full+udp/open snmp=inventory+udp/open")
+
+	// An inventory job with the module finds SNMP gone: the port goes and
+	// its finding is fixed. The two a full config found are not its to judge.
+	fixed = scan(v1.ScopeInventory, true, []v1.Port{tcp53, udp123}, dns)
+	expect("inventory+udp, snmp gone", fixed, "snmp", "123/udp:ntp dns=inventory/open gear=full+udp/open ntp=full+udp/open snmp=inventory+udp/fixed")
+
+	// A full job with the module no longer finds those two either.
+	fixed = scan(v1.ScopeFull, true, []v1.Port{tcp53}, dns)
+	expect("full+udp, all gone", fixed, "gear,ntp", "dns=inventory/open gear=full+udp/fixed ntp=full+udp/fixed snmp=inventory+udp/fixed")
 }
 
 func must[T any](v T, err error) T {

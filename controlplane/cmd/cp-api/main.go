@@ -82,6 +82,7 @@ func usage() {
   admin get|directives|revoke ID ; admin directive ID TYPE [JSON]
   admin create-job --appliance ID --mode discovery|inventory|full --targets a/b[,..] [--excludes ..] [--ports standard|full|list]
                    [--cron "0 22 * * 6" --tz TZ --max-duration S] [--pps N] [--max-hosts N --max-checks N] [--now]
+                   [--udp]   (also run the engine's UDP tests: off by default, slower, probes well-known UDP ports on every host; in a schedule add "udp" to --modules)
   admin jobs [--appliance ID] [--site ID] | job ID | cancel-job ID | run-now ID | job-hosts ID
   admin sites | site ID | site-update ID [--cidrs ..] [--excludes ..] [--fragile-ports ..] [--max-pps N] [--max-concurrency N] [--unsafe-ok B] [--allow-public B]
   admin hosts SITE | findings SITE | agent-inventory SITE FILE.json
@@ -460,6 +461,7 @@ func adminCmd(args []string) error {
 	statusFilter := fs.String("status", "", "filter: pending|approved|rejected (scope-requests)")
 	modules := fs.String("modules", "", "comma-separated module list overriding the mode default (create-job, create-schedule, schedule-update)")
 	fingerprintOn := fs.Bool("fingerprint", false, "add the nmap fingerprint pass to the job (needs the recorded legal sign-off)")
+	udpOn := fs.Bool("udp", false, "add the udp module to the job: the engine's UDP tests, on every host in scope including those with no open TCP port (create-job)")
 	fpIntensity := fs.Int("fingerprint-intensity", 5, "nmap --version-intensity 0..9 (with --fingerprint)")
 	noOSDetect := fs.Bool("no-os-detection", false, "skip nmap -O in the fingerprint pass (with --fingerprint)")
 	reference := fs.String("reference", "", "legal review reference (signoff)")
@@ -535,7 +537,7 @@ func adminCmd(args []string) error {
 			return errors.New("--appliance, --mode and --targets required")
 		}
 		req := v1.AdminJobRequest{ApplianceID: *appliance, Mode: *mode, Targets: splitCSV(*targets), Excludes: splitCSV(*excludes), Ports: *ports, AllowPublic: *allowPublic,
-			Modules: splitCSV(*modules)}
+			Modules: splitCSV(*modules), UDP: *udpOn}
 		if *fingerprintOn {
 			req.Fingerprint = &v1.FingerprintParams{OSDetection: !*noOSDetect, Intensity: *fpIntensity}
 		}

@@ -104,7 +104,8 @@ func jobScope(job *store.Job) string {
 }
 
 // jobScopes lists the finding scopes a completed job can resolve: a full
-// scan covers inventory findings too; the web module covers web findings.
+// scan covers inventory findings too; the web module covers web findings;
+// findings on UDP ports are covered only when the job ran the udp module.
 func jobScopes(job *store.Job) []string {
 	var out []string
 	switch jobScope(job) {
@@ -112,6 +113,11 @@ func jobScopes(job *store.Job) []string {
 		out = append(out, v1.ScopeInventory, v1.ScopeFull)
 	case v1.ScopeInventory:
 		out = append(out, v1.ScopeInventory)
+	}
+	if job.Spec.HasModule(v1.ModuleUDP) {
+		for _, sc := range append([]string{}, out...) {
+			out = append(out, v1.UDPScope(sc))
+		}
 	}
 	if job.Spec.HasModule(v1.ModuleWeb) {
 		out = append(out, v1.ScopeWeb)

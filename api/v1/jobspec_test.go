@@ -61,3 +61,38 @@ func TestFingerprintModuleShape(t *testing.T) {
 		t.Fatalf("zero-value Phase 5 fields leaked into the signed bytes: %s", b)
 	}
 }
+
+func TestUDPModuleShape(t *testing.T) {
+	for _, mode := range []string{ModeInventory, ModeFull} {
+		s := JobSpec{JobID: "j", SiteID: "s", ApplianceID: "a", Targets: []string{"10.0.0.0/24"}}
+		s.DefaultsFor(mode)
+		// Never a default: a job has to ask for it.
+		if s.HasModule(ModuleUDP) {
+			t.Fatalf("%s runs udp by default", mode)
+		}
+		before, _ := s.SigningBytes()
+		s.Modules = append(s.Modules, ModuleUDP)
+		if err := s.ValidateShape(); err != nil {
+			t.Fatalf("%s with udp rejected: %v", mode, err)
+		}
+		// The choice is part of what the control plane signs.
+		after, _ := s.SigningBytes()
+		if string(before) == string(after) || !strings.Contains(string(after), `"udp"`) {
+			t.Fatalf("%s: udp is not covered by the signature", mode)
+		}
+	}
+	// It adds tests to the openvas phase, so it needs that phase.
+	s := JobSpec{JobID: "j", SiteID: "s", ApplianceID: "a", Targets: []string{"10.0.0.0/24"}, Modules: []string{ModuleDiscovery, ModulePortscan, ModuleUDP}}
+	s.DefaultsFor(ModeInventory)
+	if err := s.ValidateShape(); err == nil || !strings.Contains(err.Error(), "udp module needs the openvas module") {
+		t.Fatalf("udp without openvas: %v", err)
+	}
+	d := JobSpec{JobID: "j", SiteID: "s", ApplianceID: "a", Targets: []string{"10.0.0.0/24"}, Modules: []string{ModuleDiscovery, ModuleUDP}}
+	d.DefaultsFor(ModeDiscovery)
+	if err := d.ValidateShape(); err == nil || !strings.Contains(err.Error(), "discovery mode") {
+		t.Fatalf("udp in discovery mode: %v", err)
+	}
+	if UDPScope(ScopeInventory) == ScopeInventory || UDPScope(ScopeInventory) == UDPScope(ScopeFull) {
+		t.Fatal("udp scopes must differ from the plain scopes and from each other")
+	}
+}

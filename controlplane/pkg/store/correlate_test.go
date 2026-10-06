@@ -145,7 +145,7 @@ func TestMergePorts(t *testing.T) {
 		{Port: 8080, Proto: "tcp", Service: "https", Source: "naabu"},
 		{Port: 445, Proto: "tcp", Source: "naabu"},
 	}
-	got := mergePorts(prev, cur)
+	got := mergePorts(prev, cur, false)
 	if len(got) != 3 {
 		t.Fatalf("ports: %+v", got)
 	}
@@ -157,6 +157,23 @@ func TestMergePorts(t *testing.T) {
 	}
 	if got[2].Port != 445 || got[2].Service != "" {
 		t.Fatalf("new port: %+v", got[2])
+	}
+
+	// UDP ports are only seen by the UDP tests. An observation without them
+	// (udp false) carries the known ones over; one with them decides.
+	snmp := v1.Port{Port: 161, Proto: "udp", Service: "snmp", Product: "Net-SNMP", Source: "openvas:product_detection"}
+	ntp := v1.Port{Port: 123, Proto: "udp", Service: "ntp", Source: "openvas:find_service"}
+	prev = append(prev, snmp, ntp)
+	if got := mergePorts(prev, cur, false); len(got) != 5 || got[3] != snmp || got[4] != ntp {
+		t.Fatalf("udp ports not carried over by a scan that tested no udp: %+v", got)
+	}
+	got = mergePorts(prev, append(append([]v1.Port{}, cur...), v1.Port{Port: 161, Proto: "udp", Source: "openvas:find_service"}), true)
+	if len(got) != 4 || got[3].Port != 161 || got[3].Product != "Net-SNMP" || got[3].Service != "snmp" {
+		t.Fatalf("udp ports after a scan that tested udp: %+v", got)
+	}
+	// Same number, other protocol: a TCP port does not stand in for the UDP one.
+	if got := mergePorts([]v1.Port{{Port: 53, Proto: "udp", Service: "dns"}}, []v1.Port{{Port: 53, Proto: "tcp"}}, false); len(got) != 2 || got[0].Service != "" || got[1].Proto != "udp" {
+		t.Fatalf("tcp and udp 53: %+v", got)
 	}
 	for _, p := range got {
 		if p.Port == 23 {

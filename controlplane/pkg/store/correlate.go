@@ -184,13 +184,13 @@ func (ix *siteIndex) ingestAppliance(jobID string, in []v1.Host, feedVersion str
 			g := *ih.OSGuess
 			h.OSGuess = &g
 		}
-		h.Ports = mergePorts(h.Ports, ih.Ports)
+		h.Ports = mergePorts(h.Ports, ih.Ports, udpTested(ih.Notes))
 		h.Notes = append([]string{}, ih.Notes...)
 		h.LastJobID = jobID
 		h.LastSeen = at
 		ix.touch(h)
 		touchedIDs = append(touchedIDs, h.ID)
-		ix.applianceFindings(&sum, h, ih.Findings, jobID, feedVersion, at, scope)
+		ix.applianceFindings(&sum, h, ih.Findings, jobID, feedVersion, at, scope, udpTested(ih.Notes))
 	}
 	sum.Suppressed = ix.suppressed
 	return sum, touchedIDs
@@ -198,15 +198,52 @@ func (ix *siteIndex) ingestAppliance(jobID string, in []v1.Host, feedVersion str
 
 // findingScope is the lifecycle scope of a new appliance finding: the web
 // add-on for nuclei matches, else the job's openvas config, else full
-// (only a full scan may resolve a finding of unknown scope).
-func findingScope(inf v1.Finding, scope string) string {
+// (only a full scan may resolve a finding of unknown scope). When the UDP
+// tests ran against the host (udp) it is the UDP variant of that scope:
+// until a scan without them has seen the finding, nothing shows that such
+// a scan can, so it must not resolve it.
+func findingScope(inf v1.Finding, scope string, udp bool) string {
 	if inf.Source == "nuclei" || (inf.ID != "" && inf.NVTOID == "") {
 		return v1.ScopeWeb
 	}
 	if scope == "" {
-		return v1.ScopeFull
+		scope = v1.ScopeFull
+	}
+	if udp {
+		return v1.UDPScope(scope)
 	}
 	return scope
+}
+
+// weakerScope reports whether a scan of kind a asks for less than one of
+// kind b: no larger openvas config (inventory before full) and no udp
+// module where b has none. A finding such a scan has seen is resolvable by
+// one. Scopes outside the openvas configs (web, external scanners) are
+// never comparable.
+func weakerScope(a, b string) bool {
+	rank := func(config string) int {
+		switch config {
+		case v1.ScopeInventory:
+			return 1
+		case v1.ScopeFull:
+			return 2
+		}
+		return 0
+	}
+	ac, au := v1.SplitScope(a)
+	bc, bu := v1.SplitScope(b)
+	return a != b && rank(ac) > 0 && rank(bc) > 0 && rank(ac) <= rank(bc) && (!au || bu)
+}
+
+// udpTested reports whether the appliance ran its UDP tests against the
+// host in the chunk at hand.
+func udpTested(notes []string) bool {
+	for _, n := range notes {
+		if n == v1.NoteUDPTested {
+			return true
+		}
+	}
+	return false
 }
 
 // noteNew records a created finding in the summary.
@@ -244,7 +281,9 @@ func reopen(f *Finding, at time.Time) {
 // HTTP fingerprint) is kept when the new observation has none for it, so a
 // discovery-only or port-scan-only job does not erase what an inventory or
 // fingerprint pass found (Phase 5 depth; the feed-gap report reads it).
-func mergePorts(prev, cur []v1.Port) []v1.Port {
+// UDP ports are only ever seen by the UDP tests, so without them (udp
+// false) the ones already known are carried over as they are.
+func mergePorts(prev, cur []v1.Port, udp bool) []v1.Port {
 	old := make(map[string]v1.Port, len(prev))
 	for _, p := range prev {
 		old[fmt.Sprintf("%s/%d", p.Proto, p.Port)] = p
@@ -272,6 +311,19 @@ func mergePorts(prev, cur []v1.Port) []v1.Port {
 		}
 		out = append(out, p)
 	}
+	if !udp {
+		seen := make(map[int]bool, len(cur))
+		for _, p := range cur {
+			if p.Proto == "udp" {
+				seen[p.Port] = true
+			}
+		}
+		for _, p := range prev {
+			if p.Proto == "udp" && !seen[p.Port] {
+				out = append(out, p)
+			}
+		}
+	}
 	return out
 }
 
@@ -291,7 +343,7 @@ func findingKey(f *Finding) string {
 	return findingIdent(f.NVTOID, f.TemplateID) + "|" + f.Proto + ":" + fmt.Sprint(f.Port)
 }
 
-func (ix *siteIndex) applianceFindings(sum *IngestSummary, h *Host, in []v1.Finding, jobID, feedVersion string, at time.Time, scope string) {
+func (ix *siteIndex) applianceFindings(sum *IngestSummary, h *Host, in []v1.Finding, jobID, feedVersion string, at time.Time, scope string, udp bool) {
 	for _, inf := range in {
 		sum.Findings++
 		ev := v1.Evidence{Source: inf.Source, JobID: jobID, At: at, QoD: inf.QoD, Detail: inf.Evidence}
@@ -318,7 +370,7 @@ func (ix *siteIndex) applianceFindings(sum *IngestSummary, h *Host, in []v1.Find
 			f := &Finding{ID: NewID("fnd"), HostID: h.ID, Source: inf.Source, NVTOID: inf.NVTOID, TemplateID: inf.ID, Name: inf.Name, Family: inf.Family,
 				Severity: inf.Severity, CVSS: inf.CVSS, CVE: append([]string{}, inf.CVE...), QoD: inf.QoD, Port: inf.Port, Proto: inf.Proto,
 				Solution: inf.Solution, Evidence: []v1.Evidence{ev}, FeedVersion: feedVersion, FirstSeen: at, LastSeen: at,
-				Status: v1.FindingOpen, Scope: findingScope(inf, scope)}
+				Status: v1.FindingOpen, Scope: findingScope(inf, scope, udp)}
 			f.State = v1.FindingNetworkObserved
 			if inf.QoD < QoDConfirmed {
 				f.State = v1.FindingSuspected
@@ -335,9 +387,11 @@ func (ix *siteIndex) applianceFindings(sum *IngestSummary, h *Host, in []v1.Find
 			continue
 		}
 		reopen(target, at)
-		if target.Scope == "" || (target.Scope == v1.ScopeFull && scope == v1.ScopeInventory && inf.Source != "nuclei") {
-			// A finding an inventory scan can see is resolvable by one.
-			target.Scope = findingScope(inf, scope)
+		if seenBy := findingScope(inf, scope, udp); target.Scope == "" || weakerScope(seenBy, target.Scope) {
+			// A finding a lesser scan can see is resolvable by one: an
+			// inventory scan rather than a full one, a scan without the UDP
+			// tests rather than one with them.
+			target.Scope = seenBy
 		}
 		if excluded && target.Review == "" {
 			target.Review, target.ReviewedBy, target.ReviewReason, target.ReviewedAt = v1.ReviewFalsePositive, "policy", "site exclusion", &at

@@ -19,13 +19,16 @@ import (
 type Config struct {
 	Name     string   `json:"name"`
 	Families []string `json:"families"`
-	// UDPPorts is the small UDP set openvas may probe (naabu is TCP-only).
+	// UDPPorts is the UDP part of the port list in a job that runs the udp
+	// module, and unused otherwise. It bounds a UDP port scan when openvas
+	// can run one (its nmap wrapper); it does not bound the UDP tests
+	// themselves, which probe their own well-known ports.
 	UDPPorts []int `json:"udp_ports"`
 	// Params are scanner_params sent with every scan of this config.
 	Params map[string]string `json:"params"`
 }
 
-// UDPSmallSet is the default UDP probe list.
+// UDPSmallSet is the default UDPPorts.
 var UDPSmallSet = []int{53, 67, 69, 111, 123, 137, 161, 162, 500, 514, 520, 1434, 1900, 4500, 5353}
 
 // DetectionFamilies are always part of a scan: they feed service/product/OS

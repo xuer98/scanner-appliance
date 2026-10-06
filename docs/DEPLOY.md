@@ -329,6 +329,14 @@ until a human clears them. A job stops by itself at its maximum duration,
 and our operators can halt a running scan at any time (the *stop_all*
 control), which ends the probes within seconds.
 
+UDP checks are not part of any mode and run only in a job that asks for
+them. The detection engine cannot limit them to a port list: each UDP check
+probes its own well-known port on every host in the job's ranges, including
+hosts with no open TCP port. In our lab that was about 90 UDP ports and
+1,300 datagrams per host, most of them SNMP requests that try about 170
+common community names, and the scan took about 1.7 times as long. Devices
+kept out of the vulnerability checks are kept out of these as well.
+
 Results (open ports, detected services, operating-system guess, findings
 with their detection confidence) are encrypted on the appliance before they
 are written to disk and uploaded over the same mutually authenticated
