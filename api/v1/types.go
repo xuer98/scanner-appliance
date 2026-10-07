@@ -940,17 +940,29 @@ type AdminPublishBundleRequest struct {
 	CanaryHours float64 `json:"canary_hours,omitempty"`
 }
 
+// AdminPublishBundleResponse answers a publish. 201 carries the new bundle.
+// 200 with Unchanged set means nothing was published: the newest bundle,
+// the one described, already carries exactly these files, and a second
+// name for them would only make every appliance fetch the file list again.
+type AdminPublishBundleResponse struct {
+	AdminBundleView
+	Unchanged bool `json:"unchanged,omitempty"`
+}
+
 // AdminBundleView describes one published bundle.
 type AdminBundleView struct {
-	Version     string     `json:"version"`
-	FeedVersion string     `json:"feed_version"`
-	Files       int        `json:"files"`
-	Bytes       int64      `json:"bytes"`
-	SHA256      string     `json:"sha256"`
-	Status      string     `json:"status"`
-	HeldReason  string     `json:"held_reason,omitempty"`
-	PublishedAt time.Time  `json:"published_at"`
-	CanaryUntil *time.Time `json:"canary_until,omitempty"`
+	Version     string `json:"version"`
+	FeedVersion string `json:"feed_version"`
+	Files       int    `json:"files"`
+	Bytes       int64  `json:"bytes"`
+	SHA256      string `json:"sha256"`
+	// ContentSHA256 names the set of files, whatever the bundle is called:
+	// equal for two bundles that install the same bytes at the same paths.
+	ContentSHA256 string     `json:"content_sha256,omitempty"`
+	Status        string     `json:"status"`
+	HeldReason    string     `json:"held_reason,omitempty"`
+	PublishedAt   time.Time  `json:"published_at"`
+	CanaryUntil   *time.Time `json:"canary_until,omitempty"`
 	// Appliances on this bundle / total enrolled, for the rollout view.
 	Installed int `json:"installed"`
 	Fleet     int `json:"fleet"`

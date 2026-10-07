@@ -532,7 +532,9 @@ if [ "$ROLLED_BACK" = "0" ] && [ "$STARTS" -ge 3 ] && [ -n "$PREV" ] && [ -f "$P
   ROLLED_BACK=1
   REASON="rolled back after $STARTS failed starts"
 fi
-q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\''/g")"; }
+# q quotes a value the way the daemon reads it back: ' becomes '\''. The
+# backslash is doubled twice, once for the double quotes and once for sed.
+q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 {
   printf 'VERSION=%s\n' "$(q "$VERSION")"
   printf 'PREV_VERSION=%s\n' "$(q "$PREV_VERSION")"

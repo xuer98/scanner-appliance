@@ -66,6 +66,15 @@ const (
 	FeedInfoFile = "plugin_feed_info.inc"
 )
 
+// FeedChecksumFiles are Greenbone's own list of checksums and its
+// signature, at the top of the feed. `cp-api feed sync` checks the mirror
+// against them; they do not travel in a bundle. The list names every
+// script, so it changes with every feed release and was 10.6 MB of a daily
+// update whose scripts came to 0.35 MB. On the appliance the engine never
+// opens it (nasl_no_signature_check = yes): there every file is checked
+// against the signed manifest instead.
+var FeedChecksumFiles = []string{"sha256sums", "sha256sums.asc"}
+
 // Bytes returns the total size.
 func (m *Manifest) Bytes() int64 {
 	var n int64
@@ -73,6 +82,20 @@ func (m *Manifest) Bytes() int64 {
 		n += f.Size
 	}
 	return n
+}
+
+// ContentDigest identifies the set of files, whatever the bundle is called
+// and whenever it was built: two manifests with the same digest install the
+// same bytes at the same paths. The daily build uses it to tell a day
+// without changes from a day with some.
+func (m *Manifest) ContentDigest() string {
+	files := append([]File(nil), m.Files...)
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	h := sha256.New()
+	for _, f := range files {
+		fmt.Fprintf(h, "%s\x00%s\x00%d\n", f.Path, strings.ToLower(f.SHA256), f.Size)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Index maps path → file.

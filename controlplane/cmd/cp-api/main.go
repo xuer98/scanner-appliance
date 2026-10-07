@@ -89,7 +89,8 @@ func usage() {
   admin hosts SITE | findings SITE | agent-inventory SITE FILE.json
   admin site-update ID --lan-routes 10.31.0.0/16@10.30.5.1[,..]|none      (split-network floors, PLAN §15)
   feed sync --dest DIR [--source rsync://…] [--gpg-keyring FILE]          (mirror the Greenbone Community Feed)
-  bundle build --out DIR --feed DIR [--nuclei-templates DIR] [--version V] --key release-key.pem
+  bundle build --out DIR --feed DIR [--nuclei-templates DIR [--nuclei BIN]] [--version V] --key release-key.pem
+                   (--nuclei: the nuclei the appliance image carries; templates it cannot load are left out)
   admin publish-bundle --dir DIR [--canary-hours H] | bundles | rollout bundle VERSION canary|released|held|retired [--reason R]
   admin publish-release --file BIN --component applianced-linux-amd64 --version V --key release-key.pem [--canary-hours H]
   admin releases | rollout release COMPONENT VERSION STATUS | set-canary ID true|false
@@ -489,6 +490,7 @@ func adminCmd(args []string) error {
 	if err != nil {
 		return err
 	}
+	cl.Timeout = adminTimeout(sub)
 	callRaw := func(method, path string, body io.Reader, headers map[string]string) (int, []byte, error) {
 		req, err := http.NewRequest(method, strings.TrimRight(*base, "/")+path, body)
 		if err != nil {
@@ -1019,6 +1021,17 @@ func parseInterleaved(fs *flag.FlagSet, args []string) ([]string, error) {
 		rest = append(rest, args[0])
 		args = args[1:]
 	}
+}
+
+// adminTimeout bounds one admin request. The publish commands upload a
+// daemon binary or the manifest of the full feed, 16 MB in one request:
+// in thirty seconds that needs a link of 4 Mbit/s and a server that
+// answers at once.
+func adminTimeout(sub string) time.Duration {
+	if sub == "publish-bundle" || sub == "publish-release" {
+		return 15 * time.Minute
+	}
+	return 30 * time.Second
 }
 
 func adminClient(rootCA string, insecure bool) (*http.Client, error) {

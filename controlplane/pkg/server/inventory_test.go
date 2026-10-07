@@ -200,8 +200,9 @@ func TestSkippedWebPhaseFixesNothing(t *testing.T) {
 		t.Fatalf("a skipped web phase closed findings: %s", got)
 	}
 	// A weekly job without the default-login checks finds the traversal
-	// gone. It did not try the login, so that one stays.
-	run(false, nil)
+	// gone. It did not try the login, so that one stays. A few templates
+	// that did not load do not make the phase one that did not look.
+	run(false, []string{"nuclei: 8 templates did not load"})
 	if got := state(); got != "web/fixed web+logins/open" {
 		t.Fatalf("after a plain web job: %s", got)
 	}

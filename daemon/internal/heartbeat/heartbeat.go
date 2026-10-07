@@ -90,7 +90,10 @@ type Loop struct {
 	pollNow   bool
 
 	// Phase 3
-	results         chan updateResult
+	results chan updateResult
+	// wake ends the wait between two beats when an update finishes, so its
+	// outcome is reported, and jobs resume, at once and not an interval later.
+	wake            chan struct{}
 	busy            string
 	stop            chan struct{}
 	restart         bool
@@ -114,6 +117,7 @@ func (l *Loop) init() {
 	}
 	if l.results == nil {
 		l.results = make(chan updateResult, 8)
+		l.wake = make(chan struct{}, 1)
 		l.stop = make(chan struct{})
 	}
 }
@@ -143,13 +147,7 @@ func (l *Loop) Run(ctx context.Context) {
 			}
 			continue
 		}
-		l.stateName = StateIdle
-		if l.Jobs != nil && !l.Jobs.Idle() {
-			l.stateName = StateScanning
-		}
-		if l.busy != "" {
-			l.stateName = StateUpdating
-		}
+		l.stateName = l.runState()
 		wait := l.tick(ctx, st)
 		if !l.wait(ctx, wait) {
 			return
@@ -203,6 +201,17 @@ func (l *Loop) interval(st *state.State) time.Duration {
 	return d
 }
 
+// runState names what the appliance is doing right now.
+func (l *Loop) runState() string {
+	switch {
+	case l.busy != "":
+		return StateUpdating
+	case l.Jobs != nil && !l.Jobs.Idle():
+		return StateScanning
+	}
+	return StateIdle
+}
+
 // tick sends one heartbeat and returns how long to wait before the next.
 func (l *Loop) tick(ctx context.Context, st *state.State) time.Duration {
 	base := l.interval(st)
@@ -211,6 +220,9 @@ func (l *Loop) tick(ctx context.Context, st *state.State) time.Duration {
 			l.Log.Error("save", "err", err)
 		}
 	}
+	// An update that just finished is over: this beat must not call the
+	// appliance "updating" while it carries the new bundle version.
+	l.stateName = l.runState()
 	if err := l.ensureClient(st); err != nil {
 		l.lastErr = err.Error()
 		l.Log.Error("client", "err", err)
@@ -280,15 +292,8 @@ func (l *Loop) tick(ctx context.Context, st *state.State) time.Duration {
 			l.pollNow = false
 			l.Jobs.Poll(ctx, l.client, st, hb.Engine)
 		}
-		if l.Jobs.Idle() {
-			l.stateName = StateIdle
-		} else {
-			l.stateName = StateScanning
-		}
 	}
-	if l.busy != "" {
-		l.stateName = StateUpdating
-	}
+	l.stateName = l.runState()
 	l.publish(st)
 	l.maybeReboot(st)
 	return jitter(l.interval(st))

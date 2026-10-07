@@ -257,7 +257,7 @@ tools, and what it collects at `https://<our FQDN>/transparency` (no login).
 
 | What | How | Your involvement |
 |------|-----|------------------|
-| Vulnerability tests (the feed) and scan configurations | A signed bundle we publish daily; the appliance fetches only the changed files over the existing HTTPS session and reloads them without a reboot. It goes to our lab appliances first and to yours about two days later. A day's update was about 27 MB in our lab and applied in under a minute. | None. Status shows `Updating: bundle …` while it applies. |
+| Vulnerability tests (the feed) and scan configurations | A signed bundle we publish daily; the appliance fetches only the changed files over the existing HTTPS session and reloads them without a reboot. It goes to our lab appliances first and to yours about two days later. A day's update was about 5 MB in our lab and applied in under a minute. | None. Status shows `Updating: bundle …` while it applies. |
 | The appliance daemon | The same signed channel; the daemon verifies the new build, swaps it and confirms itself within ten minutes, or reverts on its own. | None. |
 | Operating-system security patches | Debian security updates from a mirror we host behind the same FQDN; the appliance installs them unattended. | None, but a kernel update needs a reboot: the appliance reboots itself between 03:00 and 04:00 local time when it is idle. Tell us if that hour is a bad time for your site. |
 
@@ -341,7 +341,7 @@ kept out of the vulnerability checks are kept out of these as well.
 
 A full scan also checks the web servers it finds. It reads each server's
 title, server header and technology, then runs HTTP checks rated medium or
-higher against it. In our lab that was about 8,150 requests per web server.
+higher against it. In our lab that was about 9,660 requests per web server.
 
 Some checks sign in to what they test. Two kinds run in every scan that
 includes them:

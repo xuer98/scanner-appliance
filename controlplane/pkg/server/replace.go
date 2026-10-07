@@ -134,7 +134,8 @@ func jobScopes(job *store.Job, stats *v1.ScanStats) []string {
 
 // webIncomplete reports whether the appliance warned about its web phase:
 // the tools or the templates were missing, or there were more targets
-// than it probes.
+// than it probes. Its note that a few templates did not load ("nuclei: ...")
+// is not such a warning: the phase ran.
 func webIncomplete(stats *v1.ScanStats) bool {
 	if stats == nil {
 		return false

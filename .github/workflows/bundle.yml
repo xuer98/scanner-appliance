@@ -5,6 +5,14 @@ name: bundle
 # the filtered nuclei templates, sign it with the release key and publish it
 # to the control plane, where it goes to the canary group first (PLAN §14).
 #
+# When it runs. Greenbone stamps a feed around 06:00 UTC and it reaches the
+# rsync mirror about 4 hours 40 minutes later: at 10:48, 10:42 and 10:48 UTC
+# on 2026-10-05, -06 and -07. The first run follows that; the second is for a
+# day on which the feed is late. A run that finds nothing new publishes
+# nothing: the control plane answers "unchanged" for a bundle whose files
+# are those of the newest one, so a day without a feed (there seem to be
+# none at weekends) does not send every appliance a new file list.
+#
 # Secrets:
 #   CP_ADMIN_URL         https://cp.example.com:9443 (the mTLS listener also serves /admin)
 #   CP_ADMIN_TOKEN       bearer token for /admin
@@ -13,11 +21,12 @@ name: bundle
 #   FEED_GPG_KEYRING_B64 optional: base64 GPG keyring with Greenbone's feed key, verifies sha256sums.asc
 # Variables:
 #   FEED_SOURCE          rsync source (default: the Community Feed 22.04 nasl module)
-#   NUCLEI_TEMPLATES_REF pinned nuclei-templates commit/tag (default: a known tag)
+#   NUCLEI_TEMPLATES_REF pinned nuclei-templates commit/tag (default: the tag the lab runs were made with)
 
 on:
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "23 11 * * *"
+    - cron: "23 15 * * *"
   workflow_dispatch:
     inputs:
       canary_hours:
@@ -64,33 +73,60 @@ jobs:
       - name: Build cp-api
         run: go build -o "$RUNNER_TEMP/cp-api" ./controlplane/cmd/cp-api
 
-      - name: Restore the feed mirror
+      # The templates are checked with the nuclei version the appliance image
+      # carries (the pin in ci/build-engine.sh): what loads depends on it.
+      - name: Restore nuclei
+        id: nuclei
         uses: actions/cache@v4
         with:
+          path: engine-bin
+          key: bundle-nuclei-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ci/build-engine.sh') }}
+
+      - name: Build nuclei (the image's version)
+        if: steps.nuclei.outputs.cache-hit != 'true'
+        run: ci/build-engine.sh --only nuclei --out engine-bin
+
+      - name: Restore the feed mirror
+        id: mirror
+        uses: actions/cache/restore@v4
+        with:
           path: feed-mirror
-          key: feed-mirror-${{ github.run_id }}
+          # Never an exact match: the newest saved mirror comes from restore-keys.
+          key: feed-mirror-restore-${{ github.run_id }}
           restore-keys: |
             feed-mirror-
 
       - name: feed sync (rsync + sha256sums)
+        id: sync
         env:
           CP_FEED_SOURCE: ${{ vars.FEED_SOURCE }}
         run: |
           args=(--dest feed-mirror)
           [ -n "$CP_FEED_SOURCE" ] && args+=(--source "$CP_FEED_SOURCE")
-          "$RUNNER_TEMP/cp-api" feed sync "${args[@]}"
+          "$RUNNER_TEMP/cp-api" feed sync "${args[@]}" | tee feed-sync.out
+          echo "feed_version=$(tail -n 1 feed-sync.out | jq -r .feed_version)" >> "$GITHUB_OUTPUT"
+
+      # One saved mirror per feed version, so a run that found no new feed
+      # does not store another 480 MB.
+      - name: Save the feed mirror
+        if: steps.sync.outputs.feed_version != '' && steps.mirror.outputs.cache-matched-key != format('feed-mirror-{0}', steps.sync.outputs.feed_version)
+        uses: actions/cache/save@v4
+        with:
+          path: feed-mirror
+          key: feed-mirror-${{ steps.sync.outputs.feed_version }}
 
       - name: nuclei templates (pinned)
         uses: actions/checkout@v4
         with:
           repository: projectdiscovery/nuclei-templates
-          ref: ${{ vars.NUCLEI_TEMPLATES_REF || 'v10.2.5' }}
+          ref: ${{ vars.NUCLEI_TEMPLATES_REF || 'v10.5.0' }}
           path: nuclei-templates
 
       - name: bundle build
         run: |
           "$RUNNER_TEMP/cp-api" bundle build --out bundle-out --feed feed-mirror \
-            --nuclei-templates nuclei-templates --key "$RUNNER_TEMP/release-key.pem" | tee bundle-summary.json
+            --nuclei-templates nuclei-templates --nuclei engine-bin/nuclei \
+            --key "$RUNNER_TEMP/release-key.pem" | tee bundle-summary.json
 
       - name: publish (canary first)
         env:
@@ -98,7 +134,12 @@ jobs:
           CP_ADMIN_TOKEN: ${{ secrets.CP_ADMIN_TOKEN }}
         run: |
           "$RUNNER_TEMP/cp-api" admin publish-bundle --dir bundle-out \
-            --canary-hours "${{ github.event.inputs.canary_hours || '48' }}"
+            --canary-hours "${{ github.event.inputs.canary_hours || '48' }}" | tee publish.json
+          if [ "$(jq -r '.unchanged // false' publish.json)" = "true" ]; then
+            echo "Nothing published: bundle $(jq -r .version publish.json) (feed $(jq -r .feed_version publish.json), $(jq -r .status publish.json)) already carries these files." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Published bundle $(jq -r .version publish.json) with feed $(jq -r .feed_version publish.json)." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -107,4 +148,5 @@ jobs:
             bundle-out/manifest.json
             bundle-out/manifest.sig
             bundle-summary.json
+            publish.json
           retention-days: 30

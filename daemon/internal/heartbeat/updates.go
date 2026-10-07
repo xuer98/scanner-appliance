@@ -93,7 +93,13 @@ func (l *Loop) startUpdate(ctx context.Context, kind, version string, st *state.
 	})
 	l.busy = kind + " " + version
 	l.Log.Info("update started", "type", kind, "version", version)
-	go func() { l.results <- task(ctx) }()
+	go func() {
+		l.results <- task(ctx)
+		select {
+		case l.wake <- struct{}{}:
+		default: // a wake-up is already pending
+		}
+	}()
 	return true
 }
 
@@ -187,7 +193,8 @@ func (l *Loop) requestRestart() {
 // RestartRequested reports whether Run returned to hand over to a new binary.
 func (l *Loop) RestartRequested() bool { return l.restart }
 
-// wait sleeps unless the context ends or a restart is requested.
+// wait sleeps unless the context ends, a restart is requested or an update
+// finishes. The last one starts the next beat early.
 func (l *Loop) wait(ctx context.Context, d time.Duration) bool {
 	t := time.NewTimer(d)
 	defer t.Stop()
@@ -196,6 +203,8 @@ func (l *Loop) wait(ctx context.Context, d time.Duration) bool {
 		return false
 	case <-l.stop:
 		return false
+	case <-l.wake:
+		return true
 	case <-t.C:
 		return true
 	}

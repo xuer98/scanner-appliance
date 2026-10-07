@@ -364,8 +364,11 @@ cat >/etc/openvas/openvas.conf <<EOF
 db_address = ${REDIS_SOCK}
 plugins_folder = ${PLUGINS_DIR}
 # The feed ships inside a signed, content-addressed bundle from the control
-# plane; per-VT GPG signature checks are off (Phase 3 may enable them once the
-# Greenbone key is provisioned into /var/lib/openvas/gnupg).
+# plane, and the daemon checks every file against the bundle's manifest. The
+# engine's own check is off. It would need Greenbone's key in
+# /var/lib/openvas/gnupg and Greenbone's sha256sums list in the plugins
+# directory, and bundles leave that list out: it names every script, so it
+# changes with each feed release and was 10.6 MB of every daily update.
 nasl_no_signature_check = yes
 # Notus (table-driven local security checks) is not installed.
 table_driven_lsc = no

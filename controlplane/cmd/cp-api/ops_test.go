@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Flags after the positional arguments were dropped without a word, so a
@@ -42,6 +43,16 @@ func TestParseInterleaved(t *testing.T) {
 	}
 }
 
+// The publish commands send megabytes in one request; everything else
+// keeps the short limit.
+func TestAdminTimeout(t *testing.T) {
+	for sub, long := range map[string]bool{"publish-bundle": true, "publish-release": true, "bundles": false, "create-job": false, "": false} {
+		if got := adminTimeout(sub); (got >= 10*time.Minute) != long || got < 30*time.Second {
+			t.Fatalf("%q: timeout %s", sub, got)
+		}
+	}
+}
+
 // The web add-on promises HTTP checks against the target. With the real
 // template set (v10.5.0) the old filter also kept templates that carry a
 // tcp or javascript section next to the http one, DAST fuzzers and
@@ -72,10 +83,11 @@ func TestFilterTemplates(t *testing.T) {
 	write("README.md", "not a template")
 	write(".github/workflow.yaml", "id: hidden\nhttp:\n"+get)
 
-	kept, dropped, err := filterTemplates(src, dst, []string{"dos", "fuzz", "intrusive"})
+	set, err := filterTemplates(src, dst, []string{"dos", "fuzz", "intrusive"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	kept, dropped := set.Kept, set.Dropped
 	if kept != 2 {
 		t.Fatalf("kept %d templates, want keep.yaml and legacy.yaml", kept)
 	}

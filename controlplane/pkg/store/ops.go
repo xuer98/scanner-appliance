@@ -8,6 +8,10 @@ type Bundle struct {
 	FeedVersion string
 	ObjectKey   string // manifest object
 	SHA256      string // of the manifest bytes
+	// Content is the manifest's content digest (bundle.ContentDigest): the
+	// same for two bundles with the same files. Empty for a bundle published
+	// before it was recorded.
+	Content     string
 	Sig         string
 	Files       int
 	Bytes       int64

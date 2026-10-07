@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +29,13 @@ import (
 // Safety: nuclei runs without interactsh (no out-of-band callbacks leave
 // the site), without template auto-update, and only with the templates
 // shipped in the signed bundle.
+//
+// A template may name a helper file, a list of plugin versions or of ids to
+// try. The bundle carries those under nuclei-templates/helpers, and nuclei
+// only opens such a file below its own template directory. So the bundle's
+// directory is named as that directory (-update-template-dir; with update
+// checks off nothing is fetched into it). Without that, 244 of the 10,064
+// templates of v10.5.0 did not load, and nuclei said so only on stderr.
 
 // httpPorts are probed even when no service was detected on them.
 var httpPorts = map[int]bool{80: true, 81: true, 443: true, 591: true, 3000: true, 5000: true, 7080: true, 8000: true, 8008: true,
@@ -254,8 +262,9 @@ func (r *run) nuclei(ctx context.Context, work, templates string, urls []string)
 	for _, m := range must {
 		excl = appendUnique(excl, m)
 	}
-	args := []string{"-l", list, "-silent", "-jsonl", "-no-color", "-disable-update-check", "-no-interactsh",
-		"-templates", templates, "-severity", strings.Join(sevs, ","), "-exclude-tags", strings.Join(excl, ","),
+	args := []string{"-l", list, "-jsonl", "-no-color", "-disable-update-check", "-no-interactsh",
+		"-templates", templates, "-update-template-dir", templates,
+		"-severity", strings.Join(sevs, ","), "-exclude-tags", strings.Join(excl, ","),
 	}
 	var exclIDs []string
 	for _, x := range r.site.VTExcludes {
@@ -272,9 +281,21 @@ func (r *run) nuclei(ctx context.Context, work, templates string, urls []string)
 	args = append(args,
 		"-timeout", "10", "-retries", "1", "-concurrency", strconv.Itoa(clamp(r.spec.Rate.PerHostParallel*5, 5, 25)),
 		"-bulk-size", strconv.Itoa(clamp(r.spec.Rate.PerHostParallel*5, 5, 25)), "-rate-limit", strconv.Itoa(clamp(r.spec.Rate.PPS/2, 10, 500)))
-	out, err := r.e.runTool(ctx, r.e.NucleiPath, "nuclei", args)
+	out, diag, err := r.e.runToolDiag(ctx, r.e.NucleiPath, "nuclei", args)
 	if err != nil {
 		return err
+	}
+	loaded, broken := nucleiLoad(diag)
+	if broken > 0 {
+		// A check that did not load did not run, and the job says how many.
+		// It is a note, not a "web:" warning: those mean the phase did not
+		// look at all, and the control plane then resolves no web finding.
+		// The count covers every template in the bundle, also the ones this
+		// job's severity floor leaves out, and an appliance whose image is
+		// older than the nuclei the bundle was checked with would otherwise
+		// never see a web finding closed.
+		r.stats.Warnings = append(r.stats.Warnings, fmt.Sprintf("nuclei: %d templates did not load", broken))
+		r.log.Warn("nuclei templates did not load", "templates", broken, "loaded", loaded)
 	}
 	byIP := map[string]*hostAgg{}
 	for ip, h := range r.hosts {
@@ -344,8 +365,27 @@ func (r *run) nuclei(ctx context.Context, work, templates string, urls []string)
 		h.findings = append(h.findings, f)
 		n++
 	}
-	r.log.Info("nuclei", "urls", len(urls), "findings", n, "min_severity", web.MinSeverity)
+	r.log.Info("nuclei", "urls", len(urls), "findings", n, "min_severity", web.MinSeverity, "templates", loaded)
 	return nil
+}
+
+// nuclei reports on stderr how many templates it runs and how many of the
+// ones it was pointed at it could not load.
+var (
+	nucleiLoadedRe = regexp.MustCompile(`Templates loaded for current scan: (\d+)`)
+	nucleiBrokenRe = regexp.MustCompile(`Found (\d+) templates? with (?:syntax|runtime) error`)
+)
+
+// nucleiLoad reads both counts from nuclei's diagnostics.
+func nucleiLoad(diag []byte) (loaded, broken int) {
+	if m := nucleiLoadedRe.FindSubmatch(diag); m != nil {
+		loaded, _ = strconv.Atoi(string(m[1]))
+	}
+	for _, m := range nucleiBrokenRe.FindAllSubmatch(diag, -1) {
+		n, _ := strconv.Atoi(string(m[1]))
+		broken += n
+	}
+	return loaded, broken
 }
 
 // hostPortOf extracts the target IP and port from a nuclei result.
@@ -393,8 +433,14 @@ func hostPortOf(l nucleiLine) (string, int) {
 
 // runTool executes an engine helper with a bounded output size.
 func (e *Engine) runTool(ctx context.Context, path, name string, args []string) ([]byte, error) {
+	out, _, err := e.runToolDiag(ctx, path, name, args)
+	return out, err
+}
+
+// runToolDiag is runTool that also returns what the helper wrote to stderr.
+func (e *Engine) runToolDiag(ctx context.Context, path, name string, args []string) ([]byte, []byte, error) {
 	if _, err := os.Stat(path); err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, nil, fmt.Errorf("%s: %w", name, err)
 	}
 	cmd := exec.CommandContext(ctx, path, args...)
 	var stdout, stderr bytes.Buffer
@@ -403,10 +449,10 @@ func (e *Engine) runTool(ctx context.Context, path, name string, args []string) 
 	e.Log.Info(name+" start", "args", strings.Join(args, " "))
 	err := cmd.Run()
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return nil, nil, ctx.Err()
 	}
 	if stdout.Len() > 64<<20 {
-		return nil, errors.New(name + ": output too large")
+		return nil, nil, errors.New(name + ": output too large")
 	}
 	if err != nil {
 		msg := strings.TrimSpace(stderr.String())
@@ -414,9 +460,9 @@ func (e *Engine) runTool(ctx context.Context, path, name string, args []string) 
 			msg = msg[len(msg)-2000:]
 		}
 		if stdout.Len() == 0 {
-			return nil, fmt.Errorf("%s failed: %v: %s", name, err, msg)
+			return nil, nil, fmt.Errorf("%s failed: %v: %s", name, err, msg)
 		}
 		e.Log.Warn(name+" exited non-zero but produced output", "err", err, "stderr", msg)
 	}
-	return stdout.Bytes(), nil
+	return stdout.Bytes(), stderr.Bytes(), nil
 }

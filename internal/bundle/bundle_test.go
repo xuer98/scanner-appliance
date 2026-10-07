@@ -140,3 +140,48 @@ func TestParseFeedVersion(t *testing.T) {
 		t.Fatal(v)
 	}
 }
+
+// The content digest names the files and nothing else: the daily build
+// publishes only when it differs from the newest bundle's.
+func TestContentDigest(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{"nasl/plugin_feed_info.inc": "PLUGIN_SET = \"202609260530\";\n", "nasl/a.nasl": "a", "configs/inventory.json": "{}"})
+	monday, err := Build(root, "20260928T110000Z", time.Unix(1_790_000_000, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The next day's build of the same tree: another name, another time.
+	tuesday, _ := Build(root, "20260929T110000Z", time.Unix(1_790_086_400, 0))
+	if monday.ContentDigest() != tuesday.ContentDigest() || len(monday.ContentDigest()) != 64 {
+		t.Fatalf("same files, digests %s and %s", monday.ContentDigest(), tuesday.ContentDigest())
+	}
+	mb, _ := EncodeManifest(monday)
+	tb, _ := EncodeManifest(tuesday)
+	if SHA256Hex(mb) == SHA256Hex(tb) {
+		t.Fatal("the two manifests should differ in version and time")
+	}
+	// The order of the list does not matter.
+	rev := &Manifest{Version: "x", Files: append([]File(nil), monday.Files...)}
+	rev.Files[0], rev.Files[len(rev.Files)-1] = rev.Files[len(rev.Files)-1], rev.Files[0]
+	if rev.ContentDigest() != monday.ContentDigest() {
+		t.Fatal("digest depends on the order of the file list")
+	}
+	// Any difference in the files does: content, a new file, a removed
+	// file, a file that moved.
+	for name, files := range map[string]map[string]string{
+		"changed": {"nasl/plugin_feed_info.inc": "PLUGIN_SET = \"202609260530\";\n", "nasl/a.nasl": "b", "configs/inventory.json": "{}"},
+		"added":   {"nasl/plugin_feed_info.inc": "PLUGIN_SET = \"202609260530\";\n", "nasl/a.nasl": "a", "configs/inventory.json": "{}", "nasl/new.nasl": "n"},
+		"removed": {"nasl/plugin_feed_info.inc": "PLUGIN_SET = \"202609260530\";\n", "nasl/a.nasl": "a"},
+		"moved":   {"nasl/plugin_feed_info.inc": "PLUGIN_SET = \"202609260530\";\n", "nasl/a.nasl": "a", "configs/full.json": "{}"},
+	} {
+		dir := t.TempDir()
+		writeTree(t, dir, files)
+		m, err := Build(dir, "20260928T110000Z", time.Unix(1_790_000_000, 0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.ContentDigest() == monday.ContentDigest() {
+			t.Fatalf("%s: digest did not change", name)
+		}
+	}
+}

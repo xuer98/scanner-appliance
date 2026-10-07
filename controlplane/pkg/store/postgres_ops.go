@@ -8,11 +8,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const bundleCols = `version, feed_version, object_key, sha256, sig, files, bytes, status, held_reason, published_at, canary_until, confirmed_at`
+const bundleCols = `version, feed_version, object_key, sha256, sig, files, bytes, status, held_reason, published_at, canary_until, confirmed_at, content_sha256`
 
 func scanBundle(row pgx.Row) (*Bundle, error) {
 	b := &Bundle{}
-	err := row.Scan(&b.Version, &b.FeedVersion, &b.ObjectKey, &b.SHA256, &b.Sig, &b.Files, &b.Bytes, &b.Status, &b.HeldReason, &b.PublishedAt, &b.CanaryUntil, &b.ConfirmedAt)
+	err := row.Scan(&b.Version, &b.FeedVersion, &b.ObjectKey, &b.SHA256, &b.Sig, &b.Files, &b.Bytes, &b.Status, &b.HeldReason, &b.PublishedAt, &b.CanaryUntil, &b.ConfirmedAt, &b.Content)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -20,12 +20,13 @@ func scanBundle(row pgx.Row) (*Bundle, error) {
 }
 
 func (p *Postgres) PutBundle(ctx context.Context, b *Bundle) error {
-	_, err := p.pool.Exec(ctx, `INSERT INTO bundle(version, feed_version, object_key, sha256, sig, files, bytes, status, held_reason, published_at, canary_until, confirmed_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+	_, err := p.pool.Exec(ctx, `INSERT INTO bundle(version, feed_version, object_key, sha256, sig, files, bytes, status, held_reason, published_at, canary_until, confirmed_at, content_sha256)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT(version) DO UPDATE SET feed_version=EXCLUDED.feed_version, object_key=EXCLUDED.object_key, sha256=EXCLUDED.sha256,
 		  sig=EXCLUDED.sig, files=EXCLUDED.files, bytes=EXCLUDED.bytes, status=EXCLUDED.status, held_reason=EXCLUDED.held_reason,
-		  published_at=EXCLUDED.published_at, canary_until=EXCLUDED.canary_until, confirmed_at=EXCLUDED.confirmed_at`,
-		b.Version, b.FeedVersion, b.ObjectKey, b.SHA256, b.Sig, b.Files, b.Bytes, b.Status, b.HeldReason, b.PublishedAt, b.CanaryUntil, b.ConfirmedAt)
+		  published_at=EXCLUDED.published_at, canary_until=EXCLUDED.canary_until, confirmed_at=EXCLUDED.confirmed_at,
+		  content_sha256=EXCLUDED.content_sha256`,
+		b.Version, b.FeedVersion, b.ObjectKey, b.SHA256, b.Sig, b.Files, b.Bytes, b.Status, b.HeldReason, b.PublishedAt, b.CanaryUntil, b.ConfirmedAt, b.Content)
 	return err
 }
 

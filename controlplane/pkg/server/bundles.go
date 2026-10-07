@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -24,6 +25,7 @@ import (
 //
 //	bundles/files/<sha256>               content-addressed bundle files (shared across versions)
 //	bundles/<version>/manifest.json      the signed manifest bytes
+//	bundles/<version>/manifest.json.gz   the same bytes compressed, for the download
 //	releases/<component>/<version>       daemon artifacts
 //
 // Publishing is delta-friendly: the publisher asks which digests are
@@ -36,7 +38,7 @@ const (
 	maxBundleFile   = 256 << 20
 	maxReleaseSize  = 512 << 20
 
-	// streamStall is how long a download may make no progress before the
+	// streamStall is how long a response may make no progress before the
 	// server ends it.
 	streamStall = 60 * time.Second
 
@@ -44,6 +46,9 @@ const (
 	HeaderBundleSHA256 = "X-Bundle-SHA256"
 	HeaderReleaseSigV1 = "X-Release-Signature"
 )
+
+// gzSuffix names the compressed copy of an object.
+const gzSuffix = ".gz"
 
 func bundleFileKey(sha string) string       { return "bundles/files/" + sha }
 func bundleManifestKey(v string) string     { return "bundles/" + v + "/manifest.json" }
@@ -69,22 +74,25 @@ func (s *Server) streamObject(w http.ResponseWriter, r *http.Request, key string
 		writeErr(w, http.StatusInternalServerError, "object store: "+err.Error(), "objects")
 		return
 	}
+	stream(w, rc, n, headers)
+}
+
+// stream sends an object of n bytes and closes it.
+func stream(w http.ResponseWriter, rc io.ReadCloser, n int64, headers map[string]string) {
 	defer rc.Close()
 	for k, v := range headers {
 		w.Header().Set(k, v)
 	}
 	w.Header().Set("Content-Length", strconv.FormatInt(n, 10))
 	w.WriteHeader(http.StatusOK)
-	// The listener's WriteTimeout would end the response a fixed time after
-	// the request, however well it is moving: the manifest of the full feed
-	// is 16 MB, more than a 1 Mbit/s site link carries in a minute. The
-	// deadline advances with every block written instead.
-	ctl := http.NewResponseController(w)
+	// Block by block: the response's deadline advances with every write
+	// (statusWriter), so a download lasts as long as it keeps moving. The
+	// manifest of the full feed is 16 MB uncompressed, more than a 1 Mbit/s
+	// site link carries in the listener's one-minute WriteTimeout.
 	buf := make([]byte, 64<<10)
 	for {
 		nr, rerr := rc.Read(buf)
 		if nr > 0 {
-			_ = ctl.SetWriteDeadline(time.Now().Add(streamStall))
 			if _, werr := w.Write(buf[:nr]); werr != nil {
 				return
 			}
@@ -105,7 +113,51 @@ func (s *Server) handleBundleManifest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "store error", "store")
 		return
 	}
-	s.streamObject(w, r, b.ObjectKey, map[string]string{"Content-Type": "application/json", HeaderBundleSig: b.Sig, HeaderBundleSHA256: b.SHA256})
+	headers := map[string]string{"Content-Type": "application/json", HeaderBundleSig: b.Sig, HeaderBundleSHA256: b.SHA256, "Vary": "Accept-Encoding"}
+	// The manifest names every file of the feed, 16 MB for 105,000 files,
+	// and each appliance fetches it whole for every bundle. Compressed it is
+	// a third of that. The copy is made when the bundle is published; a
+	// bundle from before that has none and goes out as it is.
+	if acceptsGzip(r) {
+		if rc, n, err := s.cfg.Objects.Get(r.Context(), b.ObjectKey+gzSuffix); err == nil {
+			headers["Content-Encoding"] = "gzip"
+			stream(w, rc, n, headers)
+			return
+		}
+	}
+	s.streamObject(w, r, b.ObjectKey, headers)
+}
+
+// acceptsGzip reports whether the client takes a gzip response body.
+func acceptsGzip(r *http.Request) bool {
+	for _, part := range strings.Split(strings.Join(r.Header.Values("Accept-Encoding"), ","), ",") {
+		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			continue
+		}
+		if q, ok := strings.CutPrefix(strings.TrimSpace(params), "q="); ok {
+			if f, err := strconv.ParseFloat(q, 64); err == nil && f == 0 {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func gzipBytes(b []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := zw.Write(b); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func (s *Server) handleBundleFile(w http.ResponseWriter, r *http.Request) {
@@ -243,26 +295,55 @@ func (s *Server) adminPublishBundle(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "bundle version already published", "exists")
 		return
 	}
-	// Store the exact bytes that were signed.
+	// The daily build makes a bundle every day, and on a day without a new
+	// feed its files are the ones the newest bundle already has. Under a new
+	// name it would still be a new bundle to every appliance, each of which
+	// would fetch the whole file list to find nothing to do. So it is not
+	// published, whatever state the newest one is in: one that is held or
+	// retired stays so, and is not offered again under another name.
+	content := m.ContentDigest()
+	published, err := s.cfg.Store.ListBundles(r.Context()) // newest first
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error(), "store")
+		return
+	}
+	if len(published) > 0 && published[0].Content == content {
+		newest := published[0]
+		s.log.Info("bundle not published: same files as the newest bundle", "version", m.Version, "newest", newest.Version, "status", newest.Status, "feed_version", newest.FeedVersion)
+		fleet, _ := s.cfg.Store.ListAppliances(r.Context())
+		writeJSON(w, http.StatusOK, v1.AdminPublishBundleResponse{AdminBundleView: bundleView(newest, fleet), Unchanged: true})
+		return
+	}
+	// Store the exact bytes that were signed, and a compressed copy for
+	// the download.
 	key := bundleManifestKey(m.Version)
 	if _, err := s.cfg.Objects.Put(r.Context(), key, bytes.NewReader(req.Manifest)); err != nil {
 		writeErr(w, http.StatusInternalServerError, "object store: "+err.Error(), "objects")
 		return
 	}
+	gz, err := gzipBytes(req.Manifest)
+	if err == nil {
+		_, err = s.cfg.Objects.Put(r.Context(), key+gzSuffix, bytes.NewReader(gz))
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "object store: "+err.Error(), "objects")
+		return
+	}
 	now := s.cfg.Now()
 	canaryUntil := now.Add(s.canaryPeriod(req.CanaryHours))
-	b := &store.Bundle{Version: m.Version, FeedVersion: m.FeedVersion, ObjectKey: key, SHA256: bundle.SHA256Hex(req.Manifest), Sig: req.Sig,
+	b := &store.Bundle{Version: m.Version, FeedVersion: m.FeedVersion, ObjectKey: key, SHA256: bundle.SHA256Hex(req.Manifest), Content: content, Sig: req.Sig,
 		Files: len(m.Files), Bytes: m.Bytes(), Status: v1.RolloutCanary, PublishedAt: now, CanaryUntil: &canaryUntil}
 	if err := s.cfg.Store.PutBundle(r.Context(), b); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error(), "store")
 		return
 	}
-	s.log.Info("bundle published", "version", b.Version, "feed_version", b.FeedVersion, "files", b.Files, "bytes", b.Bytes, "canary_until", canaryUntil)
+	s.log.Info("bundle published", "version", b.Version, "feed_version", b.FeedVersion, "files", b.Files, "bytes", b.Bytes,
+		"manifest_bytes", len(req.Manifest), "manifest_gzip_bytes", len(gz), "canary_until", canaryUntil)
 	if err := s.rolloutTick(r.Context()); err != nil {
 		s.log.Warn("rollout after publish", "err", err)
 	}
 	fleet, _ := s.cfg.Store.ListAppliances(r.Context())
-	writeJSON(w, http.StatusCreated, bundleView(b, fleet))
+	writeJSON(w, http.StatusCreated, v1.AdminPublishBundleResponse{AdminBundleView: bundleView(b, fleet)})
 }
 
 func (s *Server) canaryPeriod(hours float64) time.Duration {
@@ -289,7 +370,7 @@ func (s *Server) verifyReleaseSig(b []byte, sig string) error {
 }
 
 func bundleView(b *store.Bundle, fleet []*store.Appliance) v1.AdminBundleView {
-	v := v1.AdminBundleView{Version: b.Version, FeedVersion: b.FeedVersion, Files: b.Files, Bytes: b.Bytes, SHA256: b.SHA256,
+	v := v1.AdminBundleView{Version: b.Version, FeedVersion: b.FeedVersion, Files: b.Files, Bytes: b.Bytes, SHA256: b.SHA256, ContentSHA256: b.Content,
 		Status: b.Status, HeldReason: b.HeldReason, PublishedAt: b.PublishedAt, CanaryUntil: b.CanaryUntil}
 	for _, a := range fleet {
 		if a.Status != v1.StatusEnrolled {

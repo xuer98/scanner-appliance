@@ -343,7 +343,7 @@ func opsScenario(t *testing.T, ctx context.Context, st Store, site *Site, apl *A
 	b1 := &Bundle{Version: "20260901T000000Z", FeedVersion: "202609010000", ObjectKey: "bundles/20260901T000000Z/manifest.json",
 		SHA256: "aa", Sig: "sig1", Files: 3, Bytes: 300, Status: v1.RolloutReleased, PublishedAt: now.Add(-time.Hour)}
 	b2 := &Bundle{Version: "20260926T000000Z", FeedVersion: "202609260530", ObjectKey: "bundles/20260926T000000Z/manifest.json",
-		SHA256: "bb", Sig: "sig2", Files: 4, Bytes: 400, Status: v1.RolloutCanary, PublishedAt: now, CanaryUntil: &later}
+		SHA256: "bb", Content: "cc", Sig: "sig2", Files: 4, Bytes: 400, Status: v1.RolloutCanary, PublishedAt: now, CanaryUntil: &later}
 	for _, b := range []*Bundle{b1, b2} {
 		if err := st.PutBundle(ctx, b); err != nil {
 			t.Fatal(err)
@@ -353,11 +353,15 @@ func opsScenario(t *testing.T, ctx context.Context, st Store, site *Site, apl *A
 	if err != nil || got.FeedVersion != b2.FeedVersion || got.CanaryUntil == nil || !got.CanaryUntil.Equal(later) || got.Status != v1.RolloutCanary {
 		t.Fatalf("get bundle: %v %+v", err, got)
 	}
+	// The content digest tells a day without changes from a new bundle.
+	if got.Content != "cc" || got.SHA256 != "bb" {
+		t.Fatalf("bundle digests: content=%q manifest=%q", got.Content, got.SHA256)
+	}
 	if _, err := st.GetBundle(ctx, "nope"); err != ErrNotFound {
 		t.Fatalf("missing bundle: %v", err)
 	}
 	list, _ := st.ListBundles(ctx)
-	if len(list) != 2 || list[0].Version != b2.Version {
+	if len(list) != 2 || list[0].Version != b2.Version || list[0].Content != "cc" || list[1].Content != "" {
 		t.Fatalf("list bundles newest first: %+v", list)
 	}
 	if err := st.SetBundleStatus(ctx, b2.Version, v1.RolloutHeld, "canary apl_x reported reload failure"); err != nil {

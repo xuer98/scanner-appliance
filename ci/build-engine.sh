@@ -3,13 +3,17 @@
 # /opt/engine of the VM image (the container builds its own in the
 # Dockerfile's `engine` stage from the same pins).
 #
-#   ci/build-engine.sh [--arch amd64] [--out bin/engine]
+#   ci/build-engine.sh [--arch amd64] [--out bin/engine] [--only nuclei]
 #
 # naabu (discovery + port scan, PLAN §10.2) links libpcap through cgo, so
 # this builds natively on a Linux host with libpcap-dev installed (ubuntu:
 # apt-get install -y libpcap-dev). httpx and nuclei (the Phase 3 web add-on)
 # are pure Go and are cross-compiled for the requested arch. Results also
 # land in dist/engine/<name>-linux-<arch> for the release job.
+#
+# --only NAME builds one of naabu, httpx, nuclei. The daily bundle build
+# uses it for nuclei, to check the templates it ships with the same version
+# the appliance runs; that needs no libpcap.
 #
 # Versions are pinned here and in docker/Dockerfile (NAABU_VERSION,
 # HTTPX_VERSION, NUCLEI_VERSION); bump both together.
@@ -28,6 +32,7 @@ WITH_WEB_ADDON="${WITH_WEB_ADDON:-1}"
 ENGINE_GOTOOLCHAIN="${ENGINE_GOTOOLCHAIN:-go1.25.14}"
 ARCH="${ARCH:-$(go env GOARCH)}"
 OUT="bin/engine"
+ONLY=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,42 +40,56 @@ while [[ $# -gt 0 ]]; do
     --arch=*) ARCH="${1#*=}"; shift ;;
     --out) OUT="${2:?--out needs a value}"; shift 2 ;;
     --out=*) OUT="${1#*=}"; shift ;;
-    -h|--help) sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    --only) ONLY="${2:?--only needs a value}"; shift 2 ;;
+    --only=*) ONLY="${1#*=}"; shift ;;
+    -h|--help) sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+case "$ONLY" in
+  ""|naabu|httpx|nuclei) ;;
+  *) echo "--only takes naabu, httpx or nuclei" >&2; exit 2 ;;
+esac
 
 log() { printf '[build-engine] %s\n' "$*"; }
+# want NAME: is this tool part of the run?
+want() { [[ -z "$ONLY" || "$ONLY" == "$1" ]]; }
 
-if [[ "$(go env GOOS)" != "linux" ]]; then
-  echo "naabu needs a native Linux build (cgo + libpcap); run this on Linux or use the container image" >&2
-  exit 1
-fi
-if ! printf '#include <pcap.h>\n' | gcc -E - >/dev/null 2>&1; then
-  echo "libpcap headers missing: apt-get install -y libpcap-dev" >&2
-  exit 1
+if want naabu; then
+  if [[ "$(go env GOOS)" != "linux" ]]; then
+    echo "naabu needs a native Linux build (cgo + libpcap); run this on Linux or use the container image" >&2
+    exit 1
+  fi
+  if ! printf '#include <pcap.h>\n' | gcc -E - >/dev/null 2>&1; then
+    echo "libpcap headers missing: apt-get install -y libpcap-dev" >&2
+    exit 1
+  fi
 fi
 
 mkdir -p "$OUT" dist/engine
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+: >"$OUT/VERSIONS"
 
-log "building naabu ${NAABU_VERSION} for linux/${ARCH}"
-GOBIN="$tmp" GOFLAGS=-trimpath CGO_ENABLED=1 GOOS=linux GOARCH="$ARCH" \
-  go install -ldflags="-s -w" "github.com/projectdiscovery/naabu/v2/cmd/naabu@${NAABU_VERSION}"
-bin="$tmp/naabu"
-[[ -x "$bin" ]] || bin="$(find "$tmp" -type f -name naabu -perm -u+x | head -n1)"
-[[ -n "$bin" && -x "$bin" ]] || { echo "naabu binary not produced" >&2; exit 1; }
-install -m 0755 "$bin" "$OUT/naabu"
-cp "$OUT/naabu" "dist/engine/naabu-linux-${ARCH}"
-printf 'naabu %s\n' "$NAABU_VERSION" >"$OUT/VERSIONS"
-log "done: $(wc -c <"$OUT/naabu" | tr -d ' ') bytes -> $OUT/naabu, dist/engine/naabu-linux-${ARCH}"
+if want naabu; then
+  log "building naabu ${NAABU_VERSION} for linux/${ARCH}"
+  GOBIN="$tmp" GOFLAGS=-trimpath CGO_ENABLED=1 GOOS=linux GOARCH="$ARCH" \
+    go install -ldflags="-s -w" "github.com/projectdiscovery/naabu/v2/cmd/naabu@${NAABU_VERSION}"
+  bin="$tmp/naabu"
+  [[ -x "$bin" ]] || bin="$(find "$tmp" -type f -name naabu -perm -u+x | head -n1)"
+  [[ -n "$bin" && -x "$bin" ]] || { echo "naabu binary not produced" >&2; exit 1; }
+  install -m 0755 "$bin" "$OUT/naabu"
+  cp "$OUT/naabu" "dist/engine/naabu-linux-${ARCH}"
+  printf 'naabu %s\n' "$NAABU_VERSION" >>"$OUT/VERSIONS"
+  log "done: $(wc -c <"$OUT/naabu" | tr -d ' ') bytes -> $OUT/naabu, dist/engine/naabu-linux-${ARCH}"
+fi
 
-if [[ "$WITH_WEB_ADDON" == "1" ]]; then
+if [[ "$WITH_WEB_ADDON" == "1" || "$ONLY" == "httpx" || "$ONLY" == "nuclei" ]]; then
   for spec in "httpx github.com/projectdiscovery/httpx/cmd/httpx@${HTTPX_VERSION}" \
               "nuclei github.com/projectdiscovery/nuclei/v3/cmd/nuclei@${NUCLEI_VERSION}"; do
     name="${spec%% *}"
     pkg="${spec#* }"
+    want "$name" || continue
     log "building $name (${pkg##*@}) for linux/${ARCH}"
     rm -rf "${tmp:?}"/*
     GOBIN="$tmp" GOTOOLCHAIN="$ENGINE_GOTOOLCHAIN" GOFLAGS=-trimpath CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go install -ldflags="-s -w" "$pkg"

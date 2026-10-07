@@ -42,8 +42,15 @@ cat "$list" >> "`+logDir+`/httpx.in"
 printf '%s\n' '{"url":"http://10.30.5.20:8080","input":"10.30.5.20:8080","host":"10.30.5.20","port":"8080","scheme":"http","status_code":200,"title":"Warehouse WMS","webserver":"Apache/2.4.57","tech":["Apache HTTP Server:2.4.57","PHP"]}'
 printf '%s\n' '{"url":"https://10.30.5.20:8080","input":"10.30.5.20:8080","host":"10.30.5.20","port":"8080","failed":true}'
 `)
+	// Like the real one it reports what it loaded on stderr; a file named
+	// nuclei.broken in the log directory makes it report that many templates
+	// as not loaded.
 	nuclei = write("nuclei", `#!/bin/sh
 echo "$@" >> "`+logDir+`/nuclei.args"
+if [ -f "`+logDir+`/nuclei.broken" ]; then
+  echo "[WRN] Found $(cat "`+logDir+`/nuclei.broken") templates with runtime error (use -validate flag for further examination)" >&2
+fi
+echo "[INF] Templates loaded for current scan: 5861" >&2
 printf '%s\n' '{"template-id":"CVE-2021-41773","info":{"name":"Apache 2.4.49 path traversal","severity":"critical","tags":["cve","apache","rce"],"classification":{"cve-id":["CVE-2021-41773"],"cvss-score":9.8},"remediation":"Upgrade Apache"},"type":"http","host":"http://10.30.5.20:8080","port":"8080","matched-at":"http://10.30.5.20:8080/cgi-bin/.%2e/etc/passwd","matcher-name":"passwd"}'
 printf '%s\n' '{"template-id":"tech-detect","info":{"name":"Wappalyzer","severity":"info","tags":"tech"},"type":"http","host":"http://10.30.5.20:8080","matched-at":"http://10.30.5.20:8080"}'
 printf '%s\n' '{"template-id":"CVE-2021-41773","info":{"name":"dupe","severity":"critical"},"type":"http","host":"http://10.30.5.20:8080","matched-at":"http://10.30.5.20:8080/other"}'
@@ -108,11 +115,68 @@ func TestWebAddon(t *testing.T) {
 	if in := read(t, filepath.Join(logDir, "httpx.in")); in != "10.30.5.20:8080\n" {
 		t.Fatalf("httpx input: %q", in)
 	}
+	// The bundle's templates are also named as nuclei's own template
+	// directory: only below that does it open the helper files they use.
 	nargs := read(t, filepath.Join(logDir, "nuclei.args"))
-	for _, want := range []string{"-no-interactsh", "-disable-update-check", "-exclude-tags dos,fuzz,intrusive,default-login ", "-severity medium,high,critical", "-templates " + filepath.Join(bundleDir, "nuclei-templates")} {
+	tplDir := filepath.Join(bundleDir, "nuclei-templates")
+	for _, want := range []string{"-no-interactsh", "-disable-update-check", "-exclude-tags dos,fuzz,intrusive,default-login ", "-severity medium,high,critical",
+		"-templates " + tplDir + " ", "-update-template-dir " + tplDir + " "} {
 		if !strings.Contains(nargs, want) {
 			t.Fatalf("nuclei args missing %q: %s", want, nargs)
 		}
+	}
+	// -silent would hide what nuclei says about templates it cannot load.
+	if strings.Contains(" "+nargs, " -silent ") {
+		t.Fatalf("nuclei ran silent: %s", nargs)
+	}
+}
+
+// A template that does not load is a check that did not run. nuclei says so
+// in one line on stderr and goes on, so the job has to carry it. It is a
+// note and not a "web:" warning, which would tell the control plane that
+// the phase did not look and that no web finding may be resolved.
+func TestTemplatesThatDoNotLoadAreReported(t *testing.T) {
+	logDir := t.TempDir()
+	naabu, httpx, nuclei := webFakes(t, logDir)
+	bundleDir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(bundleDir, "nuclei-templates", "http"), 0o755)
+	if err := os.WriteFile(filepath.Join(logDir, "nuclei.broken"), []byte("244"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{NaabuPath: naabu, HTTPXPath: httpx, NucleiPath: nuclei, BundleDir: bundleDir, Log: slog.Default(),
+		Now: time.Now, PollInterval: 10 * time.Millisecond, IfaceExists: func(string) bool { return false }}
+	spec := v1.JobSpec{JobID: "job_web3", SiteID: "site_1", ApplianceID: "apl_1", Mode: v1.ModeFull, Targets: []string{"10.30.5.0/24"},
+		Modules: []string{v1.ModuleDiscovery, v1.ModulePortscan, v1.ModuleWeb}, Ports: "standard", Rate: v1.Rate{PPS: 300, PerHostParallel: 2}}
+	sink := &webSink{}
+	stats, err := e.Run(t.Context(), spec, v1.SiteConfig{AllowedCIDRs: []string{"10.30.0.0/16"}}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats.Warnings) != 1 || stats.Warnings[0] != "nuclei: 244 templates did not load" {
+		t.Fatalf("warnings: %q", stats.Warnings)
+	}
+	// What the other templates found is still reported.
+	if stats.Findings != 1 {
+		t.Fatalf("findings: %d", stats.Findings)
+	}
+
+	// The lines as nuclei v3.4.10 prints them, banner and all.
+	const diag = `
+                     __     _
+   ____  __  _______/ /__  (_)
+[ERR] Could not read nuclei-ignore file: open /var/lib/appliance/.config/nuclei/.nuclei-ignore: no such file or directory
+[WRN] Found 237 templates with runtime error (use -validate flag for further examination)
+[WRN] Found 1 templates with syntax error (use -validate flag for further examination)
+[INF] Current nuclei version: v3.4.10 (unknown) - remove '-duc' flag to enable update checks
+[INF] Templates loaded for current scan: 3
+[INF] Executing 3 signed templates from projectdiscovery/nuclei-templates
+[INF] Scan completed in 460.733292ms. No results found.
+`
+	if loaded, broken := nucleiLoad([]byte(diag)); loaded != 3 || broken != 238 {
+		t.Fatalf("loaded=%d broken=%d, want 3 and 238", loaded, broken)
+	}
+	if loaded, broken := nucleiLoad([]byte("[INF] Templates loaded for current scan: 5861\n")); loaded != 5861 || broken != 0 {
+		t.Fatalf("clean run: loaded=%d broken=%d", loaded, broken)
 	}
 }
 

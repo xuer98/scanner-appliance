@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -65,13 +66,14 @@ func ensureReleaseKeys(pkiDir string, create bool, log *slog.Logger) ([]*ecdsa.P
 
 func bundleCmd(args []string) error {
 	if len(args) < 1 || args[0] != "build" {
-		return errors.New("usage: cp-api bundle build --out DIR [--feed DIR] [--configs DIR] [--nuclei-templates DIR] [--fragile-ports 9100,...] [--version V] --key release-key.pem")
+		return errors.New("usage: cp-api bundle build --out DIR [--feed DIR] [--configs DIR] [--nuclei-templates DIR [--nuclei BIN]] [--fragile-ports 9100,...] [--version V] --key release-key.pem")
 	}
 	fs := flag.NewFlagSet("bundle build", flag.ContinueOnError)
 	out := fs.String("out", "", "output directory (manifest.json, manifest.sig, root/)")
 	feed := fs.String("feed", "", "VT feed tree (directory holding plugin_feed_info.inc), e.g. the rsync mirror")
 	configs := fs.String("configs", "", "directory of scan config JSON files (default: the shipped inventory/full)")
 	templates := fs.String("nuclei-templates", "", "nuclei templates checkout to filter and ship (http templates without dos/fuzz/intrusive tags)")
+	nucleiBin := fs.String("nuclei", os.Getenv("CP_NUCLEI"), "nuclei binary of the version the appliance image carries: templates it cannot load are left out")
 	fragile := fs.String("fragile-ports", "", "comma-separated default fragile-device ports (default 9100,515,631,161,502,44818)")
 	ver := fs.String("version", "", "bundle version (default: UTC timestamp)")
 	key := fs.String("key", envOr("CP_RELEASE_KEY", "dev/pki/release-key.pem"), "release signing key PEM")
@@ -101,7 +103,9 @@ func bundleCmd(args []string) error {
 	}
 	summary := map[string]any{"version": *ver, "out": *out}
 	if *feed != "" {
-		n, err := linkTree(*feed, filepath.Join(root, bundle.FeedDir))
+		// Greenbone's own checksum list stays with the mirror, where feed
+		// sync checked it (bundle.FeedChecksumFiles).
+		n, err := linkTree(*feed, filepath.Join(root, bundle.FeedDir), bundle.FeedChecksumFiles...)
 		if err != nil {
 			return fmt.Errorf("feed: %w", err)
 		}
@@ -124,17 +128,31 @@ func bundleCmd(args []string) error {
 		summary["configs"] = len(scanconfig.Defaults())
 	}
 	if *templates != "" {
-		kept, dropped, err := filterTemplates(*templates, filepath.Join(root, bundle.TemplatesDir), splitCSV(*excl))
+		dst := filepath.Join(root, bundle.TemplatesDir)
+		set, err := filterTemplates(*templates, dst, splitCSV(*excl))
 		if err != nil {
 			return fmt.Errorf("nuclei templates: %w", err)
 		}
+		if *nucleiBin != "" {
+			if err := validateTemplates(*nucleiBin, dst, set); err != nil {
+				return fmt.Errorf("nuclei templates: %w", err)
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, "[bundle] WARNING: no --nuclei: the templates were not checked with the appliance's nuclei; one that does not load there is skipped, and each web job reports how many were")
+		}
+		if set.Kept == 0 {
+			// An appliance would take every template off its disk.
+			return fmt.Errorf("nuclei templates: none of the templates in %s is shipped", *templates)
+		}
 		total := 0
-		for _, n := range dropped {
+		for _, n := range set.Dropped {
 			total += n
 		}
-		summary["templates"] = kept
+		summary["templates"] = set.Kept
+		summary["template_helpers"] = set.Helpers()
+		summary["templates_validated"] = *nucleiBin != ""
 		summary["templates_dropped"] = total
-		summary["templates_dropped_by"] = dropped
+		summary["templates_dropped_by"] = set.Dropped
 	}
 	ports := defaultFragilePorts
 	if *fragile != "" {
@@ -154,6 +172,11 @@ func bundleCmd(args []string) error {
 	m, err := bundle.Build(root, *ver, time.Now())
 	if err != nil {
 		return err
+	}
+	if *feed != "" && m.FeedVersion == "" {
+		// An appliance would take every feed file off its disk for a tree
+		// the engine can never load, and roll back half an hour later.
+		return fmt.Errorf("feed: %s has no %s that names a PLUGIN_SET: not a feed tree", *feed, bundle.FeedInfoFile)
 	}
 	mb, err := bundle.EncodeManifest(m)
 	if err != nil {
@@ -179,8 +202,9 @@ func bundleCmd(args []string) error {
 }
 
 // linkTree mirrors src into dst by hard link (copy when that fails),
-// skipping dotfiles; returns the file count.
-func linkTree(src, dst string) (int, error) {
+// skipping dotfiles and the files named in skip, which are paths below
+// src; returns the file count.
+func linkTree(src, dst string, skip ...string) (int, error) {
 	n := 0
 	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -188,6 +212,9 @@ func linkTree(src, dst string) (int, error) {
 		}
 		rel, _ := filepath.Rel(src, p)
 		if rel == "." {
+			return nil
+		}
+		if slices.Contains(skip, filepath.ToSlash(rel)) {
 			return nil
 		}
 		if strings.HasPrefix(d.Name(), ".") {
@@ -309,14 +336,16 @@ func templateTags(v any) []string {
 
 // filterTemplates copies the templates that only speak HTTP to the target
 // and carry none of the excluded tags (PLAN §13: dos, fuzz, intrusive
-// removed). dropped counts the rest by reason (see templateDrop).
-func filterTemplates(src, dst string, exclude []string) (kept int, dropped map[string]int, err error) {
+// removed), together with the helper files they name. Dropped counts the
+// rest by reason (see templateDrop; missing_helper is a template whose
+// helper file is not in the checkout).
+func filterTemplates(src, dst string, exclude []string) (*templateSet, error) {
 	ex := map[string]bool{}
 	for _, e := range exclude {
 		ex[strings.ToLower(strings.TrimSpace(e))] = true
 	}
-	dropped = map[string]int{}
-	err = filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+	set := &templateSet{Dropped: map[string]int{}, uses: map[string][]string{}, users: map[string]int{}}
+	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -326,7 +355,7 @@ func filterTemplates(src, dst string, exclude []string) (kept int, dropped map[s
 			}
 			return nil
 		}
-		if !strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml") {
+		if !d.Type().IsRegular() || (!strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml")) {
 			return nil
 		}
 		b, err := os.ReadFile(p)
@@ -334,21 +363,40 @@ func filterTemplates(src, dst string, exclude []string) (kept int, dropped map[s
 			return err
 		}
 		if why := templateDrop(b, ex); why != "" {
-			dropped[why]++
+			set.Dropped[why]++
 			return nil
 		}
 		rel, _ := filepath.Rel(src, p)
-		target := filepath.Join(dst, rel)
+		rel = filepath.ToSlash(rel)
+		var helpers []string
+		for _, ref := range templateHelpers(b) {
+			h, ok := resolveHelper(src, rel, ref)
+			if !ok {
+				set.Dropped["missing_helper"]++
+				return nil
+			}
+			helpers = append(helpers, h)
+		}
+		for _, h := range helpers {
+			if set.users[h] == 0 {
+				if err := copyInto(filepath.Join(src, filepath.FromSlash(h)), filepath.Join(dst, filepath.FromSlash(h))); err != nil {
+					return err
+				}
+			}
+			set.users[h]++
+		}
+		target := filepath.Join(dst, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
 		if err := os.WriteFile(target, b, 0o644); err != nil {
 			return err
 		}
-		kept++
+		set.uses[rel] = helpers
+		set.Kept++
 		return nil
 	})
-	return kept, dropped, err
+	return set, err
 }
 
 // ---- cp-api feed sync ----
@@ -508,7 +556,15 @@ func publishBundleDir(call rawCaller, dir string, canaryHours float64) (int, []b
 	}
 	fmt.Fprintf(os.Stderr, "[publish] uploaded %d new files; publishing manifest\n", uploaded)
 	req, _ := json.Marshal(v1.AdminPublishBundleRequest{Manifest: mb, Sig: strings.TrimSpace(string(sigB)), CanaryHours: canaryHours})
-	return call("POST", "/admin/bundles", strings.NewReader(string(req)), map[string]string{"Content-Type": "application/json"})
+	st, out, err := call("POST", "/admin/bundles", strings.NewReader(string(req)), map[string]string{"Content-Type": "application/json"})
+	if err == nil && st == http.StatusOK {
+		// Not an error: a day without a new feed ends here.
+		var res v1.AdminPublishBundleResponse
+		if json.Unmarshal(out, &res) == nil && res.Unchanged {
+			fmt.Fprintf(os.Stderr, "[publish] nothing published: bundle %s (%s, feed %s) already carries exactly these files\n", res.Version, res.Status, res.FeedVersion)
+		}
+	}
+	return st, out, err
 }
 
 // publishRelease signs an artifact with the release key and uploads it.

@@ -67,7 +67,10 @@ type Config struct {
 	ReleaseKeys  []*ecdsa.PublicKey
 	CanaryPeriod time.Duration
 	RequeueAfter time.Duration
-	AptDir       string
+	// StreamStall is how long a request or its response may make no
+	// progress before the server ends it (default streamStall, one minute).
+	StreamStall time.Duration
+	AptDir      string
 	// Phase 4: the vendor-owner token approves scope changes and attests
 	// the scope (PLAN §16); Product / Version / Contact feed the
 	// transparency page.
@@ -136,7 +139,7 @@ func (s *Server) EnrollHandler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 	mux.HandleFunc("GET /transparency", s.handleTransparency)
 	mux.HandleFunc("GET /transparency.json", s.handleTransparencyJSON)
-	return logging(s.log, mux)
+	return logging(s.log, s.stall(), mux)
 }
 
 // MTLSHandler serves the client-cert listener.
@@ -239,7 +242,7 @@ func (s *Server) MTLSHandler() http.Handler {
 	mux.HandleFunc("POST /admin/retention/run", s.withAdmin(s.adminRetention))
 	mux.HandleFunc("GET /admin/metrics", s.withAdmin(s.handleMetrics))
 	mux.HandleFunc("GET /admin/sla", s.withAdmin(s.adminSLA))
-	return logging(s.log, mux)
+	return logging(s.log, s.stall(), mux)
 }
 
 // TLSConfigEnroll is the server TLS config for the enroll listener.
@@ -783,25 +786,87 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-func logging(log *slog.Logger, next http.Handler) http.Handler {
+func (s *Server) stall() time.Duration {
+	if s.cfg.StreamStall > 0 {
+		return s.cfg.StreamStall
+	}
+	return streamStall
+}
+
+func logging(log *slog.Logger, stall time.Duration, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		rw := &statusWriter{ResponseWriter: w, status: 200}
+		rw := &statusWriter{ResponseWriter: w, status: 200, stall: stall}
+		if r.Body != nil && r.Body != http.NoBody {
+			r.Body = &movingBody{ReadCloser: r.Body, rw: rw}
+		}
 		next.ServeHTTP(rw, r)
 		log.Debug("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "ms", time.Since(start).Milliseconds(), "ip", clientIP(r))
 	})
 }
 
+// statusWriter records the status and keeps the response's deadline ahead
+// of a request that is still moving.
+//
+// The listener's WriteTimeout is counted from the moment a request's header
+// is read. A request that took longer than that to arrive or to be carried
+// out was therefore answered after the deadline: the reply was cut inside a
+// TLS record and the client reported "bad record MAC" for a request the
+// server had completed. In the lab that was the publish of a bundle through
+// a control plane whose link was held to 1 Mbit/s: checking the manifest's
+// 105,000 digests against the database took it over a minute. A download
+// was cut the same way after a minute, however well it was moving: a
+// bundle manifest, or a package from the apt mirror on a slow site link.
+// So the deadline moves on with every block of the request that arrives
+// and every block of the response that is written, and a response ends
+// when it makes no progress for the stall time (Config.StreamStall).
+//
+// HTTP/2 resets a stream the moment the deadline passes, whatever the
+// handler is doing, so there a request that the server needs longer than
+// the stall time to carry out is still lost. The appliance, the only
+// HTTP/2 client, gives up on such a request after a minute on its own.
 type statusWriter struct {
 	http.ResponseWriter
 	status int
+	stall  time.Duration
+	ctl    *http.ResponseController
 }
 
-func (s *statusWriter) WriteHeader(c int) { s.status = c; s.ResponseWriter.WriteHeader(c) }
+func (s *statusWriter) moving() {
+	if s.ctl == nil {
+		s.ctl = http.NewResponseController(s.ResponseWriter)
+	}
+	_ = s.ctl.SetWriteDeadline(time.Now().Add(s.stall))
+}
 
-// Unwrap lets http.ResponseController reach the connection, which the
-// download handlers need to move their write deadline.
+func (s *statusWriter) WriteHeader(c int) {
+	s.moving()
+	s.status = c
+	s.ResponseWriter.WriteHeader(c)
+}
+
+func (s *statusWriter) Write(b []byte) (int, error) {
+	s.moving()
+	return s.ResponseWriter.Write(b)
+}
+
+// Unwrap lets http.ResponseController reach the connection.
 func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// movingBody moves the response's deadline on while the request's body is
+// still arriving.
+type movingBody struct {
+	io.ReadCloser
+	rw *statusWriter
+}
+
+func (b *movingBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 {
+		b.rw.moving()
+	}
+	return n, err
+}
 
 // ipLimiter is a fixed-window per-IP counter for the enroll endpoint.
 type ipLimiter struct {
