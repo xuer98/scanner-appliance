@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -280,6 +281,164 @@ func TestBundleRollbackWhenFeedDoesNotLoad(t *testing.T) {
 	// reload_vts against the restored feed succeeds (the fake reports it).
 	if err := m.ReloadVTs(t.Context(), ""); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// ospd starts loading the feed the moment the version file names a newer
+// version. In the lab it did so while the daemon was still placing files,
+// so the version file has to be the last one to change.
+func TestBundleVersionFileGoesLast(t *testing.T) {
+	cp := newCPFake(t)
+	key := newSigner(t)
+	plugins := t.TempDir()
+	old := "PLUGIN_SET = \"202609010000\";\n"
+	_ = os.WriteFile(filepath.Join(plugins, "plugin_feed_info.inc"), []byte(old), 0o644)
+	_ = os.WriteFile(filepath.Join(plugins, "dropped.nasl"), []byte("dropped"), 0o644)
+	m := newManager(t, cp, key, plugins, nil)
+	m.init()
+	seed, err := m.adoptSeed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One file sorts before the version file and one after it.
+	cp.publish(t, key, map[string]string{
+		"nasl/a_first.nasl":         "first",
+		"nasl/plugin_feed_info.inc": "PLUGIN_SET = \"202609260530\";\n",
+		"nasl/zz_late/late.nasl":    "late",
+	}, "20260926T000000Z")
+	next, err := bundle.DecodeManifest(cp.manifests["20260926T000000Z"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetch, remove := bundle.Diff(seed, next)
+	for _, f := range fetch {
+		if err := m.ensureCAS(t.Context(), "/v1/bundles/20260926T000000Z", f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The late file cannot be placed: a regular file sits where its
+	// directory belongs. Whatever was placed before the failure shows the
+	// order.
+	blocker := filepath.Join(plugins, "zz_late")
+	_ = os.WriteFile(blocker, []byte("in the way"), 0o644)
+	if err := m.place(next, fetch, remove); err == nil {
+		t.Fatal("placing over a blocked path succeeded")
+	}
+	if read(t, filepath.Join(plugins, "a_first.nasl")) != "first" {
+		t.Fatal("the file before the version file was not placed")
+	}
+	if got := read(t, filepath.Join(plugins, "plugin_feed_info.inc")); got != old {
+		t.Fatalf("the version file changed before every feed file was in place: %q", got)
+	}
+
+	// With the path clear everything lands, dropped files go, and only then
+	// does the version change.
+	_ = os.Remove(blocker)
+	if err := m.place(next, fetch, remove); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(plugins, "zz_late", "late.nasl")) != "late" || read(t, filepath.Join(plugins, "dropped.nasl")) != "<missing>" {
+		t.Fatal("feed files not in their final state")
+	}
+	if got := read(t, filepath.Join(plugins, "plugin_feed_info.inc")); !strings.Contains(got, "202609260530") {
+		t.Fatalf("version file not updated: %q", got)
+	}
+}
+
+// The engine only loads a feed newer than the one it has. In the lab a
+// bundle with an older feed kept the appliance in "updating", unable to
+// scan, for the whole reload timeout before it was rolled back. It is
+// refused at once, with nothing on disk touched.
+func TestBundleRefusesOlderFeed(t *testing.T) {
+	cp := newCPFake(t)
+	key := newSigner(t)
+	plugins := t.TempDir()
+	_ = os.WriteFile(filepath.Join(plugins, "plugin_feed_info.inc"), []byte("PLUGIN_SET = \"202609260530\";\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(plugins, "keep.nasl"), []byte("keep"), 0o644)
+	fake := osptest.Start(t, &osptest.Fake{PluginsDir: plugins})
+	m := newManager(t, cp, key, plugins, fake)
+
+	older := cp.publish(t, key, map[string]string{"nasl/plugin_feed_info.inc": "PLUGIN_SET = \"202609010000\";\n", "nasl/old.nasl": "old"}, "20260901T000000Z")
+	start := time.Now()
+	_, err := m.ApplyBundle(t.Context(), older)
+	if err == nil || !strings.Contains(err.Error(), "bundle 20260901T000000Z: carries feed 202609010000, older than the installed feed 202609260530") {
+		t.Fatalf("older feed: %v", err)
+	}
+	if time.Since(start) > m.ReloadTimeout/2 {
+		t.Fatalf("the refusal took %s; it must not wait for a reload", time.Since(start))
+	}
+	if cp.reqs() != 0 {
+		t.Fatalf("%d files fetched for a bundle that cannot be applied", cp.reqs())
+	}
+	if read(t, filepath.Join(plugins, "old.nasl")) != "<missing>" || read(t, filepath.Join(plugins, "keep.nasl")) != "keep" ||
+		!strings.Contains(read(t, filepath.Join(plugins, "plugin_feed_info.inc")), "202609260530") {
+		t.Fatal("the plugins directory changed")
+	}
+	if inst := mustInstalled(t, m); inst.Version != "seed-202609260530" {
+		t.Fatalf("installed: %s", inst.Version)
+	}
+
+	// The same feed version (only configs or templates changed) and a newer
+	// one still apply.
+	same := cp.publish(t, key, map[string]string{"nasl/plugin_feed_info.inc": "PLUGIN_SET = \"202609260530\";\n", "nasl/keep.nasl": "keep", "configs/full.json": `{"name":"full","families":["Web Servers"],"params":{}}`}, "20260926T000000Z")
+	if _, err := m.ApplyBundle(t.Context(), same); err != nil {
+		t.Fatalf("same feed version: %v", err)
+	}
+	newer := cp.publish(t, key, map[string]string{"nasl/plugin_feed_info.inc": "PLUGIN_SET = \"202609270530\";\n", "nasl/keep.nasl": "keep"}, "20260927T000000Z")
+	if _, err := m.ApplyBundle(t.Context(), newer); err != nil {
+		t.Fatalf("newer feed: %v", err)
+	}
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{{"202609010000", "202609260530", true}, {"202609260530", "202609260530", false}, {"202609270530", "202609260530", false}, {"", "202609260530", false}, {"202609010000", "", false}, {"abc", "202609260530", false}} {
+		if got := feedOlder(c.a, c.b); got != c.want {
+			t.Fatalf("feedOlder(%q, %q) = %v", c.a, c.b, got)
+		}
+	}
+}
+
+// A rollback has to stay quick at the size of the real feed. It used to
+// rebuild the manifest index for every file, which is quadratic: with
+// 105,000 files the lab's rollback took over six minutes.
+func TestRollbackScalesWithTheFeed(t *testing.T) {
+	const files = 12000
+	plugins := t.TempDir()
+	m := newManager(t, newCPFake(t), newSigner(t), plugins, nil)
+	m.init()
+	body := []byte("script")
+	sha := bundle.SHA256Hex(body)
+	if err := os.MkdirAll(m.casDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.casPath(sha), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prev, next := &bundle.Manifest{Version: "prev"}, &bundle.Manifest{Version: "next"}
+	for i := 0; i < files; i++ {
+		name := "gb_test_" + strconv.Itoa(i) + ".nasl"
+		if err := os.WriteFile(filepath.Join(plugins, name), body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		f := bundle.File{Path: "nasl/" + name, SHA256: sha, Size: int64(len(body))}
+		prev.Files = append(prev.Files, f)
+		next.Files = append(next.Files, f)
+	}
+	// next added one file that the rollback has to take away again.
+	_ = os.WriteFile(filepath.Join(plugins, "zz_new.nasl"), body, 0o644)
+	next.Files = append(next.Files, bundle.File{Path: "nasl/zz_new.nasl", SHA256: sha, Size: int64(len(body))})
+
+	start := time.Now()
+	if err := m.restore(prev, next); err != nil {
+		t.Fatal(err)
+	}
+	d := time.Since(start)
+	t.Logf("restore of %d unchanged files: %s", files, d)
+	if d > 1500*time.Millisecond {
+		t.Fatalf("restoring %d unchanged files took %s", files, d)
+	}
+	if read(t, filepath.Join(plugins, "zz_new.nasl")) != "<missing>" || read(t, filepath.Join(plugins, "gb_test_0.nasl")) != "script" {
+		t.Fatal("restore did not put the previous file set back")
 	}
 }
 

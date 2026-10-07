@@ -15,6 +15,10 @@ type Bundle struct {
 	HeldReason  string
 	PublishedAt time.Time
 	CanaryUntil *time.Time
+	// ConfirmedAt is when a canary appliance first reported the bundle
+	// installed. It has to be remembered: with one bundle a day the canaries
+	// run a newer one by the time the canary period of this one ends.
+	ConfirmedAt *time.Time
 }
 
 // BundleFileRec is one content-addressed file in the object store.

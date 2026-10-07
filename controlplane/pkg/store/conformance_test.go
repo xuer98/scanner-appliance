@@ -368,6 +368,26 @@ func opsScenario(t *testing.T, ctx context.Context, st Store, site *Site, apl *A
 	if got.Status != v1.RolloutHeld || got.HeldReason == "" {
 		t.Fatalf("held: %+v", got)
 	}
+	// The first confirmation by a canary appliance is kept.
+	first, second := now.Add(time.Hour), now.Add(30*time.Hour)
+	if got.ConfirmedAt != nil {
+		t.Fatalf("confirmed before any canary reported it: %+v", got)
+	}
+	for _, at := range []time.Time{first, second} {
+		if err := st.ConfirmBundle(ctx, b2.Version, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.ConfirmBundle(ctx, "nope", first); err != ErrNotFound {
+		t.Fatalf("confirming a missing bundle: %v", err)
+	}
+	got, _ = st.GetBundle(ctx, b2.Version)
+	if got.ConfirmedAt == nil || !got.ConfirmedAt.Equal(first) {
+		t.Fatalf("confirmed_at: %+v, want %s", got.ConfirmedAt, first)
+	}
+	if list, _ = st.ListBundles(ctx); list[0].ConfirmedAt == nil || !list[0].ConfirmedAt.Equal(first) || list[1].ConfirmedAt != nil {
+		t.Fatalf("confirmed_at in the listing: %+v %+v", list[0].ConfirmedAt, list[1].ConfirmedAt)
+	}
 	// Re-put keeps the row unique (upsert).
 	b2.Status = v1.RolloutReleased
 	if err := st.PutBundle(ctx, b2); err != nil {

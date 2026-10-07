@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -122,6 +123,154 @@ func (h *harness) publishBundle(t *testing.T, files map[string]string, version s
 	req, _ := json.Marshal(v1.AdminPublishBundleRequest{Manifest: mb, Sig: sig})
 	st, body, _ := h.rawAdmin(t, "POST", "/admin/bundles", req, map[string]string{"Content-Type": "application/json"})
 	return m, mb, sig, st, body
+}
+
+// A manifest of the real feed lists about 95,000 files and weighs about
+// 14 MB. Publishing must not be bound by the 1 MiB limit of ordinary admin
+// requests, and a body that is over a limit must say so.
+func TestPublishFeedSizedManifest(t *testing.T) {
+	h := newHarness(t)
+	key, _ := bundle.GenerateKey()
+	h.srv.cfg.ReleaseKeys = append(h.srv.cfg.ReleaseKeys, &key.PublicKey)
+	h.srv.cfg.Objects = DirObjects{Root: t.TempDir()}
+
+	blob := []byte("script_oid(\"1.3.6.1.4.1.25623.1.0.1\");")
+	sha := bundle.SHA256Hex(blob)
+	if st, body, _ := h.rawAdmin(t, "PUT", "/admin/bundles/files/"+sha, blob, nil); st != 201 {
+		t.Fatalf("put file: %d %s", st, body)
+	}
+	m := &bundle.Manifest{Version: "20261006T000000Z", CreatedAt: h.now.UTC().Truncate(time.Second)}
+	for i := 0; i < 20000; i++ {
+		m.Files = append(m.Files, bundle.File{Path: fmt.Sprintf("nasl/2025/gb_some_product_detect_%05d.nasl", i), SHA256: sha, Size: int64(len(blob))})
+	}
+	mb, err := bundle.EncodeManifest(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mb) <= maxJSONBody {
+		t.Fatalf("manifest is only %d bytes: the test would not cross the default limit", len(mb))
+	}
+	sig, _ := bundle.Sign(mb, key)
+	req, _ := json.Marshal(v1.AdminPublishBundleRequest{Manifest: mb, Sig: sig})
+	st, body, _ := h.rawAdmin(t, "POST", "/admin/bundles", req, map[string]string{"Content-Type": "application/json"})
+	if st != 201 {
+		t.Fatalf("publish of a %d byte manifest: %d %s", len(mb), st, body)
+	}
+	var bv v1.AdminBundleView
+	_ = json.Unmarshal(body, &bv)
+	if bv.Files != 20000 || bv.SHA256 != bundle.SHA256Hex(mb) {
+		t.Fatalf("bundle view: %+v", bv)
+	}
+
+	// Ordinary admin requests keep the small limit and name it.
+	shas := make([]string, 20000)
+	for i := range shas {
+		shas[i] = sha
+	}
+	big, _ := json.Marshal(v1.AdminMissingFilesRequest{SHA256: shas})
+	if len(big) <= maxJSONBody {
+		t.Fatalf("request is only %d bytes", len(big))
+	}
+	if st, body, _ := h.rawAdmin(t, "POST", "/admin/bundles/missing", big, nil); st != 400 || !strings.Contains(string(body), "larger than") {
+		t.Fatalf("oversized request: %d %s", st, body)
+	}
+}
+
+// The documented cadence is one bundle a day with a 48-hour canary period.
+// The newest bundle is then always still in canary, so the fleet has to be
+// given the newest bundle that has left it. And a bundle has to leave
+// canary on the confirmation it got while the canaries ran it: by the end
+// of its period they have moved on to newer bundles.
+func TestBundleRolloutDailyCadence(t *testing.T) {
+	h := newHarness(t)
+	key, _ := bundle.GenerateKey()
+	h.srv.cfg.ReleaseKeys = append(h.srv.cfg.ReleaseKeys, &key.PublicKey)
+	h.srv.cfg.Objects = DirObjects{Root: t.TempDir()}
+	h.srv.cfg.CanaryPeriod = 48 * time.Hour
+	sign := signFn(func(b []byte) string { s, _ := bundle.Sign(b, key); return s })
+
+	h.enrolled(t)
+	a := applianceCreds{id: h.applID, cert: h.applCert} // the lab appliance
+	var created v1.AdminCreateApplianceResponse
+	if st := h.admin("POST", "/admin/appliances", v1.AdminCreateApplianceRequest{Vendor: "Acme 3PL", Site: "Reno DC"}, &created); st != 201 {
+		t.Fatalf("create B: %d", st)
+	}
+	if _, st := h.doEnroll(created.Code); st != 200 {
+		t.Fatalf("enroll B: %d", st)
+	}
+	b := applianceCreds{id: h.applID, cert: h.applCert} // a vendor's appliance
+	canary := true
+	if st := h.admin("PATCH", "/admin/appliances/"+a.id, v1.AdminApplianceUpdate{Canary: &canary}, nil); st != 200 {
+		t.Fatalf("set canary: %d", st)
+	}
+
+	// beat reports what the appliance runs and installs any bundle it is
+	// offered; it returns the offered version.
+	installed := map[string]string{}
+	beat := func(c applianceCreds) string {
+		t.Helper()
+		hb := v1.Heartbeat{Version: "1.2.0", OS: "linux", Arch: "amd64", State: "idle", BundleVersion: installed[c.id],
+			Engine: v1.EngineHealth{OSPDUp: true, VTCacheLoaded: true}}
+		offered := ""
+		for _, d := range h.heartbeatAs(t, c, hb).Directives {
+			if d.Type == v1.DirectiveUpdateBundle {
+				offered, _ = d.Payload[v1.PayloadVersion].(string)
+				hb.AckedDirectiveIDs = append(hb.AckedDirectiveIDs, d.ID)
+			}
+		}
+		if offered != "" {
+			installed[c.id] = offered
+			hb.BundleVersion = offered
+			h.heartbeatAs(t, c, hb)
+		}
+		return offered
+	}
+	tick := func() {
+		t.Helper()
+		if err := h.srv.RolloutTick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	day := func(n int) string { return fmt.Sprintf("2026100%dT060000Z", n) }
+
+	var fleetGot []string
+	for d := 1; d <= 6; d++ {
+		files := map[string]string{"nasl/plugin_feed_info.inc": fmt.Sprintf("PLUGIN_SET = \"2026100%d0600\";\n", d), "nasl/a.nasl": fmt.Sprintf("day %d", d)}
+		if _, _, _, st, body := h.publishBundle(t, files, day(d), sign); st != 201 {
+			t.Fatalf("publish day %d: %d %s", d, st, body)
+		}
+		if got := beat(a); got != day(d) {
+			t.Fatalf("day %d: the canary was offered %q", d, got)
+		}
+		if got := beat(b); got != "" {
+			t.Fatalf("day %d: the fleet was offered %s at the moment day %d was published", d, got, d)
+		}
+		h.now = h.now.Add(24 * time.Hour)
+		tick()
+		if got := beat(a); got != "" {
+			t.Fatalf("day %d: the canary runs the newest bundle and was offered %s", d, got)
+		}
+		if got := beat(b); got != "" {
+			fleetGot = append(fleetGot, got)
+		}
+	}
+	// Six days in, the bundles of days 1 to 5 are past their 48 hours and
+	// each reached the fleet in turn.
+	want := []string{day(1), day(2), day(3), day(4), day(5)}
+	if strings.Join(fleetGot, ",") != strings.Join(want, ",") {
+		t.Fatalf("the fleet received %v, want %v", fleetGot, want)
+	}
+
+	// Holding the newest bundle must not push the appliances that run it
+	// back to an older one: the engine only ever loads a newer feed, so the
+	// downgrade would fail after the reload timeout on every one of them.
+	if st := h.admin("POST", "/admin/bundles/"+day(6)+"/rollout", v1.AdminRolloutRequest{Status: v1.RolloutHeld, Reason: "test"}, nil); st != 200 {
+		t.Fatalf("hold: %d", st)
+	}
+	tick()
+	if got := beat(a); got != "" {
+		t.Fatalf("after the hold the canary, which runs %s, was offered the older %s", day(6), got)
+	}
 }
 
 func TestBundleRolloutCanaryToRelease(t *testing.T) {

@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,8 @@ const (
 	maxArtifact      = 512 << 20
 
 	feedPrefix = bundle.FeedDir + "/"
+	// feedVersionPath is the file ospd reads the feed version from.
+	feedVersionPath = feedPrefix + bundle.FeedInfoFile
 )
 
 // ErrRestartRequired is returned once a new daemon binary is in place.
@@ -224,6 +227,12 @@ func (m *Manager) ApplyBundle(ctx context.Context, p Payload) (*bundle.Manifest,
 			return nil, bundleErr(p.Version, fmt.Errorf("adopt seeded feed: %w", err))
 		}
 	}
+	// ospd only loads a feed that is newer than the one it has, so an older
+	// feed would sit on disk unloaded until the reload wait ran out, with
+	// the appliance unable to scan all that time. Refuse it up front.
+	if feedOlder(next.FeedVersion, installed.FeedVersion) {
+		return nil, bundleErr(p.Version, fmt.Errorf("carries feed %s, older than the installed feed %s, and the engine only loads a newer feed", next.FeedVersion, installed.FeedVersion))
+	}
 	fetch, remove := bundle.Diff(installed, next)
 	var fetchBytes int64
 	feedChanged := false
@@ -243,12 +252,11 @@ func (m *Manager) ApplyBundle(ctx context.Context, p Payload) (*bundle.Manifest,
 		}
 	}
 	// Everything is local; the swap itself is quick and reversible.
-	if err := m.place(next, fetch); err != nil {
+	if err := m.place(next, fetch, remove); err != nil {
 		log.Error("placing files failed; restoring", "err", err)
 		_ = m.restore(installed, next)
 		return nil, bundleErr(p.Version, err)
 	}
-	m.removeAll(remove)
 	if err := m.writeManifests(installed, next); err != nil {
 		_ = m.restore(installed, next)
 		return nil, bundleErr(p.Version, err)
@@ -271,6 +279,15 @@ func (m *Manager) ApplyBundle(ctx context.Context, p Payload) (*bundle.Manifest,
 	m.gc(installed, next)
 	log.Info("bundle applied", "feed", next.FeedVersion, "files", len(next.Files))
 	return next, nil
+}
+
+// feedOlder reports whether feed version a is older than b. Versions are
+// PLUGIN_SET timestamps (yyyymmddhhmm), compared as numbers the way ospd
+// does; anything else is never called older.
+func feedOlder(a, b string) bool {
+	x, errA := strconv.ParseUint(a, 10, 64)
+	y, errB := strconv.ParseUint(b, 10, 64)
+	return errA == nil && errB == nil && x < y
 }
 
 // adoptSeed turns the feed the image shipped into the "installed"
@@ -352,23 +369,41 @@ func (m *Manager) importCAS(src, sha string) error {
 	return copyFile(src, dst, 0o644)
 }
 
-// place links every fetched file into its target and re-creates any
-// unchanged file that went missing.
-func (m *Manager) place(next *bundle.Manifest, fetch []bundle.File) error {
+// place links every fetched file into its target, re-creates any
+// unchanged file that went missing and removes the files the new manifest
+// dropped. The feed's version file changes last: ospd looks at it every
+// ten seconds and starts loading the feed the moment it names a newer
+// version, so by then every other feed file has to be in its final state.
+func (m *Manager) place(next *bundle.Manifest, fetch []bundle.File, remove []string) error {
 	fetched := map[string]bool{}
 	for _, f := range fetch {
 		fetched[f.Path] = true
 	}
-	for _, f := range next.Files {
+	one := func(f bundle.File) error {
 		target := m.Target(f.Path)
 		if !fetched[f.Path] {
 			if fi, err := os.Stat(target); err == nil && fi.Size() == f.Size {
-				continue
+				return nil
 			}
 		}
 		if err := m.placeOne(m.casPath(f.SHA256), target); err != nil {
 			return fmt.Errorf("install %s: %w", f.Path, err)
 		}
+		return nil
+	}
+	var versionFile *bundle.File
+	for i, f := range next.Files {
+		if f.Path == feedVersionPath {
+			versionFile = &next.Files[i]
+			continue
+		}
+		if err := one(f); err != nil {
+			return err
+		}
+	}
+	m.removeAll(remove)
+	if versionFile != nil {
+		return one(*versionFile)
 	}
 	return nil
 }
@@ -424,12 +459,14 @@ func (m *Manager) restore(prev, next *bundle.Manifest) error {
 	if prev == nil {
 		prev = &bundle.Manifest{}
 	}
-	have := prev.Index()
+	// Both indexes are built once. Building one per file made the rollback
+	// of the full feed (105,000 files) take over six minutes in the lab.
+	have, want := prev.Index(), next.Index()
 	var firstErr error
 	for _, f := range prev.Files {
 		target := m.Target(f.Path)
 		if fi, err := os.Stat(target); err == nil && fi.Size() == f.Size {
-			if cur, ok := next.Index()[f.Path]; ok && cur.SHA256 == f.SHA256 {
+			if cur, ok := want[f.Path]; ok && cur.SHA256 == f.SHA256 {
 				continue
 			}
 		}

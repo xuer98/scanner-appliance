@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"sort"
+	"time"
 )
 
 func (m *Memory) ensurePhase3() {
@@ -63,6 +64,20 @@ func (m *Memory) SetBundleStatus(_ context.Context, version, status, reason stri
 		return ErrNotFound
 	}
 	b.Status, b.HeldReason = status, reason
+	return nil
+}
+
+func (m *Memory) ConfirmBundle(_ context.Context, version string, at time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase3()
+	b, ok := m.bundles[version]
+	if !ok {
+		return ErrNotFound
+	}
+	if b.ConfirmedAt == nil {
+		b.ConfirmedAt = &at
+	}
 	return nil
 }
 

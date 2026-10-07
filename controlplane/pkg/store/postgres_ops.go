@@ -3,15 +3,16 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
-const bundleCols = `version, feed_version, object_key, sha256, sig, files, bytes, status, held_reason, published_at, canary_until`
+const bundleCols = `version, feed_version, object_key, sha256, sig, files, bytes, status, held_reason, published_at, canary_until, confirmed_at`
 
 func scanBundle(row pgx.Row) (*Bundle, error) {
 	b := &Bundle{}
-	err := row.Scan(&b.Version, &b.FeedVersion, &b.ObjectKey, &b.SHA256, &b.Sig, &b.Files, &b.Bytes, &b.Status, &b.HeldReason, &b.PublishedAt, &b.CanaryUntil)
+	err := row.Scan(&b.Version, &b.FeedVersion, &b.ObjectKey, &b.SHA256, &b.Sig, &b.Files, &b.Bytes, &b.Status, &b.HeldReason, &b.PublishedAt, &b.CanaryUntil, &b.ConfirmedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -19,12 +20,12 @@ func scanBundle(row pgx.Row) (*Bundle, error) {
 }
 
 func (p *Postgres) PutBundle(ctx context.Context, b *Bundle) error {
-	_, err := p.pool.Exec(ctx, `INSERT INTO bundle(version, feed_version, object_key, sha256, sig, files, bytes, status, held_reason, published_at, canary_until)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+	_, err := p.pool.Exec(ctx, `INSERT INTO bundle(version, feed_version, object_key, sha256, sig, files, bytes, status, held_reason, published_at, canary_until, confirmed_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		ON CONFLICT(version) DO UPDATE SET feed_version=EXCLUDED.feed_version, object_key=EXCLUDED.object_key, sha256=EXCLUDED.sha256,
 		  sig=EXCLUDED.sig, files=EXCLUDED.files, bytes=EXCLUDED.bytes, status=EXCLUDED.status, held_reason=EXCLUDED.held_reason,
-		  published_at=EXCLUDED.published_at, canary_until=EXCLUDED.canary_until`,
-		b.Version, b.FeedVersion, b.ObjectKey, b.SHA256, b.Sig, b.Files, b.Bytes, b.Status, b.HeldReason, b.PublishedAt, b.CanaryUntil)
+		  published_at=EXCLUDED.published_at, canary_until=EXCLUDED.canary_until, confirmed_at=EXCLUDED.confirmed_at`,
+		b.Version, b.FeedVersion, b.ObjectKey, b.SHA256, b.Sig, b.Files, b.Bytes, b.Status, b.HeldReason, b.PublishedAt, b.CanaryUntil, b.ConfirmedAt)
 	return err
 }
 
@@ -51,6 +52,10 @@ func (p *Postgres) ListBundles(ctx context.Context) ([]*Bundle, error) {
 
 func (p *Postgres) SetBundleStatus(ctx context.Context, version, status, reason string) error {
 	return execOne(p.pool.Exec(ctx, `UPDATE bundle SET status=$2, held_reason=$3 WHERE version=$1`, version, status, reason))
+}
+
+func (p *Postgres) ConfirmBundle(ctx context.Context, version string, at time.Time) error {
+	return execOne(p.pool.Exec(ctx, `UPDATE bundle SET confirmed_at=COALESCE(confirmed_at, $2) WHERE version=$1`, version, at))
 }
 
 func (p *Postgres) PutBundleFiles(ctx context.Context, files []BundleFileRec) error {

@@ -128,8 +128,13 @@ func bundleCmd(args []string) error {
 		if err != nil {
 			return fmt.Errorf("nuclei templates: %w", err)
 		}
+		total := 0
+		for _, n := range dropped {
+			total += n
+		}
 		summary["templates"] = kept
-		summary["templates_dropped"] = dropped
+		summary["templates_dropped"] = total
+		summary["templates_dropped_by"] = dropped
 	}
 	ports := defaultFragilePorts
 	if *fragile != "" {
@@ -235,8 +240,55 @@ type templateHead struct {
 	Info struct {
 		Tags any `yaml:"tags"`
 	} `yaml:"info"`
-	HTTP     any `yaml:"http"`
-	Requests any `yaml:"requests"` // legacy name of http
+	HTTP          any  `yaml:"http"`
+	Requests      any  `yaml:"requests"` // legacy name of http
+	SelfContained bool `yaml:"self-contained"`
+}
+
+// templateKeys are the top-level keys of a template that are not a
+// protocol section. Any other key (tcp, dns, javascript, code, headless,
+// ssl, websocket, ...) makes nuclei speak something other than HTTP, and
+// on ports the scan did not pin. Unknown keys count as a protocol, so a
+// new upstream section is dropped until it is listed here.
+var templateKeys = map[string]bool{
+	"id": true, "info": true, "http": true, "requests": true, "variables": true, "constants": true,
+	"flow": true, "stop-at-first-match": true, "signature": true, "self-contained": true,
+}
+
+// templateDrop names why a template is left out of the bundle, "" to keep
+// it. The web add-on promises HTTP checks against the target only.
+func templateDrop(b []byte, exclude map[string]bool) string {
+	var h templateHead
+	if err := yaml.Unmarshal(b, &h); err != nil || h.ID == "" || (h.HTTP == nil && h.Requests == nil) {
+		return "not_http"
+	}
+	var top map[string]any
+	if err := yaml.Unmarshal(b, &top); err != nil {
+		return "not_http"
+	}
+	for k := range top {
+		if !templateKeys[k] {
+			return "other_protocol"
+		}
+	}
+	if h.SelfContained {
+		// Self-contained templates call third-party services, not the target.
+		return "self_contained"
+	}
+	for _, section := range []any{h.HTTP, h.Requests} {
+		reqs, _ := section.([]any)
+		for _, r := range reqs {
+			if m, ok := r.(map[string]any); ok && m["fuzzing"] != nil {
+				return "fuzzing"
+			}
+		}
+	}
+	for _, t := range templateTags(h.Info.Tags) {
+		if exclude[strings.ToLower(t)] {
+			return "excluded_tag"
+		}
+	}
+	return ""
 }
 
 func templateTags(v any) []string {
@@ -255,13 +307,15 @@ func templateTags(v any) []string {
 	return nil
 }
 
-// filterTemplates copies the http templates that carry none of the
-// excluded tags (PLAN §13: dos, fuzz, intrusive removed).
-func filterTemplates(src, dst string, exclude []string) (kept, dropped int, err error) {
+// filterTemplates copies the templates that only speak HTTP to the target
+// and carry none of the excluded tags (PLAN §13: dos, fuzz, intrusive
+// removed). dropped counts the rest by reason (see templateDrop).
+func filterTemplates(src, dst string, exclude []string) (kept int, dropped map[string]int, err error) {
 	ex := map[string]bool{}
 	for _, e := range exclude {
 		ex[strings.ToLower(strings.TrimSpace(e))] = true
 	}
+	dropped = map[string]int{}
 	err = filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -279,16 +333,9 @@ func filterTemplates(src, dst string, exclude []string) (kept, dropped int, err 
 		if err != nil {
 			return err
 		}
-		var h templateHead
-		if err := yaml.Unmarshal(b, &h); err != nil || h.ID == "" || (h.HTTP == nil && h.Requests == nil) {
-			dropped++
+		if why := templateDrop(b, ex); why != "" {
+			dropped[why]++
 			return nil
-		}
-		for _, t := range templateTags(h.Info.Tags) {
-			if ex[strings.ToLower(t)] {
-				dropped++
-				return nil
-			}
 		}
 		rel, _ := filepath.Rel(src, p)
 		target := filepath.Join(dst, rel)

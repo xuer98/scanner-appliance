@@ -36,6 +36,10 @@ const (
 	maxBundleFile   = 256 << 20
 	maxReleaseSize  = 512 << 20
 
+	// streamStall is how long a download may make no progress before the
+	// server ends it.
+	streamStall = 60 * time.Second
+
 	HeaderBundleSig    = "X-Bundle-Signature"
 	HeaderBundleSHA256 = "X-Bundle-SHA256"
 	HeaderReleaseSigV1 = "X-Release-Signature"
@@ -71,7 +75,24 @@ func (s *Server) streamObject(w http.ResponseWriter, r *http.Request, key string
 	}
 	w.Header().Set("Content-Length", strconv.FormatInt(n, 10))
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(w, rc)
+	// The listener's WriteTimeout would end the response a fixed time after
+	// the request, however well it is moving: the manifest of the full feed
+	// is 16 MB, more than a 1 Mbit/s site link carries in a minute. The
+	// deadline advances with every block written instead.
+	ctl := http.NewResponseController(w)
+	buf := make([]byte, 64<<10)
+	for {
+		nr, rerr := rc.Read(buf)
+		if nr > 0 {
+			_ = ctl.SetWriteDeadline(time.Now().Add(streamStall))
+			if _, werr := w.Write(buf[:nr]); werr != nil {
+				return
+			}
+		}
+		if rerr != nil {
+			return
+		}
+	}
 }
 
 func (s *Server) handleBundleManifest(w http.ResponseWriter, r *http.Request) {
@@ -180,7 +201,9 @@ func (s *Server) adminPutBundleFile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) adminPublishBundle(w http.ResponseWriter, r *http.Request) {
 	var req v1.AdminPublishBundleRequest
-	if err := decodeJSON(r, &req); err != nil {
+	// The manifest lists every file of the feed: about 14 MB for the
+	// Community Feed's 95,000 files, far over the default body limit.
+	if err := decodeJSONLimit(r, &req, maxManifestSize+maxJSONBody); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error(), "bad_json")
 		return
 	}

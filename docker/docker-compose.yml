@@ -51,11 +51,15 @@ services:
       CP_PUBLIC_URL: https://cp-api:9443
       CP_ADMIN_TOKEN: ${CP_ADMIN_TOKEN:-dev-admin-token}
       CP_OWNER_TOKEN: ${CP_OWNER_TOKEN:-dev-owner-token}
+      CP_OBJECT_DIR: /objects
     volumes:
       # Bind-mounted so the same dev CA is used by ci/build.sh (embedded root)
       # and by the running control plane. Created by `ci/build.sh --dev` or by
       # the entrypoint on first start.
       - ${PKI_DIR:-../dev/pki}:/pki
+      # Result chunks, support bundles, feed bundles and releases. A volume,
+      # so a rebuilt cp-api still holds the objects its database refers to.
+      - cp-objects:/objects
     ports:
       - "${CP_ENROLL_PORT:-8443}:8443"
       - "${CP_MTLS_PORT:-9443}:9443"
@@ -103,5 +107,6 @@ services:
 
 volumes:
   db-data:
+  cp-objects:
   appliance-state:
   openvas-state:

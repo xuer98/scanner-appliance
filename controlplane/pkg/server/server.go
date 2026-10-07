@@ -488,6 +488,7 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.noteUpdateError(r.Context(), apl, &hb)
+	s.noteBundleConfirmed(r.Context(), apl, &hb)
 	pending, err := s.cfg.Store.PendingDirectives(r.Context(), apl.ID, true)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "store error", "store")
@@ -741,9 +742,20 @@ func dirView(d store.Directive) v1.AdminDirectiveView {
 // ---- helpers ----
 
 func decodeJSON(r *http.Request, v any) error {
-	dec := json.NewDecoder(io.LimitReader(r.Body, maxJSONBody))
+	return decodeJSONLimit(r, v, maxJSONBody)
+}
+
+// decodeJSONLimit is decodeJSON for the few requests that carry more than
+// maxJSONBody. A body over the limit is reported as such: cut short it
+// would only read as truncated JSON.
+func decodeJSONLimit(r *http.Request, v any, limit int64) error {
+	body := &io.LimitedReader{R: r.Body, N: limit + 1}
+	dec := json.NewDecoder(body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
+		if body.N <= 0 {
+			return fmt.Errorf("request body is larger than %d bytes", limit)
+		}
 		return fmt.Errorf("invalid json: %w", err)
 	}
 	return nil
@@ -785,6 +797,10 @@ type statusWriter struct {
 }
 
 func (s *statusWriter) WriteHeader(c int) { s.status = c; s.ResponseWriter.WriteHeader(c) }
+
+// Unwrap lets http.ResponseController reach the connection, which the
+// download handlers need to move their write deadline.
+func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
 // ipLimiter is a fixed-window per-IP counter for the enroll endpoint.
 type ipLimiter struct {

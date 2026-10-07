@@ -108,7 +108,7 @@ func (s *Server) transparencyData(ctx context.Context) transparencyData {
 			"detection: openvas re-checks the ports the port scan found with its own SYN scan, then runs service and product detection plus the vulnerability-test families of the selected scan config on those ports",
 			"UDP tests (only in jobs that ask for them, never by default): openvas has no UDP port scan to pin a list from, so each of its UDP tests probes its own well-known port on every host in scope, including hosts with no open TCP port; in our lab that was about 90 UDP ports and 1,300 datagrams per host, most of them SNMP requests that try about 170 common community names",
 			fingerprintPhase,
-			"web add-on (full scans only): httpx fingerprint of HTTP services, then nuclei HTTP templates at medium severity and above",
+			"web add-on (full scans only): httpx fingerprint of HTTP services, then nuclei HTTP templates at medium severity and above; in our lab that was about 8,800 requests per web server, about 580 of them from checks that try vendor default passwords",
 		},
 		Guardrails: []string{
 			"targets must lie inside the CIDRs the vendor owner attested; a change of scope needs the vendor owner's approval",

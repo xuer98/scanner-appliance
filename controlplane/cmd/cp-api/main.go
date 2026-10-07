@@ -479,10 +479,10 @@ func adminCmd(args []string) error {
 	hookSecret := fs.String("secret", "", "webhook HMAC secret (webhook add)")
 	hookEvents := fs.String("events", "", "comma-separated event names or prefixes like finding.* (webhook add; empty = all)")
 	dryRun := fs.Bool("dry-run", false, "count instead of deleting (retention)")
-	if err := fs.Parse(args[1:]); err != nil {
+	rest, err := parseInterleaved(fs, args[1:])
+	if err != nil {
 		return err
 	}
-	rest := fs.Args()
 	cl, err := adminClient(*rootCA, *insecure)
 	if err != nil {
 		return err
@@ -997,6 +997,26 @@ func adminCmd(args []string) error {
 		return fmt.Errorf("http %d", status)
 	}
 	return nil
+}
+
+// parseInterleaved parses flags wherever they stand among the positional
+// arguments. The flag package stops at the first positional one, which
+// silently dropped every flag in "rollout bundle VERSION held --reason R"
+// or "export SITE findings --status-filter fixed", the order the usage text
+// and the README show.
+func parseInterleaved(fs *flag.FlagSet, args []string) ([]string, error) {
+	var rest []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		args = fs.Args()
+		if len(args) == 0 {
+			return rest, nil
+		}
+		rest = append(rest, args[0])
+		args = args[1:]
+	}
 }
 
 func adminClient(rootCA string, insecure bool) (*http.Client, error) {

@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	v1 "github.com/tprm/scanner-appliance/api/v1"
@@ -42,9 +43,18 @@ func IsAuthError(err error) bool {
 	return errors.As(err, &e) && (e.Status == 401 || e.Status == 403)
 }
 
+// DefaultStallTimeout is how long a download may go without receiving a
+// byte before it is given up.
+const DefaultStallTimeout = 60 * time.Second
+
 // Client wraps an http.Client with the appliance's TLS identity.
 type Client struct {
-	http      *http.Client
+	http *http.Client
+	// bulk shares the transport but has no overall deadline. Downloads are
+	// bounded by progress instead (stall): the bundle manifest of the full
+	// feed is 16 MB and needs more than two minutes on a 1 Mbit/s link.
+	bulk      *http.Client
+	stall     time.Duration
 	UserAgent string
 }
 
@@ -54,6 +64,8 @@ type Options struct {
 	ClientCert *tls.Certificate // nil for the enroll call
 	Proxy      string           // "" | host:port | user:pass@host:port | http://...
 	Timeout    time.Duration
+	// StallTimeout bounds downloads (0: DefaultStallTimeout).
+	StallTimeout time.Duration
 }
 
 // ProxyURL normalizes the console/seed proxy syntax into a URL.
@@ -101,7 +113,10 @@ func New(o Options) (*Client, error) {
 	if o.Timeout == 0 {
 		o.Timeout = 60 * time.Second
 	}
-	return &Client{http: &http.Client{Transport: tr, Timeout: o.Timeout}, UserAgent: "applianced"}, nil
+	if o.StallTimeout == 0 {
+		o.StallTimeout = DefaultStallTimeout
+	}
+	return &Client{http: &http.Client{Transport: tr, Timeout: o.Timeout}, bulk: &http.Client{Transport: tr}, stall: o.StallTimeout, UserAgent: "applianced"}, nil
 }
 
 func (c *Client) do(ctx context.Context, method, rawURL string, body io.Reader, contentType string, out any) error {
@@ -146,15 +161,33 @@ func (c *Client) doHeaders(ctx context.Context, method, rawURL string, body io.R
 // Download streams GET {cpURL}{path} into w, capped at max bytes, and
 // returns the response headers and byte count. Used for bundle manifests,
 // bundle files and daemon releases (PLAN §13, §14).
+//
+// There is no deadline for the whole transfer, only for a stretch without
+// progress: the first byte of the body, and every further byte after a
+// pause, has to arrive within the stall timeout.
 func (c *Client) Download(ctx context.Context, cpURL, path string, w io.Writer, max int64) (http.Header, int64, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var stalled atomic.Bool
+	guard := time.AfterFunc(c.stall, func() {
+		stalled.Store(true)
+		cancel()
+	})
+	defer guard.Stop()
+	stallErr := func(err error) error {
+		if stalled.Load() {
+			return fmt.Errorf("download of %s made no progress for %s: %w", path, c.stall, err)
+		}
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, join(cpURL, path), nil)
 	if err != nil {
 		return nil, 0, err
 	}
 	req.Header.Set("User-Agent", c.UserAgent)
-	resp, err := c.http.Do(req)
+	resp, err := c.bulk.Do(req)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, stallErr(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -166,14 +199,29 @@ func (c *Client) Download(ctx context.Context, cpURL, path string, w io.Writer, 
 		}
 		return resp.Header, 0, &Error{Status: resp.StatusCode, Code: er.Code, Msg: er.Error}
 	}
-	n, err := io.Copy(w, io.LimitReader(resp.Body, max+1))
+	n, err := io.Copy(w, io.LimitReader(progressReader{r: resp.Body, guard: guard, d: c.stall}, max+1))
 	if err != nil {
-		return resp.Header, n, err
+		return resp.Header, n, stallErr(err)
 	}
 	if n > max {
 		return resp.Header, n, fmt.Errorf("download of %s exceeds %d bytes", path, max)
 	}
 	return resp.Header, n, nil
+}
+
+// progressReader pushes the stall guard out every time bytes arrive.
+type progressReader struct {
+	r     io.Reader
+	guard *time.Timer
+	d     time.Duration
+}
+
+func (p progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	if n > 0 {
+		p.guard.Reset(p.d)
+	}
+	return n, err
 }
 
 func (c *Client) postJSON(ctx context.Context, rawURL string, in, out any) error {

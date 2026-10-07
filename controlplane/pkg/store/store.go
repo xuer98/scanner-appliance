@@ -178,6 +178,9 @@ type Store interface {
 	GetBundle(ctx context.Context, version string) (*Bundle, error)
 	ListBundles(ctx context.Context) ([]*Bundle, error) // newest first
 	SetBundleStatus(ctx context.Context, version, status, reason string) error
+	// ConfirmBundle records the first time a canary appliance reported the
+	// bundle installed; later calls keep that first time.
+	ConfirmBundle(ctx context.Context, version string, at time.Time) error
 	// PutBundleFiles records content-addressed files that exist in the
 	// object store; HasBundleFiles reports which of the digests are known.
 	PutBundleFiles(ctx context.Context, files []BundleFileRec) error

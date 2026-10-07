@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -46,13 +47,17 @@ type Fake struct {
 	// PluginsDir makes the fake behave like ospd-openvas after a feed
 	// update: the reported VT version is PLUGIN_SET from
 	// <PluginsDir>/plugin_feed_info.inc (empty = cache not loaded) and the
-	// VT count is the number of .nasl files below it.
+	// VT count is the number of .nasl files below it. Like the real daemon
+	// it only loads a feed that is newer than the one it has.
 	PluginsDir string
 	// Script drives every scan started against this fake. After the last
 	// step the scan reports finished (or keeps running when Hang is set,
 	// until stop_scan).
 	Script []Step
 	Hang   bool
+
+	verMu  sync.Mutex
+	loaded string // feed version "in the cache" (PluginsDir mode)
 
 	mu        sync.Mutex
 	scans     map[string]*scanState
@@ -289,17 +294,29 @@ func (f *Fake) Starts() []string {
 	return append([]string(nil), f.StartXML...)
 }
 
-// version reports the loaded feed version (see PluginsDir).
+// version reports the loaded feed version (see PluginsDir). ospd-openvas
+// reloads when PLUGIN_SET on disk, read as a number, is greater than the
+// version it has loaded (feed_is_outdated in ospd_openvas/daemon.py). An
+// older feed on disk is never loaded: the daemon keeps reporting the newer
+// version, which is what the lab showed when a bundle with an older feed
+// was applied.
 func (f *Fake) version() string {
 	if f.PluginsDir == "" {
 		return f.VTsVersion
 	}
-	fh, err := os.Open(filepath.Join(f.PluginsDir, "plugin_feed_info.inc"))
-	if err != nil {
-		return ""
+	disk := ""
+	if fh, err := os.Open(filepath.Join(f.PluginsDir, "plugin_feed_info.inc")); err == nil {
+		disk = bundle.ParseFeedVersion(fh)
+		_ = fh.Close()
 	}
-	defer fh.Close()
-	return bundle.ParseFeedVersion(fh)
+	f.verMu.Lock()
+	defer f.verMu.Unlock()
+	have, errHave := strconv.ParseUint(f.loaded, 10, 64)
+	next, errNext := strconv.ParseUint(disk, 10, 64)
+	if f.loaded == "" || (disk != "" && (errHave != nil || errNext != nil || next > have)) {
+		f.loaded = disk
+	}
+	return f.loaded
 }
 
 func (f *Fake) vtCount() int {
