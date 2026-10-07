@@ -160,6 +160,12 @@ type Store interface {
 	// whose lease expired, oldest first.
 	DispatchableJobs(ctx context.Context, applianceID string, now time.Time, lease time.Duration) ([]*Job, error)
 	UpdateJob(ctx context.Context, j *Job) error
+	// NoteJobProgress records the phase and progress the appliance reports
+	// for the job it is running. A dispatched job becomes running. Nothing
+	// else of the job is written, and nothing at all once the job has ended
+	// or when it belongs to another appliance (changed is then false), so a
+	// report that arrives late cannot undo a status.
+	NoteJobProgress(ctx context.Context, jobID, applianceID, phase string, pct int, at time.Time) (changed bool, err error)
 
 	// Results (PLAN §12)
 	// RecordResultBatch is idempotent per (job, seq): the same sha256 again

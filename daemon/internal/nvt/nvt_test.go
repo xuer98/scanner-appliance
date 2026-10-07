@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/tprm/scanner-appliance/daemon/internal/osp"
@@ -154,5 +156,38 @@ func TestCacheLookupBulk(t *testing.T) {
 	src.failAt = 0
 	if m4, err := c2.Lookup(context.Background(), "v3", ask); err != nil || len(m4) != 12 || len(src.lastAsk) != 9 || !m4["9.8"].Missing {
 		t.Fatalf("retry: got=%d asked=%d err=%v", len(m4), len(src.lastAsk), err)
+	}
+}
+
+// One cache file per feed version would pile up, a file a day: the lab
+// appliance held six after one day of updates. Only the current one is kept.
+func TestCacheKeepsOneFeedVersion(t *testing.T) {
+	dir := t.TempDir()
+	src := &fakeSrc{vts: map[string]*osp.VT{"1.1": {OID: "1.1", Name: "A"}}}
+	c := New(dir, src, nil)
+	for _, feed := range []string{"202610050609", "202610050616", "202610060600"} {
+		if _, err := c.Lookup(context.Background(), feed, []string{"1.1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Something else in the directory is none of the cache's business.
+	other := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(other, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Lookup(context.Background(), "202610070600", []string{"1.1"}); err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "nvt-*"))
+	if len(files) != 1 || filepath.Base(files[0]) != "nvt-202610070600.json" {
+		t.Fatalf("cache files: %v", files)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("unrelated file removed: %v", err)
+	}
+	// The kept file still serves: a new cache on the same directory needs no fetch.
+	before := src.calls
+	if m, err := New(dir, src, nil).Lookup(context.Background(), "202610070600", []string{"1.1"}); err != nil || m["1.1"].Name != "A" || src.calls != before {
+		t.Fatalf("reload: %v %v calls %d→%d", m, err, before, src.calls)
 	}
 }

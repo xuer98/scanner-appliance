@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -164,7 +165,7 @@ func TestMergePorts(t *testing.T) {
 	snmp := v1.Port{Port: 161, Proto: "udp", Service: "snmp", Product: "Net-SNMP", Source: "openvas:product_detection"}
 	ntp := v1.Port{Port: 123, Proto: "udp", Service: "ntp", Source: "openvas:find_service"}
 	prev = append(prev, snmp, ntp)
-	if got := mergePorts(prev, cur, false); len(got) != 5 || got[3] != snmp || got[4] != ntp {
+	if got := mergePorts(prev, cur, false); len(got) != 5 || !reflect.DeepEqual(got[3], snmp) || !reflect.DeepEqual(got[4], ntp) {
 		t.Fatalf("udp ports not carried over by a scan that tested no udp: %+v", got)
 	}
 	got = mergePorts(prev, append(append([]v1.Port{}, cur...), v1.Port{Port: 161, Proto: "udp", Source: "openvas:find_service"}), true)
@@ -179,5 +180,71 @@ func TestMergePorts(t *testing.T) {
 		if p.Port == 23 {
 			t.Fatal("closed port kept")
 		}
+	}
+}
+
+// A database written before records were folded may hold two records for
+// one address: the host, and a nameless record made by a job's first chunk.
+// That is what the lab held for 172.18.0.10. The next sighting has to clean
+// it up, whichever way the host is matched, and must not pick the nameless
+// record over the host.
+func TestLeftoverDuplicateIsFolded(t *testing.T) {
+	t0 := time.Date(2026, 10, 6, 2, 0, 0, 0, time.UTC)
+	build := func() (*siteIndex, *Host, *Host) {
+		stub := &Host{ID: "host_a_stub", SiteID: "site_1", IP: "172.18.0.10", Source: v1.SourceAppliance, FirstSeen: t0.Add(time.Hour), LastSeen: t0.Add(time.Hour)}
+		host := &Host{ID: "host_b_real", SiteID: "site_1", IP: "172.18.0.10", MAC: "16:e4:3f:f7:e6:02", Hostname: "scanner-lab-snmponly-1.scannerlab",
+			Source: v1.SourceAppliance, FirstSeen: t0, LastSeen: t0.Add(2 * time.Hour)}
+		other := &Host{ID: "host_c_other", SiteID: "site_1", IP: "172.18.0.11", MAC: "b6:41:b7:70:8f:44", Source: v1.SourceAppliance, FirstSeen: t0}
+		// The nameless record sorts first, as it did in the lab.
+		return newSiteIndex("site_1", []*Host{stub, host, other}, nil), stub, host
+	}
+
+	// By address alone the host is preferred over the nameless record.
+	ix, stub, host := build()
+	if got := ix.match(nil, "", "172.18.0.10"); got != host {
+		t.Fatalf("match by address picked %+v", got)
+	}
+	// With no better candidate the nameless record is still found.
+	ix.hosts = []*Host{stub}
+	if got := ix.match(nil, "", "172.18.0.10"); got != stub {
+		t.Fatalf("lone record not matched: %+v", got)
+	}
+
+	// A sighting with the MAC the host answers with today, which is not the
+	// one on record: matched by address, the MAC is brought up to date and
+	// the nameless record goes.
+	ix, stub, host = build()
+	sum, touched := ix.ingestAppliance("job_1", []v1.Host{{IP: "172.18.0.10", MAC: "d6:20:6f:8c:8c:76", Ports: []v1.Port{}}}, "f", t0.Add(30*time.Hour), v1.ScopeFull)
+	if sum.Absorbed != 1 || sum.Created != 0 || len(touched) != 1 || touched[0] != host.ID {
+		t.Fatalf("summary %+v touched %v", sum, touched)
+	}
+	if len(ix.hosts) != 2 || ix.removed[stub.ID] == nil || ix.changed[stub.ID] != nil || host.MAC != "d6:20:6f:8c:8c:76" || !host.FirstSeen.Equal(t0) {
+		t.Fatalf("after the sighting: hosts %d removed %v host %+v", len(ix.hosts), ix.removed, host)
+	}
+
+	// Matched by name instead: same outcome.
+	ix, stub, host = build()
+	if sum, _ := ix.ingestAppliance("job_1", []v1.Host{{IP: "172.18.0.10", Hostname: "scanner-lab-snmponly-1", Ports: []v1.Port{}}}, "f", t0.Add(30*time.Hour), v1.ScopeFull); sum.Absorbed != 1 {
+		t.Fatalf("matched by name: %+v", sum)
+	}
+	if ix.removed[stub.ID] == nil || host.MAC != "16:e4:3f:f7:e6:02" {
+		t.Fatalf("matched by name: removed %v mac %s", ix.removed, host.MAC)
+	}
+
+	// An agent vouches for the host: its MAC is not the appliance's to change.
+	ix, _, host = build()
+	host.AgentID = "agent-7"
+	ix.ingestAppliance("job_1", []v1.Host{{IP: "172.18.0.10", MAC: "d6:20:6f:8c:8c:76", Hostname: "scanner-lab-snmponly-1", Ports: []v1.Port{}}}, "f", t0.Add(30*time.Hour), v1.ScopeFull)
+	if host.MAC != "16:e4:3f:f7:e6:02" {
+		t.Fatalf("agent host's MAC replaced: %s", host.MAC)
+	}
+
+	// Two hosts that are each known by more than the address are never
+	// folded, even at one address: nothing says they are the same device.
+	ix, _, host = build()
+	rival := &Host{ID: "host_d_rival", SiteID: "site_1", IP: "172.18.0.10", Hostname: "something-else", Source: v1.SourceAppliance}
+	ix.hosts = append(ix.hosts, rival)
+	if sum, _ := ix.ingestAppliance("job_1", []v1.Host{{IP: "172.18.0.10", MAC: "16:e4:3f:f7:e6:02", Ports: []v1.Port{}}}, "f", t0.Add(30*time.Hour), v1.ScopeFull); sum.Absorbed != 1 || ix.removed[rival.ID] != nil {
+		t.Fatalf("a named host was folded: %+v %v", sum, ix.removed)
 	}
 }

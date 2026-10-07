@@ -105,10 +105,11 @@ func (s *Server) transparencyData(ctx context.Context) transparencyData {
 		Phases: []string{
 			"discovery: ARP / ICMP / TCP-SYN probes to 3 ports on the attested ranges (naabu)",
 			"port scan: TCP SYN scan of the top ~1000 ports plus warehouse/OT ports on live hosts (naabu); a job may ask for all 65535 ports, which is only accepted when it fits the agreed window at the agreed packet rate",
-			"detection: openvas re-checks the ports the port scan found with its own SYN scan, then runs service and product detection plus the vulnerability-test families of the selected scan config on those ports",
+			"detection: openvas re-checks the ports the port scan found with its own SYN scan, then runs service and product detection plus the vulnerability-test families of the selected scan config on those ports; the Default Accounts family among them signs in with the known default password of specific products, which in our lab was 5 sign-in attempts per scan against an nginx server and about 120 refused requests against a Tomcat management page that asks for a password",
 			"UDP tests (only in jobs that ask for them, never by default): openvas has no UDP port scan to pin a list from, so each of its UDP tests probes its own well-known port on every host in scope, including hosts with no open TCP port; in our lab that was about 90 UDP ports and 1,300 datagrams per host, most of them SNMP requests that try about 170 common community names",
 			fingerprintPhase,
-			"web add-on (full scans only): httpx fingerprint of HTTP services, then nuclei HTTP templates at medium severity and above; in our lab that was about 8,800 requests per web server, about 580 of them from checks that try vendor default passwords",
+			"web add-on (full scans only): httpx fingerprint of HTTP services, then nuclei HTTP templates at medium severity and above, without its default-login templates; in our lab that was about 8,150 requests per web server; of those sent to an nginx server, 35 carried a built-in account, where the flaw a check tests is such an account or sits behind a sign-in",
+			"default-login templates of the web add-on (only in jobs that ask for them, never by default): they sign in with lists of default user names and passwords, several pairs per product; in our lab that added about 610 requests per web server",
 		},
 		Guardrails: []string{
 			"targets must lie inside the CIDRs the vendor owner attested; a change of scope needs the vendor owner's approval",

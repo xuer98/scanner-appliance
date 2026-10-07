@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -121,7 +122,17 @@ func (s *Server) handleJobStatus(w http.ResponseWriter, r *http.Request) {
 	log := s.log.With("job", job.ID, "appliance", apl.ID)
 	if job.Terminal() {
 		if job.Status == req.Status {
-			w.WriteHeader(http.StatusNoContent) // idempotent repeat
+			// A repeat, or the usual order of a finished job: its last
+			// chunk made it done before this status arrived. The status
+			// still names the phase the job ended in.
+			if req.Phase != "" && job.Phase != req.Phase {
+				job.Phase = req.Phase
+				if err := s.cfg.Store.UpdateJob(r.Context(), job); err != nil {
+					writeErr(w, http.StatusInternalServerError, "store error", "store")
+					return
+				}
+			}
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		writeErr(w, http.StatusConflict, "job is already "+job.Status, "terminal")
@@ -165,6 +176,21 @@ func (s *Server) handleJobStatus(w http.ResponseWriter, r *http.Request) {
 		s.emit(r.Context(), EventJobFailed, job.SiteID, job.ApplianceID, job.ID, map[string]any{"status": job.Status, "reason": job.RejectReason, "phase": req.Phase, "mode": job.Spec.Mode})
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// noteJobProgress copies the phase and progress of the job an appliance
+// reports in its heartbeat onto the job record. The appliance posts a
+// status when a job starts and when it ends; in between the heartbeat is
+// what moves, and without this a job read "discovery, 0 percent" for its
+// whole run.
+func (s *Server) noteJobProgress(ctx context.Context, apl *store.Appliance, hb *v1.Heartbeat) {
+	cur := hb.CurrentJob
+	if cur == nil || cur.ID == "" || len(cur.Phase) > 32 {
+		return
+	}
+	if _, err := s.cfg.Store.NoteJobProgress(ctx, cur.ID, apl.ID, cur.Phase, clampPct(cur.ProgressPct), s.cfg.Now()); err != nil {
+		s.log.Warn("job progress not recorded", "job", cur.ID, "appliance", apl.ID, "err", err)
+	}
 }
 
 func clampPct(p int) int {

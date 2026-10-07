@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -55,6 +56,7 @@ func TestStoreConformance(t *testing.T) {
 			pilotScenario(t, ctx, st, site, apl)
 			replaceScenario(t, ctx, st, site, apl)
 			udpScenario(t, ctx, st, vendor, apl)
+			inventoryScenario(t, ctx, st, vendor, apl)
 		})
 	}
 }
@@ -1052,6 +1054,232 @@ func udpScenario(t *testing.T, ctx context.Context, st Store, vendor *Vendor, ap
 	// A full job with the module no longer finds those two either.
 	fixed = scan(v1.ScopeFull, true, []v1.Port{tcp53}, dns)
 	expect("full+udp, all gone", fixed, "gear,ntp", "dns=inventory/open gear=full+udp/fixed ntp=full+udp/fixed snmp=inventory+udp/fixed")
+}
+
+// inventoryScenario follows one host through what the first scans with the
+// real engine got wrong: a host that changes address must stay one record,
+// its MAC must be the one seen last, every CPE must be kept, a score must
+// come back as it went in, a default-login match needs a job that runs
+// those checks to be resolved, and a job's phase follows the heartbeat.
+func inventoryScenario(t *testing.T, ctx context.Context, st Store, vendor *Vendor, apl *Appliance) {
+	t.Helper()
+	site, err := st.EnsureSite(ctx, vendor.ID, "Inventory lab", []string{"10.50.0.0/16"}, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 7, 8, 0, 0, 0, time.UTC)
+	job := func(id string, at time.Time) *Job {
+		t.Helper()
+		j := &Job{ID: id, SiteID: site.ID, ApplianceID: apl.ID, Status: v1.JobRunning, StartedAt: &at}
+		j.Spec.DefaultsFor(v1.ModeFull)
+		if err := st.CreateJob(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+		return j
+	}
+	ingest := func(j *Job, at time.Time, hosts ...v1.Host) IngestSummary {
+		t.Helper()
+		sum, err := st.IngestScan(ctx, ScanIngest{SiteID: site.ID, JobID: j.ID, FeedVersion: "202610060600", At: at, Scope: v1.ScopeFull, Hosts: hosts})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sum
+	}
+	hosts := func() []*Host { t.Helper(); return must(st.ListHosts(ctx, site.ID)) }
+	names := func(hostID string) string {
+		t.Helper()
+		var out []string
+		for _, f := range must(st.ListFindings(ctx, site.ID, hostID)) {
+			out = append(out, f.Name)
+		}
+		sort.Strings(out)
+		return strings.Join(out, ",")
+	}
+	nginx := v1.Port{Port: 80, Proto: "tcp", Service: "http", Product: "Nginx", Version: "1.16.1", CPE: "cpe:/a:nginx:nginx:1.16.1",
+		CPEs: []string{"cpe:/a:nginx:nginx:1.16.1", "cpe:/a:f5:nginx:1.16.1"}, Source: "openvas:product_detection"}
+	inventory := []string{"cpe:/a:f5:nginx:1.16.1", "cpe:/a:nginx:nginx:1.16.1", "cpe:/o:linux:kernel"}
+	eol := v1.Finding{Source: "openvas", NVTOID: "1.3.6.1.4.1.25623.1.0.7001", Name: "eol", Severity: v1.SeverityCritical, CVSS: 9.8, QoD: 80, Port: 80, Proto: "tcp"}
+	smuggle := v1.Finding{Source: "openvas", NVTOID: "1.3.6.1.4.1.25623.1.0.7002", Name: "smuggling", Severity: v1.SeverityMedium, CVSS: 5.3, QoD: 80, Port: 80, Proto: "tcp"}
+	dos := v1.Finding{Source: "openvas", NVTOID: "1.3.6.1.4.1.25623.1.0.7003", Name: "dos", Severity: v1.SeverityHigh, CVSS: 7.5, QoD: 80, Port: 80, Proto: "tcp"}
+
+	// 1. First seen at .9, named, with the MAC of its interface.
+	t1 := now
+	j1 := job("job_i1", t1)
+	ingest(j1, t1.Add(time.Minute), v1.Host{IP: "10.50.0.9", MAC: "16:E4:3F:F7:E6:02", Hostname: "web-1.lab", Ports: []v1.Port{nginx}, CPEs: inventory, Findings: []v1.Finding{eol, smuggle}})
+	hs := hosts()
+	if len(hs) != 1 || hs[0].MAC != "16:e4:3f:f7:e6:02" {
+		t.Fatalf("first scan: %+v", hs)
+	}
+	origin := hs[0]
+	if !reflect.DeepEqual(origin.CPEs, inventory) || len(origin.Ports) != 1 || !reflect.DeepEqual(origin.Ports[0].CPEs, nginx.CPEs) || origin.Ports[0].CPE != nginx.CPE {
+		t.Fatalf("product inventory not stored: host %v port %+v", origin.CPEs, origin.Ports)
+	}
+	// A score has one decimal and comes back exactly as it went in.
+	for _, f := range must(st.ListFindings(ctx, site.ID, origin.ID)) {
+		if want := map[string]float64{"eol": 9.8, "smuggling": 5.3}[f.Name]; f.CVSS != want {
+			t.Fatalf("%s: cvss %v, want %v", f.Name, f.CVSS, want)
+		}
+	}
+	if err := st.UpsertNVTs(ctx, []NVT{{OID: eol.NVTOID, Name: "eol", CVSS: 9.8, FeedVersion: "202610060600"}}); err != nil {
+		t.Fatal(err)
+	}
+	if n := must(st.GetNVT(ctx, eol.NVTOID)); n.CVSS != 9.8 {
+		t.Fatalf("nvt cvss %v, want 9.8", n.CVSS)
+	}
+
+	// 2. The host comes back at .10 with a new interface. The job's first
+	// chunk knows the address and the open port, nothing else: a record is
+	// created there, because nothing at .10 is known.
+	t2 := now.Add(24 * time.Hour)
+	j2 := job("job_i2", t2)
+	if sum := ingest(j2, t2.Add(time.Minute), v1.Host{IP: "10.50.0.10", Ports: []v1.Port{{Port: 80, Proto: "tcp", Source: "naabu"}}}); sum.Created != 1 || sum.Absorbed != 0 {
+		t.Fatalf("interim chunk: %+v", sum)
+	}
+	if hs := hosts(); len(hs) != 2 {
+		t.Fatalf("after the interim chunk: %d records", len(hs))
+	}
+	// The last chunk names the host. It matches the record from .9, which
+	// moves here, and the record created a moment ago is folded into it.
+	sum := ingest(j2, t2.Add(5*time.Minute), v1.Host{IP: "10.50.0.10", MAC: "d6:20:6f:8c:8c:76", Hostname: "web-1.lab", Ports: []v1.Port{{Port: 80, Proto: "tcp", Source: "naabu"}}, Findings: []v1.Finding{eol, dos}})
+	if sum.Absorbed != 1 || sum.Created != 0 {
+		t.Fatalf("final chunk: %+v", sum)
+	}
+	hs = hosts()
+	if len(hs) != 1 || hs[0].ID != origin.ID || hs[0].IP != "10.50.0.10" || hs[0].Hostname != "web-1.lab" {
+		t.Fatalf("after the move: %+v", hs)
+	}
+	// The MAC is the one that answered now, not the old interface's, and
+	// the record is as old as its first sighting.
+	if hs[0].MAC != "d6:20:6f:8c:8c:76" || !hs[0].FirstSeen.Equal(t1.Add(time.Minute)) {
+		t.Fatalf("mac %q first seen %s", hs[0].MAC, hs[0].FirstSeen)
+	}
+	// A chunk without product detail erases none of it.
+	if !reflect.DeepEqual(hs[0].CPEs, inventory) || len(hs[0].Ports) != 1 || !reflect.DeepEqual(hs[0].Ports[0].CPEs, nginx.CPEs) || hs[0].Ports[0].Product != "Nginx" {
+		t.Fatalf("product inventory lost by a chunk without it: host %v port %+v", hs[0].CPEs, hs[0].Ports)
+	}
+	if got := names(origin.ID); got != "dos,eol,smuggling" {
+		t.Fatalf("findings after the move: %s", got)
+	}
+	if jh := must(st.ListJobHosts(ctx, j2.ID)); len(jh) != 1 || jh[0].ID != origin.ID {
+		t.Fatalf("the job still lists the folded record: %+v", jh)
+	}
+
+	// 3. It moves again, and this time findings arrive before its name does
+	// (a run that broke off after detection sends them in a partial chunk).
+	// One of them the host already has, one is new.
+	t3 := now.Add(48 * time.Hour)
+	j3 := job("job_i3", t3)
+	late := v1.Finding{Source: "openvas", NVTOID: "1.3.6.1.4.1.25623.1.0.7004", Name: "late", Severity: v1.SeverityMedium, CVSS: 4.3, QoD: 80, Port: 80, Proto: "tcp"}
+	ingest(j3, t3.Add(time.Minute), v1.Host{IP: "10.50.0.11", Ports: []v1.Port{{Port: 80, Proto: "tcp", Source: "naabu"}}, Findings: []v1.Finding{eol, late}})
+	if all := must(st.ListFindings(ctx, site.ID, "")); len(hosts()) != 2 || len(all) != 5 {
+		t.Fatalf("before the name arrives: %d records, %d findings", len(hosts()), len(all))
+	}
+	// A new inventory this time: it replaces the old one.
+	newer := []string{"cpe:/a:nginx:nginx:1.26.0", "cpe:/o:linux:kernel"}
+	sum = ingest(j3, t3.Add(5*time.Minute), v1.Host{IP: "10.50.0.11", MAC: "d6:20:6f:8c:8c:76", Ports: []v1.Port{{Port: 80, Proto: "tcp", CPE: "cpe:/a:nginx:nginx:1.26.0", Source: "openvas:product_detection"}},
+		CPEs: newer, Findings: []v1.Finding{eol, late}})
+	if sum.Absorbed != 1 {
+		t.Fatalf("second move: %+v", sum)
+	}
+	hs = hosts()
+	if len(hs) != 1 || hs[0].ID != origin.ID || hs[0].IP != "10.50.0.11" || !reflect.DeepEqual(hs[0].CPEs, newer) || hs[0].Ports[0].CPE != "cpe:/a:nginx:nginx:1.26.0" {
+		t.Fatalf("after the second move: %+v", hs)
+	}
+	// One "eol", not two; "late" moved over with its record's id intact.
+	all := must(st.ListFindings(ctx, site.ID, ""))
+	if got := names(origin.ID); got != "dos,eol,late,smuggling" || len(all) != 4 {
+		t.Fatalf("findings after the second move: %s (%d in the site)", got, len(all))
+	}
+	for _, f := range all {
+		if f.HostID != origin.ID {
+			t.Fatalf("finding %s left on a record that is gone: %s", f.Name, f.HostID)
+		}
+		if f.Name == "eol" && !f.FirstSeen.Equal(t1.Add(time.Minute)) {
+			t.Fatalf("eol first seen %s, want the first scan", f.FirstSeen)
+		}
+	}
+
+	// 4. A host no one can name stays a record of its own at its address.
+	ingest(j3, t3.Add(6*time.Minute), v1.Host{IP: "10.50.0.30", Ports: []v1.Port{}})
+	ingest(j3, t3.Add(7*time.Minute), v1.Host{IP: "10.50.0.30", Ports: []v1.Port{}})
+	if hs := hosts(); len(hs) != 2 {
+		t.Fatalf("address-only host: %d records", len(hs))
+	}
+
+	// 5. A default-login match is only resolved by a job that runs those
+	// checks; any web job resolves an ordinary web match.
+	t4 := now.Add(72 * time.Hour)
+	j4 := job("job_i4", t4)
+	login := v1.Finding{Source: "nuclei", ID: "tomcat-default-login", Name: "login", Family: v1.FamilyWebDefaultLogin, Severity: v1.SeverityHigh, CVSS: 8.1, QoD: 80, Port: 80, Proto: "tcp"}
+	traversal := v1.Finding{Source: "nuclei", ID: "CVE-2021-41773", Name: "traversal", Family: v1.FamilyWeb, Severity: v1.SeverityCritical, CVSS: 9.8, QoD: 80, Port: 80, Proto: "tcp"}
+	web := v1.Host{IP: "10.50.0.11", MAC: "d6:20:6f:8c:8c:76", Ports: []v1.Port{{Port: 80, Proto: "tcp", Source: "naabu"}}}
+	web.Findings = []v1.Finding{login, traversal}
+	ingest(j4, t4.Add(time.Minute), web)
+	scopes := map[string]string{}
+	for _, f := range must(st.ListFindings(ctx, site.ID, origin.ID)) {
+		scopes[f.Name] = f.Scope
+	}
+	if scopes["login"] != v1.ScopeWebLogins || scopes["traversal"] != v1.ScopeWeb {
+		t.Fatalf("web scopes: %v", scopes)
+	}
+	t5 := now.Add(96 * time.Hour)
+	j5 := job("job_i5", t5)
+	web.Findings = nil
+	ingest(j5, t5.Add(time.Minute), web)
+	fixed := must(st.ResolveFindings(ctx, site.ID, j5.ID, []string{v1.ScopeWeb}, t5, t5.Add(2*time.Minute)))
+	if len(fixed) != 1 || fixed[0].Name != "traversal" {
+		t.Fatalf("a web job without the default-login checks fixed %d findings: %+v", len(fixed), fixed)
+	}
+	t6 := now.Add(120 * time.Hour)
+	j6 := job("job_i6", t6)
+	ingest(j6, t6.Add(time.Minute), web)
+	fixed = must(st.ResolveFindings(ctx, site.ID, j6.ID, []string{v1.ScopeWeb, v1.ScopeWebLogins}, t6, t6.Add(2*time.Minute)))
+	if len(fixed) != 1 || fixed[0].Name != "login" {
+		t.Fatalf("a web job with the default-login checks fixed %d findings: %+v", len(fixed), fixed)
+	}
+
+	// 6. The job record follows the heartbeat, until the job has ended.
+	jp := &Job{ID: "job_i7", SiteID: site.ID, ApplianceID: apl.ID, Status: v1.JobDispatched}
+	jp.Spec.DefaultsFor(v1.ModeFull)
+	if err := st.CreateJob(ctx, jp); err != nil {
+		t.Fatal(err)
+	}
+	at := now.Add(130 * time.Hour)
+	if changed := must(st.NoteJobProgress(ctx, jp.ID, apl.ID, "portscan", 40, at)); !changed {
+		t.Fatal("first progress report not recorded")
+	}
+	got := must(st.GetJob(ctx, jp.ID))
+	if got.Status != v1.JobRunning || got.Phase != "portscan" || got.ProgressPct != 40 || got.StartedAt == nil || !got.StartedAt.Equal(at) {
+		t.Fatalf("after the first report: %+v", got)
+	}
+	if changed := must(st.NoteJobProgress(ctx, jp.ID, apl.ID, "portscan", 40, at.Add(time.Minute))); changed {
+		t.Fatal("an unchanged report was written again")
+	}
+	if changed := must(st.NoteJobProgress(ctx, jp.ID, "apl_someone_else", "openvas", 90, at)); changed {
+		t.Fatal("another appliance moved the job")
+	}
+	if changed := must(st.NoteJobProgress(ctx, jp.ID, apl.ID, "openvas", 55, at.Add(2*time.Minute))); !changed {
+		t.Fatal("second progress report not recorded")
+	}
+	got = must(st.GetJob(ctx, jp.ID))
+	if got.Phase != "openvas" || got.ProgressPct != 55 || !got.StartedAt.Equal(at) {
+		t.Fatalf("after the second report: %+v", got)
+	}
+	done := at.Add(3 * time.Minute)
+	got.Status, got.Phase, got.ProgressPct, got.FinishedAt = v1.JobDone, "finalize", 100, &done
+	if err := st.UpdateJob(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	// A heartbeat sent before the job ended arrives after it did.
+	if changed := must(st.NoteJobProgress(ctx, jp.ID, apl.ID, "web", 50, at.Add(4*time.Minute))); changed {
+		t.Fatal("a late report changed a finished job")
+	}
+	if got = must(st.GetJob(ctx, jp.ID)); got.Status != v1.JobDone || got.Phase != "finalize" || got.ProgressPct != 100 {
+		t.Fatalf("a finished job was moved: %+v", got)
+	}
+	if changed := must(st.NoteJobProgress(ctx, "job_missing", apl.ID, "web", 50, at)); changed {
+		t.Fatal("a job that does not exist was reported changed")
+	}
 }
 
 func must[T any](v T, err error) T {

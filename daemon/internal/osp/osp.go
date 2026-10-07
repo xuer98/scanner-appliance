@@ -12,8 +12,8 @@ import (
 	"io"
 	"net"
 	"os"
-	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	v1 "github.com/tprm/scanner-appliance/api/v1"
@@ -26,6 +26,15 @@ const DefaultSocket = "/run/ospd/ospd.sock"
 type Client struct {
 	Socket  string
 	Timeout time.Duration
+	// RedisSocket is the engine's redis, asked for the number of loaded
+	// tests (redis.go). Empty leaves the count at 0.
+	RedisSocket string
+
+	// The count is taken once per feed version: it only changes when the
+	// feed does.
+	countMu   sync.Mutex
+	countFeed string
+	count     int
 }
 
 // New returns a client for the socket (DefaultSocket when empty).
@@ -33,7 +42,7 @@ func New(socket string) *Client {
 	if socket == "" {
 		socket = DefaultSocket
 	}
-	return &Client{Socket: socket, Timeout: 15 * time.Second}
+	return &Client{Socket: socket, Timeout: 15 * time.Second, RedisSocket: DefaultRedisSocket}
 }
 
 // VersionResponse is <get_version_response>.
@@ -55,15 +64,6 @@ type VersionResponse struct {
 	} `xml:"scanner"`
 	VTs struct {
 		Version string `xml:"version"`
-	} `xml:"vts"`
-}
-
-// vtsCount is the subset of <get_vts_response> we read when asking for details="0".
-type vtsResponse struct {
-	XMLName xml.Name `xml:"get_vts_response"`
-	Status  string   `xml:"status,attr"`
-	VTs     struct {
-		Total string `xml:"total,attr"`
 	} `xml:"vts"`
 }
 
@@ -107,18 +107,23 @@ func (c *Client) Version(ctx context.Context) (*VersionResponse, error) {
 	return &vr, nil
 }
 
-// VTCount runs <get_vts details="0"/> and reads the total attribute
-// (ospd-openvas ≥ 21 reports it; older builds return 0 here).
-func (c *Client) VTCount(ctx context.Context) (int, error) {
-	b, err := c.Command(ctx, `<get_vts details="0" filter="id=none"/>`)
+// VTCount is the number of tests the engine has loaded for the given feed
+// version, counted in its redis and remembered until the version changes.
+// A failed count is not remembered, so the next call tries again.
+func (c *Client) VTCount(ctx context.Context, feedVersion string) (int, error) {
+	if c.RedisSocket == "" {
+		return 0, nil
+	}
+	c.countMu.Lock()
+	defer c.countMu.Unlock()
+	if feedVersion != "" && c.countFeed == feedVersion {
+		return c.count, nil
+	}
+	n, err := countVTs(ctx, c.RedisSocket)
 	if err != nil {
 		return 0, err
 	}
-	var r vtsResponse
-	if err := xml.Unmarshal(b, &r); err != nil {
-		return 0, err
-	}
-	n, _ := strconv.Atoi(strings.TrimSpace(r.VTs.Total))
+	c.countFeed, c.count = feedVersion, n
 	return n, nil
 }
 
@@ -147,7 +152,7 @@ func (c *Client) Health(ctx context.Context) v1.EngineHealth {
 	h.VTCacheLoaded = strings.TrimSpace(vr.VTs.Version) != ""
 	h.FeedVersion = strings.TrimSpace(vr.VTs.Version)
 	if h.VTCacheLoaded {
-		if n, err := c.VTCount(ctx); err == nil {
+		if n, err := c.VTCount(ctx, h.FeedVersion); err == nil {
 			h.VTCount = n
 		}
 	}

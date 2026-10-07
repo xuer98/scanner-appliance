@@ -60,8 +60,11 @@ type Loop struct {
 	PowerOff func() error
 	// Now is overridable in tests.
 	Now func() time.Time
-	// OSPSocket is the ospd-openvas socket probed for engine health.
+	// OSPSocket is the ospd-openvas socket probed for engine health. OSP is
+	// the client used for the probe; when nil one is made for OSPSocket and
+	// kept, because it remembers the number of tests per feed version.
 	OSPSocket string
+	OSP       *osp.Client
 	// Jobs runs scans; nil disables job polling (Phase 1 behaviour).
 	Jobs *jobs.Runner
 	// Update applies bundles and daemon releases (Phase 3); nil acks those
@@ -327,7 +330,10 @@ func (l *Loop) maybeRenew(ctx context.Context, st *state.State) error {
 
 func (l *Loop) build(st *state.State) v1.Heartbeat {
 	pctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	engine := osp.New(l.OSPSocket).Health(pctx)
+	if l.OSP == nil {
+		l.OSP = osp.New(l.OSPSocket)
+	}
+	engine := l.OSP.Health(pctx)
 	cancel()
 	engine.Tools = availableTools(l.ToolPaths)
 	l.engine = engine

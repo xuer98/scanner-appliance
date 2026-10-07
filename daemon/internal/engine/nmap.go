@@ -322,13 +322,14 @@ func (r *run) mergeNmap(res *nmapRun, handed map[string]bool) int {
 				}
 				p.Source = sourceNmapVersion
 			}
-			if p.CPE == "" {
-				for _, c := range svc.CPE {
-					if strings.HasPrefix(c, "cpe:/a:") {
-						p.CPE = c
-						break
-					}
+			// Kept on the port until finalize folds them into its CPE list.
+			for _, c := range svc.CPE {
+				if c = strings.TrimSpace(c); isCPE(c) && strings.HasPrefix(c, "cpe:/a:") {
+					p.CPEs = appendUnique(p.CPEs, c)
 				}
+			}
+			if p.CPE == "" && len(p.CPEs) > 0 {
+				p.CPE = p.CPEs[0]
 			}
 		}
 		if nh.OS != nil {

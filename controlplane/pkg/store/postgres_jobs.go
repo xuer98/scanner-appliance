@@ -175,6 +175,16 @@ func (p *Postgres) UpdateJob(ctx context.Context, j *Job) error {
 		j.ID, j.Status, spec, j.ScheduledFor, j.DispatchedAt, j.StartedAt, j.FinishedAt, j.ProgressPct, j.Phase, j.RejectReason, stats))
 }
 
+func (p *Postgres) NoteJobProgress(ctx context.Context, jobID, applianceID, phase string, pct int, at time.Time) (bool, error) {
+	tag, err := p.pool.Exec(ctx, `UPDATE job SET status=$5, phase=$3, progress_pct=$4, started_at=COALESCE(started_at, $6)
+		WHERE id=$1 AND appliance_id=$2 AND status IN ($7, $5) AND NOT (status=$5 AND phase=$3 AND progress_pct=$4)`,
+		jobID, applianceID, phase, pct, v1.JobRunning, at, v1.JobDispatched)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 func (p *Postgres) RecordResultBatch(ctx context.Context, rec ResultBatchRec) (bool, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -206,12 +216,12 @@ func (p *Postgres) RecordResultBatch(ctx context.Context, rec ResultBatchRec) (b
 	return false, tx.Commit(ctx)
 }
 
-const hostCols = `id, site_id, ip, mac, hostname, source, agent_id, os_guess, ports, notes, agent_os, packages, last_job_id, first_seen, last_seen`
+const hostCols = `id, site_id, ip, mac, hostname, source, agent_id, os_guess, ports, notes, agent_os, packages, last_job_id, first_seen, last_seen, cpes`
 
 func scanHost(row pgx.Row) (*Host, error) {
 	h := &Host{}
 	var os, ports, notes, pkgs []byte
-	err := row.Scan(&h.ID, &h.SiteID, &h.IP, &h.MAC, &h.Hostname, &h.Source, &h.AgentID, &os, &ports, &notes, &h.AgentOS, &pkgs, &h.LastJobID, &h.FirstSeen, &h.LastSeen)
+	err := row.Scan(&h.ID, &h.SiteID, &h.IP, &h.MAC, &h.Hostname, &h.Source, &h.AgentID, &os, &ports, &notes, &h.AgentOS, &pkgs, &h.LastJobID, &h.FirstSeen, &h.LastSeen, &h.CPEs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -233,8 +243,7 @@ const findingCols = `id, host_id, source, state, nvt_oid, name, family, severity
 func scanFinding(row pgx.Row) (*Finding, error) {
 	f := &Finding{}
 	var ev []byte
-	var cvss float32
-	err := row.Scan(&f.ID, &f.HostID, &f.Source, &f.State, &f.NVTOID, &f.Name, &f.Family, &f.Severity, &cvss, &f.CVE, &f.QoD, &f.Port, &f.Proto, &f.Solution, &ev, &f.FeedVersion, &f.FirstSeen, &f.LastSeen, &f.TemplateID, &f.Review, &f.ReviewedAt, &f.ReviewedBy, &f.ReviewReason,
+	err := row.Scan(&f.ID, &f.HostID, &f.Source, &f.State, &f.NVTOID, &f.Name, &f.Family, &f.Severity, &f.CVSS, &f.CVE, &f.QoD, &f.Port, &f.Proto, &f.Solution, &ev, &f.FeedVersion, &f.FirstSeen, &f.LastSeen, &f.TemplateID, &f.Review, &f.ReviewedAt, &f.ReviewedBy, &f.ReviewReason,
 		&f.Status, &f.FixedAt, &f.ReopenedAt, &f.Reopens, &f.Scope, &f.ExternalID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -242,7 +251,6 @@ func scanFinding(row pgx.Row) (*Finding, error) {
 	if err != nil {
 		return nil, err
 	}
-	f.CVSS = float64(cvss)
 	_ = json.Unmarshal(ev, &f.Evidence)
 	return f, nil
 }
@@ -354,11 +362,11 @@ func (p *Postgres) commitIndex(ctx context.Context, tx pgx.Tx, ix *siteIndex) er
 		ports, _ := json.Marshal(nonNilPorts(h.Ports))
 		notes, _ := json.Marshal(nonNilStrings(h.Notes))
 		pkgs, _ := json.Marshal(nonNilPackages(h.Packages))
-		if _, err := tx.Exec(ctx, `INSERT INTO host(`+hostCols+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		if _, err := tx.Exec(ctx, `INSERT INTO host(`+hostCols+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 			ON CONFLICT (id) DO UPDATE SET ip=EXCLUDED.ip, mac=EXCLUDED.mac, hostname=EXCLUDED.hostname, source=EXCLUDED.source, agent_id=EXCLUDED.agent_id,
 			os_guess=EXCLUDED.os_guess, ports=EXCLUDED.ports, notes=EXCLUDED.notes, agent_os=EXCLUDED.agent_os, packages=EXCLUDED.packages,
-			last_job_id=EXCLUDED.last_job_id, last_seen=EXCLUDED.last_seen`,
-			h.ID, h.SiteID, h.IP, h.MAC, h.Hostname, h.Source, h.AgentID, os, ports, notes, h.AgentOS, pkgs, h.LastJobID, h.FirstSeen, h.LastSeen); err != nil {
+			last_job_id=EXCLUDED.last_job_id, first_seen=EXCLUDED.first_seen, last_seen=EXCLUDED.last_seen, cpes=EXCLUDED.cpes`,
+			h.ID, h.SiteID, h.IP, h.MAC, h.Hostname, h.Source, h.AgentID, os, ports, notes, h.AgentOS, pkgs, h.LastJobID, h.FirstSeen, h.LastSeen, nonNilStrings(h.CPEs)); err != nil {
 			return err
 		}
 	}
@@ -373,13 +381,21 @@ func (p *Postgres) commitIndex(ctx context.Context, tx pgx.Tx, ix *siteIndex) er
 			status = v1.FindingOpen
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO finding(`+findingCols+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
-			ON CONFLICT (id) DO UPDATE SET source=EXCLUDED.source, state=EXCLUDED.state, nvt_oid=EXCLUDED.nvt_oid, name=EXCLUDED.name, family=EXCLUDED.family,
+			ON CONFLICT (id) DO UPDATE SET host_id=EXCLUDED.host_id, source=EXCLUDED.source, state=EXCLUDED.state, nvt_oid=EXCLUDED.nvt_oid, name=EXCLUDED.name, family=EXCLUDED.family,
 			severity=EXCLUDED.severity, cvss=EXCLUDED.cvss, cve=EXCLUDED.cve, qod=EXCLUDED.qod, port=EXCLUDED.port, proto=EXCLUDED.proto, solution=EXCLUDED.solution,
-			evidence=EXCLUDED.evidence, feed_version=EXCLUDED.feed_version, last_seen=EXCLUDED.last_seen, template_id=EXCLUDED.template_id,
+			evidence=EXCLUDED.evidence, feed_version=EXCLUDED.feed_version, first_seen=EXCLUDED.first_seen, last_seen=EXCLUDED.last_seen, template_id=EXCLUDED.template_id,
 			review=EXCLUDED.review, reviewed_at=EXCLUDED.reviewed_at, reviewed_by=EXCLUDED.reviewed_by, review_reason=EXCLUDED.review_reason,
 			status=EXCLUDED.status, fixed_at=EXCLUDED.fixed_at, reopened_at=EXCLUDED.reopened_at, reopens=EXCLUDED.reopens, scope=EXCLUDED.scope, external_id=EXCLUDED.external_id`,
-			f.ID, f.HostID, f.Source, f.State, f.NVTOID, f.Name, f.Family, f.Severity, float32(f.CVSS), cve, f.QoD, f.Port, f.Proto, f.Solution, ev, f.FeedVersion, f.FirstSeen, f.LastSeen, f.TemplateID,
+			f.ID, f.HostID, f.Source, f.State, f.NVTOID, f.Name, f.Family, f.Severity, f.CVSS, cve, f.QoD, f.Port, f.Proto, f.Solution, ev, f.FeedVersion, f.FirstSeen, f.LastSeen, f.TemplateID,
 			f.Review, f.ReviewedAt, f.ReviewedBy, f.ReviewReason, status, f.FixedAt, f.ReopenedAt, f.Reopens, f.Scope, f.ExternalID); err != nil {
+			return err
+		}
+	}
+	// Records folded into another one go last: their findings have moved
+	// by now, and what is left of them (job links, findings the other
+	// record already had) goes with them by cascade.
+	for id := range ix.removed {
+		if _, err := tx.Exec(ctx, `DELETE FROM host WHERE id=$1`, id); err != nil {
 			return err
 		}
 	}
@@ -497,7 +513,7 @@ func (p *Postgres) UpsertNVTs(ctx context.Context, nvts []NVT) error {
 		batch.Queue(`INSERT INTO nvt(oid, name, family, cvss, cves, qod, solution, feed_version, updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
 			ON CONFLICT (oid) DO UPDATE SET name=EXCLUDED.name, family=EXCLUDED.family, cvss=EXCLUDED.cvss, cves=EXCLUDED.cves, qod=EXCLUDED.qod,
 			solution=EXCLUDED.solution, feed_version=EXCLUDED.feed_version, updated_at=now()`,
-			n.OID, n.Name, n.Family, float32(n.CVSS), cves, n.QoD, n.Solution, n.FeedVersion)
+			n.OID, n.Name, n.Family, n.CVSS, cves, n.QoD, n.Solution, n.FeedVersion)
 	}
 	res := p.pool.SendBatch(ctx, batch)
 	defer res.Close()

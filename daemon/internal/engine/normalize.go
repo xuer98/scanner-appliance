@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/xml"
+	"html"
 	"regexp"
 	"sort"
 	"strconv"
@@ -18,15 +19,23 @@ const maxEvidence = 4096
 type hostAgg struct {
 	ip       string
 	hostname string
-	mac      string
+	mac      string // reported by an engine test (SNMP, NetBIOS) or by nmap
+	// linkMAC is the address that answers for the host on the appliance's
+	// own segment, read from the kernel's neighbor table (neigh.go). It is
+	// the better identity: the appliance itself saw it during this job.
+	linkMAC  string
 	osCPE    string
 	osTxt    string
 	ports    map[string]*v1.Port // "80/tcp"
 	services map[string]string   // portKey → name from "Services" host details
-	alarms   []osp.Result
-	logs     []osp.Result
-	notes    []string
-	scanned  bool // reached openvas
+	// cpes is the engine's product registry for the host ("App" and "OS"
+	// host details); cpeAt holds the ones it tied to a port.
+	cpes    map[string]bool
+	cpeAt   map[string][]string // portKey → CPEs
+	alarms  []osp.Result
+	logs    []osp.Result
+	notes   []string
+	scanned bool // reached openvas
 	// enginePorts: openvas reported on a TCP port of the host or listed its
 	// open TCP ports, so its port scanner test worked there. A UDP answer
 	// says nothing about that: UDP tests run without any port scan.
@@ -39,7 +48,7 @@ type hostAgg struct {
 }
 
 func newHostAgg(ip string) *hostAgg {
-	return &hostAgg{ip: ip, ports: map[string]*v1.Port{}, services: map[string]string{}}
+	return &hostAgg{ip: ip, ports: map[string]*v1.Port{}, services: map[string]string{}, cpes: map[string]bool{}, cpeAt: map[string][]string{}}
 }
 
 func portKey(p int, proto string) string { return strings.ToLower(proto) + ":" + itoa(p) }
@@ -105,8 +114,21 @@ type hostDetail struct {
 
 func (h *hostAgg) absorbDetail(r osp.Result) {
 	apply := func(name, value string) {
-		value = strings.TrimSpace(value)
+		name, value = strings.TrimSpace(name), strings.TrimSpace(value)
 		if value == "" {
+			return
+		}
+		if isCPE(name) {
+			// The registry's second half: a detail named after the CPE
+			// says where the product is, as "80/tcp", "general/tcp" or a
+			// path.
+			h.cpes[name] = true
+			if m := locPortRe.FindStringSubmatch(strings.ToLower(value)); m != nil {
+				if n, _ := strconv.Atoi(m[1]); n >= 1 && n <= 65535 {
+					k := portKey(n, m[2])
+					h.cpeAt[k] = appendUnique(h.cpeAt[k], name)
+				}
+			}
 			return
 		}
 		switch strings.ToLower(name) {
@@ -118,9 +140,17 @@ func (h *hostAgg) absorbDetail(r osp.Result) {
 			h.osCPE = value
 		case "best_os_txt":
 			h.osTxt = value // the engine's own pick among the "OS" candidates
+		case "app":
+			// The registry's first half: every product the feed's detection
+			// tests registered, often the same service under several CPEs.
+			if isCPE(value) {
+				h.cpes[value] = true
+			}
 		case "os":
 			// Each candidate arrives twice, as a name and as a CPE.
-			if h.osTxt == "" && !strings.HasPrefix(value, "cpe:/") {
+			if isCPE(value) {
+				h.cpes[value] = true
+			} else if h.osTxt == "" {
 				h.osTxt = value
 			}
 		case "services":
@@ -231,6 +261,25 @@ func detections(text string) []detection {
 	return out
 }
 
+// isCPE reports whether s is one CPE 2.2 URI and nothing else.
+func isCPE(s string) bool { return strings.HasPrefix(s, "cpe:/") && cpeRe.FindString(s) == s }
+
+func appendUnique(list []string, s string) []string {
+	for _, x := range list {
+		if x == s {
+			return list
+		}
+	}
+	return append(list, s)
+}
+
+// resultName undoes the extra escaping ospd-openvas applies to the name
+// attribute of a result: it escapes the text and then serializes it, so
+// "Apache < 2.4.60" arrives as "Apache &lt; 2.4.60" after XML decoding.
+// Names fetched with get_vts are not affected. Unescaping once is exact
+// for both a name ospd escaped and one a later release might send as is.
+func resultName(s string) string { return strings.TrimSpace(html.UnescapeString(s)) }
+
 var (
 	cpeRe     = regexp.MustCompile(`cpe:/[aoh]:[A-Za-z0-9._~%-]+(?::[A-Za-z0-9._~%-]*)*`)
 	svcRe     = regexp.MustCompile(`(?i)\b(?:an?|the)\s+([A-Za-z0-9 ./()-]+?)\s+(?:server|service|daemon)\b`)
@@ -290,6 +339,21 @@ func osFamily(cpe, txt string) string {
 // finalize turns the aggregate into the wire host using NVT metadata.
 func (h *hostAgg) finalize(meta map[string]*nvt.Meta) v1.Host {
 	out := v1.Host{IP: h.ip, MAC: h.mac, Hostname: h.hostname, Notes: h.notes}
+	if h.linkMAC != "" {
+		out.MAC = h.linkMAC
+	}
+	// CPEs seen on a port, in the order found: the registry's first, then
+	// what the texts of results on that port mention.
+	seenAt := map[string][]string{}
+	for k, list := range h.cpeAt {
+		sorted := append([]string{}, list...)
+		sort.Strings(sorted)
+		seenAt[k] = sorted
+		if m := strings.SplitN(k, ":", 2); len(m) == 2 {
+			n, _ := strconv.Atoi(m[1])
+			h.addPort(n, m[0], "openvas:product_detection")
+		}
+	}
 	// Service / product detection from log results.
 	for _, r := range h.logs {
 		p, proto := r.PortNumber()
@@ -302,6 +366,10 @@ func (h *hostAgg) finalize(meta map[string]*nvt.Meta) v1.Host {
 					continue
 				}
 				port := h.addPort(d.port, d.proto, "openvas:find_service")
+				if d.cpe != "" {
+					k := portKey(d.port, d.proto)
+					seenAt[k] = appendUnique(seenAt[k], d.cpe)
+				}
 				if d.cpe != "" && port.CPE == "" {
 					port.CPE = d.cpe
 					port.Source = "openvas:product_detection"
@@ -320,7 +388,12 @@ func (h *hostAgg) finalize(meta map[string]*nvt.Meta) v1.Host {
 		text := r.Text
 		if cpes := cpeRe.FindAllString(text, -1); len(cpes) > 0 {
 			for _, c := range cpes {
-				if strings.HasPrefix(c, "cpe:/a:") && port.CPE == "" {
+				if !strings.HasPrefix(c, "cpe:/a:") {
+					continue
+				}
+				k := portKey(p, proto)
+				seenAt[k] = appendUnique(seenAt[k], c)
+				if port.CPE == "" {
 					port.CPE = c
 					port.Source = "openvas:product_detection"
 				}
@@ -343,6 +416,50 @@ func (h *hostAgg) finalize(meta map[string]*nvt.Meta) v1.Host {
 			port.Service = svc
 		}
 	}
+	// Every CPE of a port: its primary first, then the rest. The list is
+	// only sent when it says more than the primary alone.
+	inventory := map[string]bool{}
+	for c := range h.cpes {
+		inventory[c] = true
+	}
+	for k, port := range h.ports {
+		all := append([]string{}, port.CPEs...) // the fingerprint pass's
+		for _, c := range seenAt[k] {
+			all = appendUnique(all, c)
+		}
+		if port.CPE == "" {
+			for _, c := range all {
+				if strings.HasPrefix(c, "cpe:/a:") {
+					port.CPE = c
+					break
+				}
+			}
+			if port.CPE == "" && len(all) > 0 {
+				port.CPE = all[0]
+			}
+			if port.CPE != "" && (port.Source == "" || port.Source == "naabu" || port.Source == "openvas:find_service") {
+				port.Source = "openvas:product_detection"
+			}
+		}
+		list := []string{}
+		if port.CPE != "" {
+			list = append(list, port.CPE)
+		}
+		for _, c := range all {
+			list = appendUnique(list, c)
+		}
+		port.CPEs = nil
+		if len(list) > 1 {
+			port.CPEs = list
+		}
+		for _, c := range list {
+			inventory[c] = true
+		}
+	}
+	for c := range inventory {
+		out.CPEs = append(out.CPEs, c)
+	}
+	sort.Strings(out.CPEs)
 	// Findings from alarms; one per (oid, port).
 	seen := map[string]bool{}
 	for _, r := range h.alarms {
@@ -353,7 +470,7 @@ func (h *hostAgg) finalize(meta map[string]*nvt.Meta) v1.Host {
 		}
 		seen[key] = true
 		score := r.SeverityScore()
-		f := v1.Finding{Source: "openvas", NVTOID: r.TestID, Name: strings.TrimSpace(r.Name), CVSS: score, QoD: r.QoDValue(), Port: p, Proto: proto, CVE: []string{}}
+		f := v1.Finding{Source: "openvas", NVTOID: r.TestID, Name: resultName(r.Name), CVSS: score, QoD: r.QoDValue(), Port: p, Proto: proto, CVE: []string{}}
 		if m := meta[r.TestID]; m != nil && !m.Missing {
 			f.Family, f.Solution = m.Family, m.Solution
 			if len(m.CVEs) > 0 {

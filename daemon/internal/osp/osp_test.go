@@ -1,62 +1,74 @@
-package osp
+package osp_test
 
 import (
 	"context"
-	"io"
-	"net"
+	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
-)
 
-// fakeOSPD answers one command per connection like ospd does.
-func fakeOSPD(t *testing.T, vtsVersion string) string {
-	t.Helper()
-	sock := filepath.Join(t.TempDir(), "ospd.sock")
-	l, err := net.Listen("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { l.Close() })
-	go func() {
-		for {
-			c, err := l.Accept()
-			if err != nil {
-				return
-			}
-			go func() {
-				defer c.Close()
-				buf := make([]byte, 4096)
-				n, _ := c.Read(buf)
-				req := string(buf[:n])
-				switch {
-				case strings.HasPrefix(req, "<get_version"):
-					io.WriteString(c, `<get_version_response status="200" status_text="OK"><protocol><name>OSP</name><version>22.4</version></protocol><daemon><name>OSPd OpenVAS</name><version>22.7.1</version></daemon><scanner><name>openvas</name><version>OpenVAS 23.0.1</version></scanner><vts><version>`+vtsVersion+`</version></vts></get_version_response>`)
-				case strings.HasPrefix(req, "<get_vts"):
-					io.WriteString(c, `<get_vts_response status="200" status_text="OK"><vts vts_version="`+vtsVersion+`" total="98765" sent="0"/></get_vts_response>`)
-				default:
-					io.WriteString(c, `<osp_response status="400" status_text="bad"/>`)
-				}
-			}()
-		}
-	}()
-	return sock
-}
+	"github.com/tprm/scanner-appliance/daemon/internal/osp"
+	"github.com/tprm/scanner-appliance/daemon/internal/osp/osptest"
+	"github.com/tprm/scanner-appliance/internal/bundle"
+)
 
 func TestHealth(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	h := New(fakeOSPD(t, "202609260530")).Health(ctx)
-	if !h.OSPDUp || !h.VTCacheLoaded || h.VTCount != 98765 || h.OpenVASVersion != "OpenVAS 23.0.1" || h.OSPDVersion != "22.7.1" || h.Error != "" {
+	f := osptest.Start(t, &osptest.Fake{VTsVersion: "202609260530", VTCount: 45678})
+	c := osp.New(f.Socket)
+	c.RedisSocket = f.RedisSocket
+	h := c.Health(ctx)
+	if !h.OSPDUp || !h.VTCacheLoaded || h.VTCount != 45678 || h.OpenVASVersion != "OpenVAS 23.50.24" || h.OSPDVersion != "22.10.5" || h.Error != "" {
 		t.Fatalf("%+v", h)
 	}
-	h = New(fakeOSPD(t, "")).Health(ctx)
-	if !h.OSPDUp || h.VTCacheLoaded || h.Error != "" {
-		t.Fatalf("cache not loaded case: %+v", h)
+	// Without the engine's redis the count is unknown; the rest still holds.
+	c = osp.New(f.Socket)
+	c.RedisSocket = filepath.Join(t.TempDir(), "missing.sock")
+	if h := c.Health(ctx); !h.Ready() || h.VTCount != 0 || h.Error != "" {
+		t.Fatalf("no redis: %+v", h)
 	}
-	h = New(filepath.Join(t.TempDir(), "missing.sock")).Health(ctx)
+	h = osp.New(filepath.Join(t.TempDir(), "missing.sock")).Health(ctx)
 	if h.OSPDUp || h.Error == "" {
 		t.Fatalf("missing socket: %+v", h)
+	}
+}
+
+// The number of tests is counted once per feed version and again when the
+// feed changes, which is the only time it can.
+func TestVTCountFollowsTheFeed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	plugins := t.TempDir()
+	write := func(version string, scripts int) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(plugins, bundle.FeedInfoFile), []byte(`PLUGIN_SET = "`+version+`";`+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < scripts; i++ {
+			if err := os.WriteFile(filepath.Join(plugins, "t"+string(rune('a'+i))+".nasl"), []byte("#"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	f := osptest.Start(t, &osptest.Fake{PluginsDir: plugins})
+	c := osp.New(f.Socket)
+	c.RedisSocket = f.RedisSocket
+	if h := c.Health(ctx); h.VTCacheLoaded || h.VTCount != 0 {
+		t.Fatalf("no feed yet: %+v", h)
+	}
+	write("202610050609", 3)
+	if h := c.Health(ctx); h.FeedVersion != "202610050609" || h.VTCount != 3 {
+		t.Fatalf("first feed: %+v", h)
+	}
+	// More scripts on disk under the same version: the engine has not
+	// loaded them, and the count is not taken again.
+	write("202610050609", 5)
+	if h := c.Health(ctx); h.VTCount != 3 {
+		t.Fatalf("same version recounted: %+v", h)
+	}
+	write("202610060600", 5)
+	if h := c.Health(ctx); h.FeedVersion != "202610060600" || h.VTCount != 5 {
+		t.Fatalf("after the feed moved: %+v", h)
 	}
 }

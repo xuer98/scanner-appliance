@@ -179,8 +179,12 @@ func (c *Console) status() {
 		switch {
 		case live.Engine.Error != "":
 			c.printf("  Engine:          not ready (%s)\n", live.Engine.Error)
+		case live.Engine.Ready() && live.Engine.VTCount > 0:
+			c.printf("  Engine:          ready (%s, %d tests, feed %s)\n", live.Engine.OpenVASVersion, live.Engine.VTCount, orDash(live.Engine.FeedVersion))
 		case live.Engine.Ready():
-			c.printf("  Engine:          ready (%s, %d VTs, feed %s)\n", live.Engine.OpenVASVersion, live.Engine.VTCount, orDash(live.Engine.FeedVersion))
+			// The count comes from the engine's redis; without it the
+			// engine is ready all the same.
+			c.printf("  Engine:          ready (%s, feed %s)\n", live.Engine.OpenVASVersion, orDash(live.Engine.FeedVersion))
 		case live.Engine.OSPDUp:
 			c.printf("  Engine:          loading VT cache\n")
 		default:

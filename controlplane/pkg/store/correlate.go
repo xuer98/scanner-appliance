@@ -33,6 +33,10 @@ type siteIndex struct {
 	changed  map[string]*Host
 	changedF map[string]*Finding
 	newHosts map[string]bool
+	// removed are host records folded into another one (absorb), with the
+	// findings that went with them because the other record had them too.
+	removed  map[string]*Host
+	removedF map[string]*Finding
 	// excludes are the site's codified VT exclusions (NVT OIDs, nuclei
 	// template ids with or without the "nuclei:" prefix).
 	excludes   map[string]bool
@@ -42,7 +46,8 @@ type siteIndex struct {
 }
 
 func newSiteIndex(siteID string, hosts []*Host, findings []*Finding) *siteIndex {
-	ix := &siteIndex{siteID: siteID, hosts: hosts, findings: map[string][]*Finding{}, changed: map[string]*Host{}, changedF: map[string]*Finding{}, newHosts: map[string]bool{}, excludes: map[string]bool{}}
+	ix := &siteIndex{siteID: siteID, hosts: hosts, findings: map[string][]*Finding{}, changed: map[string]*Host{}, changedF: map[string]*Finding{}, newHosts: map[string]bool{}, excludes: map[string]bool{},
+		removed: map[string]*Host{}, removedF: map[string]*Finding{}}
 	for _, f := range findings {
 		ix.findings[f.HostID] = append(ix.findings[f.HostID], f)
 	}
@@ -89,8 +94,15 @@ func normHostname(h string) string {
 	return h
 }
 
+// addressOnly reports whether nothing but its IP address identifies the
+// record: no MAC, no usable hostname, no agent.
+func addressOnly(h *Host) bool {
+	return normMAC(h.MAC) == "" && normHostname(h.Hostname) == "" && h.AgentID == ""
+}
+
 // match finds the host identified by any of the MACs, then the hostname,
-// then the IP (weakest: DHCP segments).
+// then the IP (weakest: DHCP segments). When several records hold the IP,
+// one that is known by more than its address is preferred.
 func (ix *siteIndex) match(macs []string, hostname, ip string) *Host {
 	for _, m := range macs {
 		if m = normMAC(m); m != "" {
@@ -109,9 +121,99 @@ func (ix *siteIndex) match(macs []string, hostname, ip string) *Host {
 		}
 	}
 	if ip = strings.TrimSpace(ip); ip != "" {
+		var weak *Host
 		for _, h := range ix.hosts {
-			if h.IP == ip {
+			if h.IP != ip {
+				continue
+			}
+			if !addressOnly(h) {
 				return h
+			}
+			if weak == nil {
+				weak = h
+			}
+		}
+		return weak
+	}
+	return nil
+}
+
+// absorb folds into h every other record that holds h's address and is
+// known by that address alone. Such a record is the same host seen before
+// its identity was: a job's first chunk carries addresses and open ports,
+// and when the host has moved since the last scan nothing at the new
+// address matches, so a record is created there; the later chunk then
+// names the host and matches the old record, which moves to the address.
+// Two records for one address would follow. The findings of the absorbed
+// record move to h unless h has the same one. A record that is itself
+// known by address only absorbs nothing.
+func (ix *siteIndex) absorb(h *Host) int {
+	if h.IP == "" || addressOnly(h) {
+		return 0
+	}
+	n := 0
+	kept := make([]*Host, 0, len(ix.hosts))
+	for _, o := range ix.hosts {
+		if o == h || o.IP != h.IP || !addressOnly(o) {
+			kept = append(kept, o)
+			continue
+		}
+		n++
+		for _, f := range ix.findings[o.ID] {
+			if twin := ix.twin(h.ID, f); twin != nil {
+				for _, ev := range f.Evidence {
+					twin.Evidence = appendEvidence(twin.Evidence, ev)
+				}
+				if f.FirstSeen.Before(twin.FirstSeen) {
+					twin.FirstSeen = f.FirstSeen
+				}
+				ix.touchF(twin)
+				ix.removedF[f.ID] = f
+				delete(ix.changedF, f.ID)
+				continue
+			}
+			f.HostID = h.ID
+			ix.addFinding(f)
+		}
+		delete(ix.findings, o.ID)
+		// What was known about a port there is prior knowledge of h's.
+		for _, p := range o.Ports {
+			addPortIfMissing(h, p.Port, p.Proto, p.Source)
+		}
+		if h.OSGuess == nil && o.OSGuess != nil {
+			g := *o.OSGuess
+			h.OSGuess = &g
+		}
+		if len(h.CPEs) == 0 {
+			h.CPEs = o.CPEs
+		}
+		if !o.FirstSeen.IsZero() && (h.FirstSeen.IsZero() || o.FirstSeen.Before(h.FirstSeen)) {
+			h.FirstSeen = o.FirstSeen
+		}
+		h.Source = mergeSource(h.Source, o.Source)
+		ix.removed[o.ID] = o
+		delete(ix.changed, o.ID)
+		delete(ix.newHosts, o.ID)
+	}
+	ix.hosts = kept
+	if n > 0 {
+		ix.touch(h)
+	}
+	return n
+}
+
+// twin is the finding on the host that is the same issue as f: the same
+// detector on the same port, or the same external scanner's id.
+func (ix *siteIndex) twin(hostID string, f *Finding) *Finding {
+	for _, x := range ix.findings[hostID] {
+		switch {
+		case findingIdent(f.NVTOID, f.TemplateID) != "":
+			if findingKey(x) == findingKey(f) {
+				return x
+			}
+		case f.ExternalID != "":
+			if x.Source == f.Source && x.ExternalID == f.ExternalID && x.Port == f.Port && x.Proto == f.Proto {
+				return x
 			}
 		}
 	}
@@ -169,20 +271,30 @@ func (ix *siteIndex) ingestAppliance(jobID string, in []v1.Host, feedVersion str
 			}
 			h.Source = mergeSource(h.Source, v1.SourceAppliance)
 		}
-		// Observation wins for reachability data; identity fields only fill gaps
-		// (the agent's hostname is authoritative when present).
+		// Observation wins for reachability data. Identity fields fill gaps,
+		// and replace what is there only on a host no agent vouches for (the
+		// agent's hostname and addresses are authoritative when present): the
+		// appliance saw this MAC answer for the host just now, and one left
+		// from an interface the host no longer has would match the device
+		// that has it today.
 		h.IP = ih.IP
-		if h.MAC == "" && ih.MAC != "" {
-			h.MAC = normMAC(ih.MAC)
+		if m := normMAC(ih.MAC); m != "" && (h.MAC == "" || h.AgentID == "") {
+			h.MAC = m
 		}
 		if h.Hostname == "" || (h.AgentID == "" && ih.Hostname != "") {
 			if ih.Hostname != "" {
 				h.Hostname = ih.Hostname
 			}
 		}
+		sum.Absorbed += ix.absorb(h)
 		if ih.OSGuess != nil {
 			g := *ih.OSGuess
 			h.OSGuess = &g
+		}
+		if len(ih.CPEs) > 0 {
+			// Like port detail, the inventory is kept when a job brings
+			// none: a discovery or port scan cannot see products.
+			h.CPEs = append([]string{}, ih.CPEs...)
 		}
 		h.Ports = mergePorts(h.Ports, ih.Ports, udpTested(ih.Notes))
 		h.Notes = append([]string{}, ih.Notes...)
@@ -198,12 +310,17 @@ func (ix *siteIndex) ingestAppliance(jobID string, in []v1.Host, feedVersion str
 
 // findingScope is the lifecycle scope of a new appliance finding: the web
 // add-on for nuclei matches, else the job's openvas config, else full
-// (only a full scan may resolve a finding of unknown scope). When the UDP
-// tests ran against the host (udp) it is the UDP variant of that scope:
-// until a scan without them has seen the finding, nothing shows that such
-// a scan can, so it must not resolve it.
+// (only a full scan may resolve a finding of unknown scope). A match of a
+// default-login check has a scope of its own, because only a job that asks
+// for those checks runs it again. When the UDP tests ran against the host
+// (udp) it is the UDP variant of that scope: until a scan without them has
+// seen the finding, nothing shows that such a scan can, so it must not
+// resolve it.
 func findingScope(inf v1.Finding, scope string, udp bool) string {
 	if inf.Source == "nuclei" || (inf.ID != "" && inf.NVTOID == "") {
+		if inf.Family == v1.FamilyWebDefaultLogin {
+			return v1.ScopeWebLogins
+		}
 		return v1.ScopeWeb
 	}
 	if scope == "" {
@@ -300,6 +417,9 @@ func mergePorts(prev, cur []v1.Port, udp bool) []v1.Port {
 			}
 			if p.CPE == "" && o.CPE != "" {
 				p.CPE, detail = o.CPE, true
+				if len(p.CPEs) == 0 {
+					p.CPEs = o.CPEs
+				}
 			}
 			if p.Web == nil && o.Web != nil {
 				w := *o.Web
@@ -387,10 +507,11 @@ func (ix *siteIndex) applianceFindings(sum *IngestSummary, h *Host, in []v1.Find
 			continue
 		}
 		reopen(target, at)
-		if seenBy := findingScope(inf, scope, udp); target.Scope == "" || weakerScope(seenBy, target.Scope) {
+		if seenBy := findingScope(inf, scope, udp); target.Scope == "" || weakerScope(seenBy, target.Scope) || seenBy == v1.ScopeWebLogins {
 			// A finding a lesser scan can see is resolvable by one: an
 			// inventory scan rather than a full one, a scan without the UDP
-			// tests rather than one with them.
+			// tests rather than one with them. A default-login match is
+			// never one a plain web scan resolves.
 			target.Scope = seenBy
 		}
 		if excluded && target.Review == "" {
@@ -411,6 +532,9 @@ func (ix *siteIndex) applianceFindings(sum *IngestSummary, h *Host, in []v1.Find
 		}
 		if inf.Name != "" && (target.Name == "" || target.Source != v1.SourceAgent) {
 			target.Name = inf.Name
+		}
+		if inf.Family != "" && target.Source != v1.SourceAgent {
+			target.Family = inf.Family
 		}
 		if inf.CVSS > 0 {
 			target.CVSS, target.Severity = inf.CVSS, inf.Severity

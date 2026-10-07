@@ -84,16 +84,18 @@ type FindingRef struct {
 // Host is the shared host model (PLAN §12.2): one row per physical host
 // per site, fed by the appliance, the agent track, or both.
 type Host struct {
-	ID        string
-	SiteID    string
-	IP        string
-	MAC       string
-	Hostname  string
-	Source    string // agent | appliance | both
-	AgentID   string
-	OSGuess   *v1.OSGuess
-	Ports     []v1.Port
-	Notes     []string
+	ID       string
+	SiteID   string
+	IP       string
+	MAC      string
+	Hostname string
+	Source   string // agent | appliance | both
+	AgentID  string
+	OSGuess  *v1.OSGuess
+	Ports    []v1.Port
+	Notes    []string
+	// CPEs is the appliance's product inventory for the host (v1.Host.CPEs).
+	CPEs      []string
 	AgentOS   string
 	Packages  []v1.AgentPackage
 	LastJobID string
@@ -167,6 +169,9 @@ type IngestSummary struct {
 	Merged     int
 	Findings   int
 	Suppressed int
+	// Absorbed counts host records folded into another one because they
+	// described the same address and had no identity of their own.
+	Absorbed int
 	// Phase 6: findings created by this ingest (NewBySeverity counts all,
 	// New lists the high and critical ones, capped), findings an external
 	// import marked fixed, and rows skipped as informational.

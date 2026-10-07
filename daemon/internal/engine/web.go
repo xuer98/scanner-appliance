@@ -244,16 +244,15 @@ func (r *run) nuclei(ctx context.Context, work, templates string, urls []string)
 		}
 	}
 	excl := append([]string{}, web.ExcludeTags...)
-	for _, must := range []string{"dos", "fuzz", "intrusive"} { // never negotiable (PLAN §10.2)
-		found := false
-		for _, e := range excl {
-			if e == must {
-				found = true
-			}
-		}
-		if !found {
-			excl = append(excl, must)
-		}
+	must := []string{"dos", "fuzz", "intrusive"} // never negotiable (PLAN §10.2)
+	if !r.spec.HasModule(v1.ModuleDefaultLogins) {
+		// The templates that sign in with default passwords run only in a
+		// job that asks for them: about 610 requests per web server in the
+		// lab. With them, 62 requests to one server named the user "admin".
+		must = append(must, v1.TagDefaultLogin)
+	}
+	for _, m := range must {
+		excl = appendUnique(excl, m)
 	}
 	args := []string{"-l", list, "-silent", "-jsonl", "-no-color", "-disable-update-check", "-no-interactsh",
 		"-templates", templates, "-severity", strings.Join(sevs, ","), "-exclude-tags", strings.Join(excl, ","),
@@ -311,9 +310,17 @@ func (r *run) nuclei(ctx context.Context, work, templates string, urls []string)
 			continue
 		}
 		seen[key] = true
-		f := v1.Finding{Source: "nuclei", ID: l.TemplateID, Name: strings.TrimSpace(l.Info.Name), Family: "Web application (nuclei)",
+		tags := anyStrings(l.Info.Tags)
+		f := v1.Finding{Source: "nuclei", ID: l.TemplateID, Name: strings.TrimSpace(l.Info.Name), Family: v1.FamilyWeb,
 			Severity: sev, CVSS: l.Info.Classification.CVSSScore, CVE: []string{}, QoD: QoDWeb, Port: port, Proto: "tcp",
 			Solution: strings.TrimSpace(l.Info.Remediation)}
+		for _, t := range tags {
+			if strings.EqualFold(t, v1.TagDefaultLogin) {
+				// Its own family: only a job with the default_logins
+				// module runs this check again (v1.ScopeWebLogins).
+				f.Family = v1.FamilyWebDefaultLogin
+			}
+		}
 		for _, c := range anyStrings(l.Info.Classification.CVEID) {
 			f.CVE = append(f.CVE, strings.ToUpper(c))
 		}
@@ -327,7 +334,7 @@ func (r *run) nuclei(ctx context.Context, work, templates string, urls []string)
 		if len(l.ExtractedResults) > 0 {
 			ev += " extracted=" + strings.Join(l.ExtractedResults, ",")
 		}
-		if tags := anyStrings(l.Info.Tags); len(tags) > 0 {
+		if len(tags) > 0 {
 			ev += " tags=" + strings.Join(tags, ",")
 		}
 		if len(ev) > maxEvidence {

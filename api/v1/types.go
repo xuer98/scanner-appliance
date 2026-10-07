@@ -263,6 +263,27 @@ const (
 	// is slower and reaches ports no port scan pinned, so a job has to ask
 	// for it. Hosts without an open TCP port are tested too in such a job.
 	ModuleUDP = "udp"
+	// ModuleDefaultLogins lets the web phase run its default-login checks:
+	// the nuclei templates that sign in with default user names and
+	// passwords, several pairs per product and hundreds of requests per
+	// web server. Like udp it is never part of a mode's defaults, so a job
+	// has to ask for them, and without the module the web phase leaves
+	// them out. It does not govern openvas: the feed's "Default Accounts"
+	// family is part of both scan configs (internal/scanconfig) and tries
+	// the known default password of specific products in every scan.
+	ModuleDefaultLogins = "default_logins"
+)
+
+// TagDefaultLogin is the nuclei template tag of the checks that
+// ModuleDefaultLogins gates.
+const TagDefaultLogin = "default-login"
+
+// Families of the web add-on's findings. A finding of a default-login
+// check has its own family, which is also how the control plane knows
+// that only a job with ModuleDefaultLogins can see it again.
+const (
+	FamilyWeb             = "Web application (nuclei)"
+	FamilyWebDefaultLogin = "Default login (nuclei)"
 )
 
 // NoteUDPTested is the host note the appliance sets when the UDP tests ran
@@ -452,9 +473,25 @@ type Port struct {
 	Product string `json:"product,omitempty"`
 	Version string `json:"version,omitempty"`
 	CPE     string `json:"cpe,omitempty"`
-	Source  string `json:"source"`
+	// CPEs is every CPE the engines tied to this port, CPE included. One
+	// service often has several: the feed registers nginx as nginx:nginx
+	// and as f5:nginx. Empty when at most CPE is known.
+	CPEs   []string `json:"cpes,omitempty"`
+	Source string   `json:"source"`
 	// Web is the httpx fingerprint when the web add-on probed the port.
 	Web *WebInfo `json:"web,omitempty"`
+}
+
+// AllCPEs lists every CPE known for the port: CPEs when present, else CPE
+// alone (older results carry only that).
+func (p Port) AllCPEs() []string {
+	if len(p.CPEs) > 0 {
+		return p.CPEs
+	}
+	if p.CPE != "" {
+		return []string{p.CPE}
+	}
+	return nil
 }
 
 // WebInfo is what httpx learned about an HTTP(S) service.
@@ -494,6 +531,11 @@ type Host struct {
 	// Notes carry policy decisions such as "fragile:9100" (excluded from
 	// openvas because a fragile-device port was open).
 	Notes []string `json:"notes,omitempty"`
+	// CPEs is the engine's product inventory for the host: every CPE it
+	// registered, whether it tied the product to a port, to a path or to
+	// the host as a whole. Operating-system candidates are part of it; the
+	// engine's pick among them is OSGuess.
+	CPEs []string `json:"cpes,omitempty"`
 }
 
 // ScanStats summarizes a completed job.
@@ -977,6 +1019,8 @@ type AdminJobRequest struct {
 	Fingerprint *FingerprintParams `json:"fingerprint,omitempty"`
 	// UDP adds the udp module to the job's modules (see ModuleUDP).
 	UDP bool `json:"udp,omitempty"`
+	// DefaultLogins adds the default_logins module (see ModuleDefaultLogins).
+	DefaultLogins bool `json:"default_logins,omitempty"`
 }
 
 type AdminJobView struct {
@@ -1112,6 +1156,7 @@ type AdminHostView struct {
 	Ports     []Port             `json:"ports"`
 	Findings  []AdminFindingView `json:"findings"`
 	Notes     []string           `json:"notes,omitempty"`
+	CPEs      []string           `json:"cpes,omitempty"`
 	LastJobID string             `json:"last_job_id,omitempty"`
 	FirstSeen time.Time          `json:"first_seen"`
 	LastSeen  time.Time          `json:"last_seen"`
@@ -1238,6 +1283,9 @@ const (
 	ScopeInventory = "inventory"
 	ScopeFull      = "full"
 	ScopeWeb       = "web"
+	// ScopeWebLogins is the scope of a finding of a default-login check:
+	// only a job with ModuleDefaultLogins runs that check again.
+	ScopeWebLogins = "web+logins"
 )
 
 // UDPScope is the scope of a finding that only a job with the udp module

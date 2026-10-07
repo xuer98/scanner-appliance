@@ -92,6 +92,10 @@ type Engine struct {
 	// warning); Privileged overrides the raw-socket check in tests.
 	NmapPath   string
 	Privileged func() bool
+
+	// Neighbors reads the kernel's neighbor table (neigh.go); overridable
+	// in tests.
+	Neighbors func() ([]neighbor, error)
 }
 
 func (e *Engine) init() {
@@ -607,6 +611,7 @@ func (r *run) emitAll(ctx context.Context, final bool, meta map[string]*nvt.Meta
 	if meta == nil {
 		meta = map[string]*nvt.Meta{}
 	}
+	r.learnMACs()
 	ips := append([]string{}, r.order...)
 	sort.Strings(ips)
 	hosts := make([]v1.Host, 0, len(ips))

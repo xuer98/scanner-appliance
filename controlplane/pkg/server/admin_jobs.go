@@ -363,7 +363,7 @@ func (s *Server) siteTier(ctx context.Context, siteID string) int {
 
 func hostView(h *store.Host) v1.AdminHostView {
 	v := v1.AdminHostView{ID: h.ID, SiteID: h.SiteID, IP: h.IP, MAC: h.MAC, Hostname: h.Hostname, Source: h.Source, AgentID: h.AgentID,
-		OSGuess: h.OSGuess, Ports: h.Ports, Notes: h.Notes, LastJobID: h.LastJobID, FirstSeen: h.FirstSeen, LastSeen: h.LastSeen, Findings: []v1.AdminFindingView{}}
+		OSGuess: h.OSGuess, Ports: h.Ports, Notes: h.Notes, CPEs: h.CPEs, LastJobID: h.LastJobID, FirstSeen: h.FirstSeen, LastSeen: h.LastSeen, Findings: []v1.AdminFindingView{}}
 	if v.Ports == nil {
 		v.Ports = []v1.Port{}
 	}

@@ -24,6 +24,8 @@ const (
 	maxPortsHost     = 65536
 	maxEvidenceLen   = 8192
 	maxStringLen     = 512
+	maxCPEsPort      = 64
+	maxCPEsHost      = 1024
 )
 
 // ---- POST /v1/jobs/{job}/results ----
@@ -135,7 +137,7 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 		job.StartedAt = &now
 		_ = s.cfg.Store.UpdateJob(r.Context(), job)
 	}
-	s.log.Info("result chunk ingested", "job", job.ID, "seq", seq, "hosts", sum2.Hosts, "created", sum2.Created, "merged", sum2.Merged, "findings", sum2.Findings, "final", batch.Final)
+	s.log.Info("result chunk ingested", "job", job.ID, "seq", seq, "hosts", sum2.Hosts, "created", sum2.Created, "merged", sum2.Merged, "absorbed", sum2.Absorbed, "findings", sum2.Findings, "final", batch.Final)
 	writeJSON(w, http.StatusOK, v1.ResultAck{Seq: seq, Hosts: sum2.Hosts, Complete: complete})
 }
 
@@ -181,12 +183,18 @@ func validateBatch(b *v1.ResultBatch) error {
 		if len(h.Notes) > 64 {
 			h.Notes = h.Notes[:64]
 		}
+		if h.CPEs = clipList(h.CPEs, maxCPEsHost, maxStringLen); len(h.CPEs) == 0 {
+			h.CPEs = nil
+		}
 		for j := range h.Ports {
 			p := &h.Ports[j]
 			if p.Port < 0 || p.Port > 65535 {
 				return errors.New("bad port")
 			}
 			p.Service, p.Product, p.Version, p.CPE, p.Source = clip(p.Service, 64), clip(p.Product, maxStringLen), clip(p.Version, 128), clip(p.CPE, maxStringLen), clip(p.Source, 64)
+			if p.CPEs = clipList(p.CPEs, maxCPEsPort, maxStringLen); len(p.CPEs) == 0 {
+				p.CPEs = nil
+			}
 		}
 		for j := range h.Findings {
 			f := &h.Findings[j]
@@ -207,6 +215,17 @@ func validateBatch(b *v1.ResultBatch) error {
 		}
 	}
 	return nil
+}
+
+// clipList bounds a list of strings in count and in the length of each.
+func clipList(list []string, max, each int) []string {
+	if len(list) > max {
+		list = list[:max]
+	}
+	for i := range list {
+		list[i] = clip(list[i], each)
+	}
+	return list
 }
 
 func clip(s string, n int) string {

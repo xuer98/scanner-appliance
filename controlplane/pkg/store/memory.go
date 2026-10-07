@@ -524,6 +524,25 @@ func (m *Memory) UpdateJob(_ context.Context, j *Job) error {
 	return nil
 }
 
+func (m *Memory) NoteJobProgress(_ context.Context, jobID, applianceID, phase string, pct int, at time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePhase2()
+	j, ok := m.jobs[jobID]
+	if !ok || j.ApplianceID != applianceID || (j.Status != v1.JobDispatched && j.Status != v1.JobRunning) {
+		return false, nil
+	}
+	if j.Status == v1.JobRunning && j.Phase == phase && j.ProgressPct == pct {
+		return false, nil
+	}
+	j.Status, j.Phase, j.ProgressPct = v1.JobRunning, phase, pct
+	if j.StartedAt == nil {
+		t := at
+		j.StartedAt = &t
+	}
+	return true, nil
+}
+
 func (m *Memory) RecordResultBatch(_ context.Context, rec ResultBatchRec) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -572,6 +591,17 @@ func (m *Memory) commit(ix *siteIndex) {
 	}
 	for id, f := range ix.changedF {
 		m.findings[id] = f
+	}
+	// Records folded into another one go, with their job links (the
+	// Postgres schema cascades the same way).
+	for id := range ix.removedF {
+		delete(m.findings, id)
+	}
+	for id := range ix.removed {
+		delete(m.hosts, id)
+		for _, hosts := range m.jobHosts {
+			delete(hosts, id)
+		}
 	}
 }
 
@@ -622,6 +652,7 @@ func copyHost(h *Host) *Host {
 	}
 	c.Ports = append([]v1.Port{}, h.Ports...)
 	c.Notes = append([]string{}, h.Notes...)
+	c.CPEs = append([]string{}, h.CPEs...)
 	c.Packages = append([]v1.AgentPackage{}, h.Packages...)
 	return &c
 }

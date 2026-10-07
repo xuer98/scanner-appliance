@@ -217,3 +217,145 @@ func TestHostDetailForms(t *testing.T) {
 		t.Fatalf("www not mapped: %+v", h.Ports)
 	}
 }
+
+// The engine keeps a product registry per host: an "App" (or "OS") detail
+// per CPE and a detail named after the CPE that says where the product is.
+// The details below are the ones captured in the lab for nginx 1.16.1,
+// which the feed registers under two CPEs on the same port, for Redis,
+// which it registers at the path "/", and for dnsmasq on TCP and UDP.
+func TestEveryCPEIsKept(t *testing.T) {
+	nginx := finalized(t, "172.18.0.4", []int{80},
+		logMsg("172.18.0.4", "nginx Detection Consolidation", "general/tcp", nginxReport),
+		detailMsg("172.18.0.4", "cpe:/a:nginx:nginx:1.16.1", "80/tcp"),
+		detailMsg("172.18.0.4", "App", "cpe:/a:nginx:nginx:1.16.1"),
+		detailMsg("172.18.0.4", "App", "cpe:/a:f5:nginx:1.16.1"),
+		detailMsg("172.18.0.4", "cpe:/a:f5:nginx:1.16.1", "80/tcp"),
+		detailMsg("172.18.0.4", "OS", "Linux Kernel"),
+		detailMsg("172.18.0.4", "OS", "cpe:/o:linux:kernel"),
+		detailMsg("172.18.0.4", "cpe:/o:linux:kernel", "general/tcp"),
+		detailMsg("172.18.0.4", "best_os_cpe", "cpe:/o:linux:kernel"),
+	)
+	p := portOf(t, nginx, 80)
+	if p.CPE != "cpe:/a:nginx:nginx:1.16.1" || !equalStrings(p.CPEs, "cpe:/a:nginx:nginx:1.16.1", "cpe:/a:f5:nginx:1.16.1") {
+		t.Fatalf("nginx port: cpe %q cpes %v", p.CPE, p.CPEs)
+	}
+	if !equalStrings(p.AllCPEs(), "cpe:/a:nginx:nginx:1.16.1", "cpe:/a:f5:nginx:1.16.1") {
+		t.Fatalf("AllCPEs: %v", p.AllCPEs())
+	}
+	if !equalStrings(nginx.CPEs, "cpe:/a:f5:nginx:1.16.1", "cpe:/a:nginx:nginx:1.16.1", "cpe:/o:linux:kernel") {
+		t.Fatalf("nginx inventory: %v", nginx.CPEs)
+	}
+	if len(nginx.Ports) != 1 || nginx.OSGuess == nil || nginx.OSGuess.Name != "Linux Kernel" {
+		t.Fatalf("the OS location must not become a port and the OS name must survive: %+v %+v", nginx.Ports, nginx.OSGuess)
+	}
+
+	// One CPE on the port: the list would say nothing new and is left out,
+	// yet AllCPEs still answers. The registry names a path, not the port.
+	redis := finalized(t, "172.18.0.6", []int{6379},
+		logMsg("172.18.0.6", "Redis Server Detection (TCP)", "6379/tcp", redisReport),
+		detailMsg("172.18.0.6", "App", "cpe:/a:redis:redis:5.0.7"),
+		detailMsg("172.18.0.6", "cpe:/a:redis:redis:5.0.7", "/"),
+	)
+	if p := portOf(t, redis, 6379); p.CPE != "cpe:/a:redis:redis:5.0.7" || p.CPEs != nil || !equalStrings(p.AllCPEs(), "cpe:/a:redis:redis:5.0.7") {
+		t.Fatalf("redis port: %+v", p)
+	}
+	if !equalStrings(redis.CPEs, "cpe:/a:redis:redis:5.0.7") || len(redis.Ports) != 1 {
+		t.Fatalf("redis: inventory %v ports %+v", redis.CPEs, redis.Ports)
+	}
+
+	// The registry alone is enough: no result text names these, and the
+	// UDP port is one naabu never saw.
+	dns := finalized(t, "172.18.0.8", []int{53},
+		detailMsg("172.18.0.8", "App", "cpe:/a:thekelleys:dnsmasq:2.90"),
+		detailMsg("172.18.0.8", "cpe:/a:thekelleys:dnsmasq:2.90", "53/tcp"),
+		detailMsg("172.18.0.8", "cpe:/a:thekelleys:dnsmasq:2.90", "53/udp"),
+		detailMsg("172.18.0.8", "cpe:/h:example:appliance:2", "53/tcp"),
+	)
+	if len(dns.Ports) != 2 {
+		t.Fatalf("dns ports: %+v", dns.Ports)
+	}
+	for _, p := range dns.Ports {
+		if p.Port != 53 || p.CPE != "cpe:/a:thekelleys:dnsmasq:2.90" || p.Source != "openvas:product_detection" {
+			t.Fatalf("dns port: %+v", p)
+		}
+		// The application is the primary even though the hardware CPE sorts first.
+		if p.Proto == "tcp" && !equalStrings(p.CPEs, "cpe:/a:thekelleys:dnsmasq:2.90", "cpe:/h:example:appliance:2") {
+			t.Fatalf("dns tcp cpes: %v", p.CPEs)
+		}
+		if p.Proto == "udp" && p.CPEs != nil {
+			t.Fatalf("dns udp cpes: %v", p.CPEs)
+		}
+	}
+	if !equalStrings(dns.CPEs, "cpe:/a:thekelleys:dnsmasq:2.90", "cpe:/h:example:appliance:2") {
+		t.Fatalf("dns inventory: %v", dns.CPEs)
+	}
+
+	// Finalizing twice (the interim chunk, then the final one) changes nothing.
+	h := newHostAgg("172.18.0.4")
+	h.addPort(80, "tcp", "naabu")
+	for _, r := range []osp.Result{detailMsg("172.18.0.4", "cpe:/a:nginx:nginx:1.16.1", "80/tcp"), detailMsg("172.18.0.4", "cpe:/a:f5:nginx:1.16.1", "80/tcp")} {
+		h.absorb(r)
+	}
+	first := h.finalize(nil)
+	second := h.finalize(nil)
+	if !equalStrings(second.Ports[0].CPEs, first.Ports[0].CPEs...) || len(first.Ports[0].CPEs) != 2 || first.Ports[0].CPE != second.Ports[0].CPE {
+		t.Fatalf("not stable: %+v then %+v", first.Ports, second.Ports)
+	}
+
+	// A product or an operating system registered without a place is in
+	// the inventory all the same, and a value that is not a CPE never is.
+	loose := finalized(t, "172.18.0.9", nil,
+		detailMsg("172.18.0.9", "App", "cpe:/h:cisco:catalyst_2960"),
+		detailMsg("172.18.0.9", "OS", "cpe:/o:cisco:ios:15.2%282%29e"),
+		detailMsg("172.18.0.9", "OS", "Cisco IOS"),
+		detailMsg("172.18.0.9", "App", "cpe:/a:x:y:1 and more"),
+		detailMsg("172.18.0.9", "App", "not a cpe"),
+	)
+	if !equalStrings(loose.CPEs, "cpe:/h:cisco:catalyst_2960", "cpe:/o:cisco:ios:15.2%282%29e") || len(loose.Ports) != 0 {
+		t.Fatalf("inventory without locations: %v ports %+v", loose.CPEs, loose.Ports)
+	}
+	if loose.OSGuess == nil || loose.OSGuess.Name != "Cisco IOS" {
+		t.Fatalf("os name: %+v", loose.OSGuess)
+	}
+}
+
+func equalStrings(got []string, want ...string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// ospd-openvas escapes the name attribute of a result twice, so after XML
+// decoding "<" still reads "&lt;". 24 of the lab's 111 findings showed it.
+func TestResultNamesAreUnescaped(t *testing.T) {
+	alarm := func(oid, name string) osp.Result {
+		return osp.Result{Host: "172.18.0.7", Type: "Alarm", Severity: "9.8", Port: "80/tcp", TestID: oid, Name: name, QoD: "80", Text: "x"}
+	}
+	h := finalized(t, "172.18.0.7", []int{80},
+		alarm("1.3.6.1.4.1.25623.1.0.1", "Apache HTTP Server &lt;= 2.4.51 Buffer Overflow Vulnerability - Linux"),
+		alarm("1.3.6.1.4.1.25623.1.0.2", "Redis &lt; 6.0.20, 6.2.x &lt; 6.2.13 Heap Overflow"),
+		alarm("1.3.6.1.4.1.25623.1.0.3", "AT&amp;T &gt;= 1 &amp;lt; kept"),
+		alarm("1.3.6.1.4.1.25623.1.0.4", "Plain < name & more"),
+	)
+	want := map[string]string{
+		"1.3.6.1.4.1.25623.1.0.1": "Apache HTTP Server <= 2.4.51 Buffer Overflow Vulnerability - Linux",
+		"1.3.6.1.4.1.25623.1.0.2": "Redis < 6.0.20, 6.2.x < 6.2.13 Heap Overflow",
+		// Exactly one level comes off: text that read "&lt;" in the feed stays.
+		"1.3.6.1.4.1.25623.1.0.3": "AT&T >= 1 &lt; kept",
+		"1.3.6.1.4.1.25623.1.0.4": "Plain < name & more",
+	}
+	if len(h.Findings) != len(want) {
+		t.Fatalf("findings: %+v", h.Findings)
+	}
+	for _, f := range h.Findings {
+		if f.Name != want[f.NVTOID] {
+			t.Errorf("%s: name %q, want %q", f.NVTOID, f.Name, want[f.NVTOID])
+		}
+	}
+}

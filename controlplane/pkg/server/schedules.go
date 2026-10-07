@@ -92,6 +92,9 @@ func (s *Server) buildJob(ctx context.Context, req v1.AdminJobRequest) (*store.J
 	if req.UDP && !spec.HasModule(v1.ModuleUDP) {
 		spec.Modules = append(spec.Modules, v1.ModuleUDP)
 	}
+	if req.DefaultLogins && !spec.HasModule(v1.ModuleDefaultLogins) {
+		spec.Modules = append(spec.Modules, v1.ModuleDefaultLogins)
+	}
 	if spec.Window != nil && spec.Window.TZ == "" {
 		spec.Window.TZ = site.TZ
 	}

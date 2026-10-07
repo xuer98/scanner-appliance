@@ -109,10 +109,93 @@ func TestWebAddon(t *testing.T) {
 		t.Fatalf("httpx input: %q", in)
 	}
 	nargs := read(t, filepath.Join(logDir, "nuclei.args"))
-	for _, want := range []string{"-no-interactsh", "-disable-update-check", "-exclude-tags dos,fuzz,intrusive", "-severity medium,high,critical", "-templates " + filepath.Join(bundleDir, "nuclei-templates")} {
+	for _, want := range []string{"-no-interactsh", "-disable-update-check", "-exclude-tags dos,fuzz,intrusive,default-login ", "-severity medium,high,critical", "-templates " + filepath.Join(bundleDir, "nuclei-templates")} {
 		if !strings.Contains(nargs, want) {
 			t.Fatalf("nuclei args missing %q: %s", want, nargs)
 		}
+	}
+}
+
+// Checks that sign in with a vendor's default password are left out unless
+// the job carries the default_logins module, and what they find is filed
+// under its own family, which is how the control plane knows that only
+// such a job can see it again.
+func TestDefaultLoginsAreOptIn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fakes are POSIX shell scripts")
+	}
+	logDir := t.TempDir()
+	naabu, httpx, _ := webFakes(t, logDir)
+	// A nuclei that honors -exclude-tags for the one tag that matters here.
+	nuclei := filepath.Join(t.TempDir(), "nuclei")
+	if err := os.WriteFile(nuclei, []byte(`#!/bin/sh
+echo "$@" >> "`+logDir+`/nuclei.args"
+excl=""
+while [ $# -gt 0 ]; do [ "$1" = "-exclude-tags" ] && excl="$2"; shift; done
+printf '%s\n' '{"template-id":"CVE-2021-41773","info":{"name":"Apache 2.4.49 path traversal","severity":"critical","tags":["cve","apache"]},"type":"http","host":"http://10.30.5.20:8080","port":"8080","matched-at":"http://10.30.5.20:8080/x"}'
+case ",$excl," in
+  *,default-login,*) ;;
+  *) printf '%s\n' '{"template-id":"tomcat-default-login","info":{"name":"Apache Tomcat Manager Default Login","severity":"high","tags":"tomcat,apache,default-login"},"type":"http","host":"http://10.30.5.20:8080","port":"8080","matched-at":"http://10.30.5.20:8080/manager/html","extracted-results":["tomcat:tomcat"]}' ;;
+esac
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bundleDir := t.TempDir()
+	tpl := filepath.Join(bundleDir, "nuclei-templates", "http", "default-logins")
+	_ = os.MkdirAll(tpl, 0o755)
+	_ = os.WriteFile(filepath.Join(tpl, "x.yaml"), []byte("id: x\n"), 0o644)
+	run := func(modules []string, exclude []string) (map[string]string, string) {
+		t.Helper()
+		_ = os.Remove(filepath.Join(logDir, "nuclei.args"))
+		e := &Engine{NaabuPath: naabu, HTTPXPath: httpx, NucleiPath: nuclei, BundleDir: bundleDir, Log: slog.Default(),
+			Now: time.Now, PollInterval: 10 * time.Millisecond, IfaceExists: func(string) bool { return false }}
+		spec := v1.JobSpec{JobID: "job_dl", SiteID: "site_1", ApplianceID: "apl_1", Mode: v1.ModeFull, Targets: []string{"10.30.5.0/24"},
+			Modules: modules, Ports: "standard", Rate: v1.Rate{PPS: 300, PerHostParallel: 2},
+			Web: &v1.WebParams{MinSeverity: v1.SeverityMedium, ExcludeTags: exclude}}
+		if err := spec.ValidateShape(); err != nil {
+			t.Fatalf("spec: %v", err)
+		}
+		sink := &webSink{}
+		if _, err := e.Run(t.Context(), spec, v1.SiteConfig{AllowedCIDRs: []string{"10.30.0.0/16"}}, sink); err != nil {
+			t.Fatal(err)
+		}
+		families := map[string]string{}
+		for _, f := range sink.batches[len(sink.batches)-1].Hosts[0].Findings {
+			families[f.ID] = f.Family
+		}
+		return families, read(t, filepath.Join(logDir, "nuclei.args"))
+	}
+	plain := []string{v1.ModuleDiscovery, v1.ModulePortscan, v1.ModuleWeb}
+	withLogins := append(append([]string{}, plain...), v1.ModuleDefaultLogins)
+
+	fam, args := run(plain, []string{"dos", "fuzz", "intrusive"})
+	if !strings.Contains(args, "-exclude-tags dos,fuzz,intrusive,default-login ") {
+		t.Fatalf("a job without the module must exclude the tag: %s", args)
+	}
+	if len(fam) != 1 || fam["CVE-2021-41773"] != v1.FamilyWeb {
+		t.Fatalf("without the module: %v", fam)
+	}
+
+	fam, args = run(withLogins, []string{"dos", "fuzz", "intrusive"})
+	if strings.Contains(args, "default-login") {
+		t.Fatalf("a job with the module must not exclude the tag: %s", args)
+	}
+	if len(fam) != 2 || fam["tomcat-default-login"] != v1.FamilyWebDefaultLogin || fam["CVE-2021-41773"] != v1.FamilyWeb {
+		t.Fatalf("with the module: %v", fam)
+	}
+
+	// The job's own exclusions still hold: the module lifts the appliance's
+	// floor, it does not force the checks on.
+	fam, args = run(withLogins, []string{"default-login"})
+	if !strings.Contains(args, "-exclude-tags default-login,dos,fuzz,intrusive ") || len(fam) != 1 {
+		t.Fatalf("job-level exclusion ignored: %v / %s", fam, args)
+	}
+
+	// The module needs the web phase.
+	bad := v1.JobSpec{JobID: "j", SiteID: "s", ApplianceID: "a", Mode: v1.ModeInventory, Targets: []string{"10.30.5.0/24"}, Ports: "standard",
+		Modules: []string{v1.ModuleDiscovery, v1.ModulePortscan, v1.ModuleDefaultLogins}, Rate: v1.Rate{PPS: 300, PerHostParallel: 2}}
+	if err := bad.ValidateShape(); err == nil || !strings.Contains(err.Error(), "needs the web module") {
+		t.Fatalf("default_logins without web: %v", err)
 	}
 }
 

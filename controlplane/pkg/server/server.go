@@ -489,6 +489,7 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	s.noteUpdateError(r.Context(), apl, &hb)
 	s.noteBundleConfirmed(r.Context(), apl, &hb)
+	s.noteJobProgress(r.Context(), apl, &hb)
 	pending, err := s.cfg.Store.PendingDirectives(r.Context(), apl.ID, true)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "store error", "store")

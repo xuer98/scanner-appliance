@@ -1,7 +1,8 @@
 // Package osptest is a scripted fake ospd-openvas speaking enough OSP for
-// the daemon tests: get_version, get_vts (count, single-VT metadata and the
-// full list), start_scan, get_scans with pop_results, stop_scan and
-// delete_scan.
+// the daemon tests: get_version, get_vts (single-VT metadata and the full
+// list), start_scan, get_scans with pop_results, stop_scan and delete_scan.
+// Next to it listens a fake of the engine's redis (redis.go), which is
+// where the number of loaded tests is read.
 package osptest
 
 import (
@@ -40,10 +41,13 @@ type VT struct {
 
 // Fake is one listener.
 type Fake struct {
-	Socket     string
-	VTsVersion string
-	VTCount    int
-	VTs        map[string]VT
+	Socket string
+	// RedisSocket is the fake of the engine's redis; it reports VTCount
+	// tests while a feed is loaded.
+	RedisSocket string
+	VTsVersion  string
+	VTCount     int
+	VTs         map[string]VT
 	// PluginsDir makes the fake behave like ospd-openvas after a feed
 	// update: the reported VT version is PLUGIN_SET from
 	// <PluginsDir>/plugin_feed_info.inc (empty = cache not loaded) and the
@@ -109,6 +113,21 @@ func Start(t *testing.T, f *Fake) *Fake {
 			go f.serve(c)
 		}
 	}()
+	f.RedisSocket = dir + "/redis.sock"
+	rl, err := net.Listen("unix", f.RedisSocket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { rl.Close() })
+	go func() {
+		for {
+			c, err := rl.Accept()
+			if err != nil {
+				return
+			}
+			go f.serveRedis(c)
+		}
+	}()
 	return f
 }
 
@@ -171,10 +190,16 @@ func (f *Fake) getVTs(req string) string {
 		if !ok {
 			return `<get_vts_response status="404" status_text="Not found"/>`
 		}
-		return fmt.Sprintf(`<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total="1" sent="1">%s</vts></get_vts_response>`, f.version(), vtXML(oid, vt))
+		return fmt.Sprintf(`<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total="">%s</vts></get_vts_response>`, f.version(), vtXML(oid, vt))
 	}
-	if strings.Contains(req, "filter=") {
-		return fmt.Sprintf(`<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total="%d" sent="0"/></get_vts_response>`, f.version(), f.vtCount())
+	// As measured on ospd-openvas 22.10.5: the total attribute is always
+	// empty, because the tests live in redis, and the only filter it takes
+	// compares modification times.
+	if strings.Contains(req, `version_only="1"`) {
+		return fmt.Sprintf(`<get_vts_response status="200" status_text="OK"><vts vts_version="%s" total=""></vts></get_vts_response>`, f.version())
+	}
+	if strings.Contains(req, "filter=") && !strings.Contains(req, "modification_time") {
+		return `<get_vts_response status="400" status_text="Invalid filter element" />`
 	}
 	// No vt_id and no filter: the whole feed, as ospd-openvas streams it.
 	f.mu.Lock()

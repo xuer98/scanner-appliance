@@ -321,8 +321,10 @@ under the agreed packet-rate and concurrency caps; anything else is
 rejected and shown in the portal with the reason. The port scan covers the
 top ~1000 ports plus warehouse and industrial ports; a scan of all 65535
 ports can be agreed for specific hosts and is only accepted when it fits
-the scan window at the agreed packet rate. Denial-of-service and
-brute-force checks are never run. Devices that answer on printer or
+the scan window at the agreed packet rate. Denial-of-service checks are
+never run, and neither is the detection engine's brute-force family, which
+works through long password lists; the checks that do sign in are listed
+below. Devices that answer on printer or
 industrial-controller ports (9100, 515, 631, 161, 502, 44818 by default)
 are discovered and port-scanned but kept out of the vulnerability checks
 until a human clears them. A job stops by itself at its maximum duration,
@@ -339,8 +341,29 @@ kept out of the vulnerability checks are kept out of these as well.
 
 A full scan also checks the web servers it finds. It reads each server's
 title, server header and technology, then runs HTTP checks rated medium or
-higher against it. In our lab that was about 8,800 requests per web server,
-about 580 of them from checks that try vendor default passwords.
+higher against it. In our lab that was about 8,150 requests per web server.
+
+Some checks sign in to what they test. Two kinds run in every scan that
+includes them:
+
+- The detection engine tests specific products for their known default
+  account, in inventory and full scans. In our lab that was 5 sign-in
+  attempts per scan against an nginx web server, which has no page that
+  asks for a password. A Tomcat whose management page does ask for one
+  refused about 120 requests during one inventory scan; its log does not
+  show how many of them carried a password. The same checks exist for
+  SSH, Telnet and FTP services, which our lab does not have.
+- In a full scan, some web checks carry an account of their own, because
+  the flaw they test is a built-in account or can only be reached after
+  signing in. In our lab that was 35 requests per scan against an nginx
+  web server.
+
+Two kinds run only in a job that asks for them:
+
+- The web checks' default-login set, which tries lists of default user
+  names and passwords, several pairs per product. In our lab it added
+  about 610 requests per web server.
+- UDP checks, whose SNMP requests try about 170 common community names.
 
 Results (open ports, detected services, operating-system guess, findings
 with their detection confidence) are encrypted on the appliance before they

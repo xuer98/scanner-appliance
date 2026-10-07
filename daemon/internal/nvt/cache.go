@@ -184,7 +184,22 @@ func (c *Cache) save() error {
 		return err
 	}
 	c.dirty = false
-	return os.Rename(tmp, c.path(c.version))
+	if err := os.Rename(tmp, c.path(c.version)); err != nil {
+		return err
+	}
+	c.prune()
+	return nil
+}
+
+// prune removes the files of other feed versions. The feed changes about
+// once a day and only moves forward, so an older file is never read again.
+func (c *Cache) prune() {
+	old, _ := filepath.Glob(filepath.Join(c.Dir, "nvt-*.json"))
+	for _, p := range old {
+		if p != c.path(c.version) {
+			_ = os.Remove(p)
+		}
+	}
 }
 
 // Len reports cached entries (tests).

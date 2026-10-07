@@ -104,9 +104,13 @@ func jobScope(job *store.Job) string {
 }
 
 // jobScopes lists the finding scopes a completed job can resolve: a full
-// scan covers inventory findings too; the web module covers web findings;
-// findings on UDP ports are covered only when the job ran the udp module.
-func jobScopes(job *store.Job) []string {
+// scan covers inventory findings too; the web module covers web findings,
+// and those of the default-login checks only with the default_logins
+// module; findings on UDP ports are covered only when the job ran the udp
+// module. A web phase the appliance skipped or cut short (stats carries a
+// "web:" warning) covers nothing: it did not look, so what it did not see
+// is not fixed.
+func jobScopes(job *store.Job, stats *v1.ScanStats) []string {
 	var out []string
 	switch jobScope(job) {
 	case v1.ScopeFull:
@@ -119,10 +123,28 @@ func jobScopes(job *store.Job) []string {
 			out = append(out, v1.UDPScope(sc))
 		}
 	}
-	if job.Spec.HasModule(v1.ModuleWeb) {
+	if job.Spec.HasModule(v1.ModuleWeb) && !webIncomplete(stats) {
 		out = append(out, v1.ScopeWeb)
+		if job.Spec.HasModule(v1.ModuleDefaultLogins) {
+			out = append(out, v1.ScopeWebLogins)
+		}
 	}
 	return out
+}
+
+// webIncomplete reports whether the appliance warned about its web phase:
+// the tools or the templates were missing, or there were more targets
+// than it probes.
+func webIncomplete(stats *v1.ScanStats) bool {
+	if stats == nil {
+		return false
+	}
+	for _, w := range stats.Warnings {
+		if strings.HasPrefix(w, "web:") {
+			return true
+		}
+	}
+	return false
 }
 
 func jobStart(job *store.Job) time.Time {
@@ -181,7 +203,7 @@ func (s *Server) finishAccum(jobID string) *jobAccum {
 func (s *Server) completeJob(ctx context.Context, job *store.Job, stats *v1.ScanStats, now time.Time) {
 	acc := s.finishAccum(job.ID)
 	var fixed []*store.Finding
-	if scopes := jobScopes(job); len(scopes) > 0 {
+	if scopes := jobScopes(job, stats); len(scopes) > 0 {
 		list, err := s.cfg.Store.ResolveFindings(ctx, job.SiteID, job.ID, scopes, jobStart(job), now)
 		if err != nil {
 			s.log.Warn("lifecycle resolution failed", "job", job.ID, "err", err)

@@ -48,7 +48,7 @@ func TestUDPModuleJobs(t *testing.T) {
 	scopes := func(mode string, mods ...string) string {
 		j := &store.Job{Spec: v1.JobSpec{Modules: mods}}
 		j.Spec.DefaultsFor(mode)
-		return strings.Join(jobScopes(j), ",")
+		return strings.Join(jobScopes(j, nil), ",")
 	}
 	if got := scopes(v1.ModeInventory); got != "inventory" {
 		t.Fatalf("inventory scopes: %q", got)

@@ -171,10 +171,11 @@ func TestPhase2(t *testing.T) {
 	s.IntervalOverrideS = 1
 	_ = st.Save(s)
 	ospc := osp.New(fake.Socket)
+	ospc.RedisSocket = fake.RedisSocket
 	eng := &engine.Engine{NaabuPath: labNaabu(t), OSP: ospc, NVT: nvt.New(filepath.Join(st.Dir, "nvt-cache"), ospc, nil), Log: slog.Default(),
 		PollInterval: 50 * time.Millisecond, ScanType: "c", IfaceExists: func(string) bool { return true }}
 	runner := &jobs.Runner{Store: st, Engine: eng, Spool: &spool.Spool{Dir: filepath.Join(st.Dir, "spool")}, Roots: c.roots, Log: slog.Default()}
-	loop := &heartbeat.Loop{Store: st, Roots: c.roots, Version: "e2e", Log: slog.Default(), PowerOff: func() error { return nil }, OSPSocket: fake.Socket, Jobs: runner}
+	loop := &heartbeat.Loop{Store: st, Roots: c.roots, Version: "e2e", Log: slog.Default(), PowerOff: func() error { return nil }, OSPSocket: fake.Socket, OSP: ospc, Jobs: runner}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go loop.Run(ctx)
@@ -186,6 +187,10 @@ func TestPhase2(t *testing.T) {
 	}, "appliance online with engine ready")
 	if view.FeedVersion != "202609260530" || view.LastHeartbeat.StopAll {
 		t.Fatalf("heartbeat: %+v", view.LastHeartbeat)
+	}
+	// The number of loaded tests is read from the engine's redis.
+	if view.LastHeartbeat.Engine.VTCount != 98765 {
+		t.Fatalf("vt_count %d, want the engine's 98765", view.LastHeartbeat.Engine.VTCount)
 	}
 	local, _ := st.Load()
 	if local.SpoolPubKey == "" || local.SpoolKID == "" || local.Site.MaxConcurrency != 16 {
@@ -203,6 +208,16 @@ func TestPhase2(t *testing.T) {
 	}, "discovery job done")
 	if job1.Stats == nil || job1.Stats.HostsAlive != 3 || job1.StartedAt == nil || job1.Batches == 0 {
 		t.Fatalf("job1: %+v", job1)
+	}
+	// The job's last chunk makes it done before its final status arrives;
+	// the record must still end in the phase the job ended in, not the one
+	// it started in.
+	waitFor(t, 10*time.Second, func() bool {
+		admin("GET", "/admin/jobs/"+job1.ID, nil, &job1)
+		return job1.Phase == engine.PhaseFinalize
+	}, "finished job shows its last phase")
+	if job1.ProgressPct != 100 {
+		t.Fatalf("job1 progress: %d", job1.ProgressPct)
 	}
 	var hosts []v1.AdminHostView
 	admin("GET", "/admin/jobs/"+job1.ID+"/hosts", nil, &hosts)
@@ -276,6 +291,11 @@ func TestPhase2(t *testing.T) {
 	if view.LastHeartbeat.State != heartbeat.StateScanning {
 		t.Fatalf("state %s", view.LastHeartbeat.State)
 	}
+	// The job record follows the heartbeat while the job runs.
+	waitFor(t, 10*time.Second, func() bool {
+		admin("GET", "/admin/jobs/"+job3.ID, nil, &job3)
+		return job3.Status == v1.JobRunning && job3.Phase == engine.PhaseOpenVAS
+	}, "running job record shows the openvas phase")
 	live, _ := st.ReadStatus()
 	if live.CurrentJob == nil || live.CurrentJob.ID != job3.ID {
 		t.Fatalf("status.json: %+v", live)
