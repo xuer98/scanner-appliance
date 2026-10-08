@@ -496,15 +496,27 @@ fi
 # 7. Version and settings dump for the support bundle
 # ---------------------------------------------------------------------------
 log "recording engine versions"
+# In configure-only mode the engine was copied in from another build stage:
+# its libraries have to be known to the loader before anything runs it.
+# Without this the container image recorded a loader error as its version
+# and as its settings.
+ldconfig
+openvas_version="$("$PREFIX/sbin/openvas" --version 2>&1)" || die "openvas does not run: $openvas_version"
+# The version comes from the package, not from "ospd-openvas --version":
+# that connects to redis before it prints anything and gives up with exit 1
+# after half a minute when none runs, as during an image build.
+ospd_version="$("$OSPD_VENV/bin/python" -c 'from importlib.metadata import version; print(version("ospd-openvas"))' 2>&1)" \
+  || die "ospd-openvas is not installed in $OSPD_VENV: $ospd_version"
 {
-  "$PREFIX/sbin/openvas" --version 2>/dev/null | head -n 2 || echo "openvas: version unavailable"
-  "$OSPD_VENV/bin/ospd-openvas" --version 2>/dev/null || echo "ospd-openvas: version unavailable"
+  printf '%s\n' "$openvas_version" | sed -n '1,2p'
+  printf 'ospd-openvas %s\n' "$ospd_version"
   /usr/bin/redis-server --version 2>/dev/null || echo "redis: version unavailable"
 } >/etc/appliance/openvas-version
 chmod 0644 /etc/appliance/openvas-version
-# `openvas -s` prints the effective settings without touching redis.
+# `openvas -s` prints the effective settings without touching redis. ospd
+# reads them the same way, so an engine that cannot print them cannot scan.
 if ! timeout 30 "$PREFIX/sbin/openvas" -s >/etc/appliance/openvas-settings.txt 2>&1; then
-  warn "openvas -s failed; see /etc/appliance/openvas-settings.txt"
+  die "openvas -s failed: $(head -n 5 /etc/appliance/openvas-settings.txt)"
 fi
 chmod 0644 /etc/appliance/openvas-settings.txt
 log "done: $(head -n 1 /etc/appliance/openvas-version)"

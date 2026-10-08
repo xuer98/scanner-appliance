@@ -281,8 +281,25 @@ jobs:
       - name: engine present
         run: |
           docker run --rm --entrypoint /usr/local/sbin/openvas scanner-appliance:ci --version
-          docker run --rm --entrypoint /opt/ospd/bin/ospd-openvas scanner-appliance:ci --version
+          # Not "ospd-openvas --version": it connects to redis before it prints
+          # anything and exits 1 after half a minute when none runs, as in a
+          # bare container. --help loads the entry point and its imports; the
+          # version comes from the package.
+          docker run --rm --entrypoint /opt/ospd/bin/ospd-openvas scanner-appliance:ci --help >/dev/null
+          docker run --rm --entrypoint /opt/ospd/bin/python scanner-appliance:ci -c 'from importlib.metadata import version; print("ospd-openvas", version("ospd-openvas"))'
           docker run --rm --entrypoint /opt/engine/httpx scanner-appliance:ci -version
           docker run --rm --entrypoint /opt/engine/nuclei scanner-appliance:ci -version
           docker run --rm --entrypoint nmap scanner-appliance:ci --version | head -n1
-          docker run --rm --entrypoint cat scanner-appliance:ci /etc/appliance/openvas-settings.txt /var/lib/openvas/feed-info /etc/appliance/nmap-version
+          docker run --rm --entrypoint cat scanner-appliance:ci /etc/appliance/openvas-version /etc/appliance/openvas-settings.txt /var/lib/openvas/feed-info /etc/appliance/nmap-version
+      - name: engine records hold versions and settings
+        # A support bundle carries both files. Written at build time, they
+        # once held a loader error instead.
+        run: |
+          docker run --rm --entrypoint sh scanner-appliance:ci -c '
+            grep -q "^OpenVAS [0-9]" /etc/appliance/openvas-version &&
+            grep -q "^gvm-libs [0-9]" /etc/appliance/openvas-version &&
+            grep -q "^ospd-openvas [0-9]" /etc/appliance/openvas-version &&
+            grep -q "^Redis server v=" /etc/appliance/openvas-version &&
+            grep -q "^plugins_folder = /var/lib/openvas/plugins" /etc/appliance/openvas-settings.txt &&
+            grep -q "^db_address = /run/redis-openvas/redis.sock" /etc/appliance/openvas-settings.txt &&
+            grep -q "^nasl_no_signature_check = yes" /etc/appliance/openvas-settings.txt'

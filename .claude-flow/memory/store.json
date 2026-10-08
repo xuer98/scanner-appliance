@@ -7901,6 +7901,240 @@
       "lastAccessed": "2026-10-07T22:10:54.175Z",
       "accessCount": 0,
       "expiresAt": "2026-11-06T22:10:54.175Z"
+    },
+    "cmd-1791425795488": {
+      "key": "cmd-1791425795488",
+      "value": "{\"command\":\"git log --oneline | head -5 && git status --short | grep -v claude-flow | head -5; grep -n 'docker build (amd64' -A75 .github/workflows/ci.yml | sed -n 1,110p\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:16:35.488Z",
+      "lastAccessed": "2026-10-08T02:16:35.488Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:16:35.488Z"
+    },
+    "cmd-1791425865377": {
+      "key": "cmd-1791425865377",
+      "value": "{\"command\":\"date -u && git show --stat --format='%h %s (%ci)' HEAD | tail -40 | head -45 && time docker run --rm --entrypoint /opt/ospd/bin/ospd-openvas ghcr.io/tprm/scanner-appliance:dev --version; echo \\\"exit $?\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:17:45.377Z",
+      "lastAccessed": "2026-10-08T02:17:45.377Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:17:45.377Z"
+    },
+    "cmd-1791425878857": {
+      "key": "cmd-1791425878857",
+      "value": "{\"command\":\"sed -n 281,300p .github/workflows/ci.yml && git log --oneline -- .github/workflows/ci.yml | head -8 && git log -S'ospd-openvas scanner-appliance:ci --version' --oneline -- .github/workflows/ci.yml | tail -3 && grep -n 'ospd-openvas' docker/Dockerfile docker/entrypoint.sh packer/scripts/install-openvas.sh ci/smoke/*.sh .github/workflows/*.yml | cut -c1-190 | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:17:58.857Z",
+      "lastAccessed": "2026-10-08T02:17:58.857Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:17:58.857Z"
+    },
+    "cmd-1791425912770": {
+      "key": "cmd-1791425912770",
+      "value": "{\"command\":\"I=ghcr.io/tprm/scanner-appliance:dev && docker run --rm --entrypoint /opt/ospd/bin/python $I -c \\\"from importlib.metadata import version; print('ospd-openvas', version('ospd-openvas'))\\\"; echo \\\"exit $?\\\"; docker run --rm --entrypoint /opt/ospd/bin/python $I -c \\\"import ospd_openvas.daemon, ospd_openvas.__version__ as v; print('ospd-openvas', v.__version__)\\\"; echo \\\"exit $?\\\"; docker run --rm --entrypoint /opt/ospd/bin/ospd-openvas $I --help 2>&1 | head -5; echo \\\"exit ${PIPESTATUS[0]:-$?}\\\"; sed -n 494,504p packer/scripts/install-openvas.sh; sed -n 160,175p packer/scripts/install-openvas.sh\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:18:32.770Z",
+      "lastAccessed": "2026-10-08T02:18:32.770Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:18:32.770Z"
+    },
+    "cmd-1791425944823": {
+      "key": "cmd-1791425944823",
+      "value": "{\"command\":\"I=ghcr.io/tprm/scanner-appliance:dev && docker run --rm --entrypoint cat $I /etc/appliance/openvas-version; echo \\\"---\\\"; grep -rn 'openvas-version' --include='*.go' --include='*.sh' --include='*.yml' --include='*.md' --include='Dockerfile*' . | grep -v '^./dev/' | cut -c1-170; echo ---; docker run --rm --entrypoint /opt/ospd/bin/python $I -c \\\"import ospd_openvas.__version__ as v; print(type(v), v if isinstance(v,str) else getattr(v,'__version__',None))\\\"; docker run --rm --entrypoint /opt/ospd/bin/python $I -c \\\"import ospd_openvas.daemon; print('daemon module imports')\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:19:04.823Z",
+      "lastAccessed": "2026-10-08T02:19:04.823Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:19:04.823Z"
+    },
+    "cmd-1791425973092": {
+      "key": "cmd-1791425973092",
+      "value": "{\"command\":\"sed -n 100,215p docker/Dockerfile\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:19:33.092Z",
+      "lastAccessed": "2026-10-08T02:19:33.092Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:19:33.092Z"
+    },
+    "cmd-1791425983419": {
+      "key": "cmd-1791425983419",
+      "value": "{\"command\":\"sed -n 1,102p packer/scripts/seed-feed.sh\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:19:43.419Z",
+      "lastAccessed": "2026-10-08T02:19:43.419Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:19:43.419Z"
+    },
+    "cmd-1791426024499": {
+      "key": "cmd-1791426024499",
+      "value": "{\"command\":\"I=ghcr.io/tprm/scanner-appliance:dev && docker run --rm --entrypoint /usr/local/sbin/openvas $I --version | head -2; echo \\\"openvas exit ${pipestatus[1]}\\\"; docker run --rm --entrypoint /opt/engine/httpx $I -version 2>&1 | tail -2; echo \\\"httpx exit ${pipestatus[1]}\\\"; docker run --rm --entrypoint /opt/engine/nuclei $I -version 2>&1 | head -2; echo \\\"nuclei exit ${pipestatus[1]}\\\"; docker run --rm --entrypoint cat $I /etc/appliance/openvas-settings.txt /var/lib/openvas/feed-info | head -12; echo \\\"cat exit ${pipestatus[1]}\\\"; docker run --rm --entrypoint sh $I -c 'ls -la /etc/appliance/; cat /etc/appliance/image-version'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:20:24.499Z",
+      "lastAccessed": "2026-10-08T02:20:24.499Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:20:24.499Z"
+    },
+    "cmd-1791426038388": {
+      "key": "cmd-1791426038388",
+      "value": "{\"command\":\"grep -n 'ldconfig\\\\|openvas-settings\\\\|OPENVAS_SKIP_BUILD\\\\|IN_CONTAINER\\\\|^# [0-9]\\\\.\\\\|^log ' packer/scripts/install-openvas.sh | cut -c1-170\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:20:38.388Z",
+      "lastAccessed": "2026-10-08T02:20:38.388Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:20:38.388Z"
+    },
+    "cmd-1791426042918": {
+      "key": "cmd-1791426042918",
+      "value": "{\"command\":\"sed -n 176,182p packer/scripts/install-openvas.sh && sed -n 255,292p packer/scripts/install-openvas.sh && sed -n 494,512p packer/scripts/install-openvas.sh && grep -n 'openvas-version\\\\|openvas-settings\\\\|/etc/appliance' daemon/internal/support/support.go | head\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:20:42.918Z",
+      "lastAccessed": "2026-10-08T02:20:42.918Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:20:42.918Z"
+    },
+    "cmd-1791426051519": {
+      "key": "cmd-1791426051519",
+      "value": "{\"command\":\"grep -n 'etc/appliance\\\\|ConfDir\\\\|openvas' daemon/internal/support/support.go | head -20; grep -rn 'openvas-settings\\\\|openvas-version\\\\|feed-info\\\\|nmap-version\\\\|image-version' --include='*.go' . | grep -v '^./dev/' | cut -c1-160 | head\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:20:51.519Z",
+      "lastAccessed": "2026-10-08T02:20:51.519Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:20:51.519Z"
+    },
+    "cmd-1791426121762": {
+      "key": "cmd-1791426121762",
+      "value": "{\"command\":\"I=ghcr.io/tprm/scanner-appliance:dev && docker run --rm --entrypoint sh $I -c 'ldconfig; /usr/local/sbin/openvas -s 2>&1 | head -8; echo \\\"exit $?\\\"'; git remote -v | head -2; (docker pull debian:12-slim > /private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/pull-test.log 2>&1 &) ; sleep 20; cat /private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/pull-test.log | tail -4\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:22:01.762Z",
+      "lastAccessed": "2026-10-08T02:22:01.762Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:22:01.762Z"
+    },
+    "cmd-1791426135666": {
+      "key": "cmd-1791426135666",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport sys\\nsys.path.insert(0, '/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad')\\nfrom edit import edit\\nedit('packer/scripts/install-openvas.sh', [\\n(\\\"\\\"\\\"log \\\"recording engine versions\\\"\\n{\\n  \\\"$PREFIX/sbin/openvas\\\" --version 2>/dev/null | head -n 2 || echo \\\"openvas: version unavailable\\\"\\n  \\\"$OSPD_VENV/bin/ospd-openvas\\\" --version 2>/dev/null || echo \\\"ospd-openvas: version unavailable\\\"\\n  /usr/bin/redis-server --version 2>/dev/null || echo \\\"redis: version unavailable\\\"\\n} >/etc/appliance/openvas-version\\nchmod 0644 /etc/appliance/openvas-version\\n\\\"\\\"\\\", \\\"\\\"\\\"log \\\"recording engine versions\\\"\\n# In configure-only mode the engine was copied in from another build stage:\\n# its libraries have to be known to the loader before anything runs it.\\n# Without this the container image recorded a loader error as its version\\n# and as its settings.\\nldconfig\\nopenvas_version=\\\"$(\\\"$PREFIX/sbin/openvas\\\" --version 2>&1)\\\" || die \\\"openvas does not run: $openvas_version\\\"\\n# The version comes from the package, not from \\\\\\\\`ospd-openvas --version\\\\\\\\`:\\n# that connects to redis before it prints anything and gives up with exit 1\\n# after half a minute when none runs, as during an image build.\\nospd_version=\\\"$(\\\"$OSPD_VENV/bin/python\\\" -c 'from importlib.metadata import version; print(version(\\\"ospd-openvas\\\"))' 2>&1)\\\" \\\\\\\\\\n  || die \\\"ospd-openvas is not installed in $OSPD_VENV: $ospd_version\\\"\\n{\\n  printf '%s\\\\\\\\n' \\\"$openvas_version\\\" | sed -n '1,2p'\\n  printf 'ospd-openvas %s\\\\\\\\n' \\\"$ospd_version\\\"\\n  /usr/bin/redis-server --version 2>/dev/null || echo \\\"redis: version unavailable\\\"\\n} >/etc/appliance/openvas-version\\nchmod 0644 /etc/appliance/openvas-version\\n\\\"\\\"\\\"),\\n])\\nEOF\\nsed -n 494,520p packer/scripts/install-openvas.sh; bash -n packer/scripts/install-openvas.sh && shellcheck -x -S style packer/scripts/install-openvas.sh && echo \\\"shellcheck ok\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:22:15.666Z",
+      "lastAccessed": "2026-10-08T02:22:15.666Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:22:15.666Z"
+    },
+    "cmd-1791426164287": {
+      "key": "cmd-1791426164287",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport sys\\nsys.path.insert(0, '/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad')\\nfrom edit import edit\\nedit('packer/scripts/install-openvas.sh', [\\n(\\\"\\\"\\\"# The version comes from the package, not from \\\\\\\\`ospd-openvas --version\\\\\\\\`:\\n# that connects to redis before it prints anything and gives up with exit 1\\n# after half a minute when none runs, as during an image build.\\n\\\"\\\"\\\", \\\"\\\"\\\"# The version comes from the package, not from \\\"ospd-openvas --version\\\":\\n# that connects to redis before it prints anything and gives up with exit 1\\n# after half a minute when none runs, as during an image build.\\n\\\"\\\"\\\"),\\n(\\\"\\\"\\\"# `openvas -s` prints the effective settings without touching redis.\\nif ! timeout 30 \\\"$PREFIX/sbin/openvas\\\" -s >/etc/appliance/openvas-settings.txt 2>&1; then\\n  warn \\\"openvas -s failed; see /etc/appliance/openvas-settings.txt\\\"\\nfi\\nchmod 0644 /etc/appliance/openvas-settings.txt\\n\\\"\\\"\\\", \\\"\\\"\\\"# `openvas -s` prints the effective settings without touching redis. ospd\\n# reads them the same way, so an engine that cannot print them cannot scan.\\nif ! timeout 30 \\\"$PREFIX/sbin/openvas\\\" -s >/etc/appliance/openvas-settings.txt 2>&1; then\\n  die \\\"openvas -s failed: $(head -n 5 /etc/appliance/openvas-settings.txt)\\\"\\nfi\\nchmod 0644 /etc/appliance/openvas-settings.txt\\n\\\"\\\"\\\"),\\n])\\nedit('.github/workflows/ci.yml', [\\n(\\\"\\\"\\\"      - name: engine present\\n        run: |\\n          docker run --rm --entrypoint /usr/local/sbin/openvas scanner-appliance:ci --version\\n          docker run --rm --entrypoint /opt/ospd/bin/ospd-openvas scanner-appliance:ci --version\\n          docker run --rm --entrypoint /opt/engine/httpx scanner-appliance:ci -version\\n          docker run --rm --entrypoint /opt/engine/nuclei scanner-appliance:ci -version\\n          docker run --rm --entrypoint nmap scanner-appliance:ci --version | head -n1\\n          docker run --rm --entrypoint cat scanner-appliance:ci /etc/appliance/openvas-settings.txt /var/lib/openvas/feed-info /etc/appliance/nmap-version\\n\\\"\\\"\\\", \\\"\\\"\\\"      - name: engine present\\n        run: |\\n          docker run --rm --entrypoint /usr/local/sbin/openvas scanner-appliance:ci --version\\n          # Not \\\"ospd-openvas --version\\\": it connects to redis before it prints\\n          # anything and exits 1 after half a minute when none runs, as in a\\n          # bare container. --help loads the entry point and its imports; the\\n          # version comes from the package.\\n          docker run --rm --entrypoint /opt/ospd/bin/ospd-openvas scanner-appliance:ci --help >/dev/null\\n          docker run --rm --entrypoint /opt/ospd/bin/python scanner-appliance:ci -c 'from importlib.metadata import version; print(\\\"ospd-openvas\\\", version(\\\"ospd-openvas\\\"))'\\n          docker run --rm --entrypoint /opt/engine/httpx scanner-appliance:ci -version\\n          docker run --rm --entrypoint /opt/engine/nuclei scanner-appliance:ci -version\\n          docker run --rm --entrypoint nmap scanner-appliance:ci --version | head -n1\\n          docker run --rm --entrypoint cat scanner-appliance:ci /etc/appliance/openvas-version /etc/appliance/openvas-settings.txt /var/lib/openvas/feed-info /etc/appliance/nmap-version\\n      - name: engine records hold versions and settings\\n        # A support bundle carries both files. Written at build time, they\\n        # once held a loader error instead.\\n        run: |\\n          docker run --rm --entrypoint sh scanner-appliance:ci -c '\\n            grep -q \\\"^OpenVAS [0-9]\\\" /etc/appliance/openvas-version &&\\n            grep -q \\\"^gvm-libs [0-9]\\\" /etc/appliance/openvas-version &&\\n            grep -q \\\"^ospd-openvas [0-9]\\\" /etc/appliance/openvas-version &&\\n            grep -q \\\"^Redis server v=\\\" /etc/appliance/openvas-version &&\\n            grep -q \\\"^plugins_folder = /var/lib/openvas/plugins\\\" /etc/appliance/openvas-settings.txt &&\\n            grep -q \\\"^db_address = /run/redis-openvas/redis.sock\\\" /etc/appliance/openvas-settings.txt &&\\n            grep -q \\\"^nasl_no_signature_check = yes\\\" /etc/appliance/openvas-settings.txt'\\n\\\"\\\"\\\"),\\n])\\nEOF\\nbash -n packer/scripts/install-openvas.sh && shellcheck -x -S style packer/scripts/install-openvas.sh && echo \\\"shellcheck ok\\\"; python3 -c \\\"\\nimport yaml; d=yaml.safe_load(open('.github/workflows/ci.yml')); j=d['jobs']\\nfor k,v in j.items():\\n    if 'docker build' in str(v.get('name','')): print(k, [s.get('name') or s.get('uses') for s in v['steps']])\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:22:44.287Z",
+      "lastAccessed": "2026-10-08T02:22:44.287Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:22:44.287Z"
+    },
+    "cmd-1791426179692": {
+      "key": "cmd-1791426179692",
+      "value": "{\"command\":\"I=ghcr.io/tprm/scanner-appliance:dev && docker run --rm --entrypoint sh $I -c 'ldconfig; /usr/local/sbin/openvas -s 2>&1 | grep -n \\\"^plugins_folder\\\\|^db_address\\\\|^nasl_no_signature_check\\\\|^table_driven_lsc\\\\|^max_hosts\\\"; /usr/local/sbin/openvas -s | wc -l; redis-server --version'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:22:59.692Z",
+      "lastAccessed": "2026-10-08T02:22:59.692Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:22:59.692Z"
+    },
+    "cmd-1791426196556": {
+      "key": "cmd-1791426196556",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && mkdir -p $S/ci-tree && git ls-files -co --exclude-standard -z | grep -zv '^\\\\.claude-flow/' | rsync -a --delete --from0 --files-from=- . $S/ci-tree/ && ls $S/ci-tree | head -20 && ls -la $S/ci-tree/docker/feed/ && (cd $S/ci-tree && go run ./controlplane/cmd/cp-api ca init --dir dev/pki > /dev/null 2>&1; cp dev/pki/root.pem daemon/internal/pki/roots.pem && cp dev/pki/release-pub.pem daemon/internal/pki/release-pub.pem && wc -c daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem | head -2) && wc -c daemon/internal/pki/roots.pem | head -1\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:23:16.556Z",
+      "lastAccessed": "2026-10-08T02:23:16.556Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:23:16.556Z"
+    },
+    "cmd-1791426202320": {
+      "key": "cmd-1791426202320",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && cd $S/ci-tree && date -u && (docker buildx build -f docker/Dockerfile --platform linux/arm64 --load -t scanner-appliance:ci --build-arg VERSION=ci-local --build-arg WITH_NMAP=1 --progress plain . > $S/ci-build.log 2>&1; echo \\\"exit $?\\\" >> $S/ci-build.log; date -u >> $S/ci-build.log)\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:23:22.320Z",
+      "lastAccessed": "2026-10-08T02:23:22.320Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:23:22.320Z"
+    },
+    "cmd-1791426209549": {
+      "key": "cmd-1791426209549",
+      "value": "{\"command\":\"python3 -c \\\"\\nimport yaml; d=yaml.safe_load(open('.github/workflows/ci.yml'))\\nfor k,v in d['jobs'].items(): print(k, '|', v.get('name'), '| needs', v.get('needs'), '| continue-on-error', v.get('continue-on-error'))\\\" && sed -n 134,170p .github/workflows/ci.yml\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:23:29.549Z",
+      "lastAccessed": "2026-10-08T02:23:29.549Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:23:29.549Z"
+    },
+    "cmd-1791426217321": {
+      "key": "cmd-1791426217321",
+      "value": "{\"command\":\"set -e; find packer ci docker -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n && echo \\\"bash -n ok\\\"; bad=0; while IFS= read -r -d '' f; do if [ ! -x \\\"$f\\\" ]; then echo \\\"not executable: $f\\\"; bad=1; fi; done < <(find packer ci docker -type f \\\\( -name '*.sh' -o -name '*.expect' \\\\) -print0); echo \\\"exec bits bad=$bad\\\"; find packer ci docker -type f -name '*.sh' -print0 | xargs -0 shellcheck -x -S style && echo \\\"shellcheck all ok\\\"; shellcheck --version | sed -n 2p\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:23:37.321Z",
+      "lastAccessed": "2026-10-08T02:23:37.321Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:23:37.321Z"
+    },
+    "cmd-1791426466520": {
+      "key": "cmd-1791426466520",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && sleep 240; date -u +%H:%M:%S; tail -5 $S/ci-build.log | cut -c1-200\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:27:46.520Z",
+      "lastAccessed": "2026-10-08T02:27:46.520Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:27:46.520Z"
+    },
+    "cmd-1791426474534": {
+      "key": "cmd-1791426474534",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && head -3 $S/ci-build.log; grep -n 'CACHED\\\\|DONE [0-9.]*s' $S/ci-build.log | cut -c1-140 | head -60; grep -n 'install-openvas\\\\] \\\\|seed-feed\\\\]' $S/ci-build.log | cut -c1-170 | tail -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:27:54.534Z",
+      "lastAccessed": "2026-10-08T02:27:54.534Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:27:54.534Z"
+    },
+    "cmd-1791426491033": {
+      "key": "cmd-1791426491033",
+      "value": "{\"command\":\"set -e\\necho \\\"== applianced version\\\"; docker run --rm --entrypoint applianced scanner-appliance:ci version\\necho \\\"== engine present\\\"\\ndocker run --rm --entrypoint /usr/local/sbin/openvas scanner-appliance:ci --version | head -2\\ndocker run --rm --entrypoint /opt/ospd/bin/ospd-openvas scanner-appliance:ci --help >/dev/null\\ndocker run --rm --entrypoint /opt/ospd/bin/python scanner-appliance:ci -c 'from importlib.metadata import version; print(\\\"ospd-openvas\\\", version(\\\"ospd-openvas\\\"))'\\ndocker run --rm --entrypoint /opt/engine/httpx scanner-appliance:ci -version 2>&1 | tail -1\\ndocker run --rm --entrypoint /opt/engine/nuclei scanner-appliance:ci -version 2>&1 | head -1\\ndocker run --rm --entrypoint nmap scanner-appliance:ci --version | head -n1\\ndocker run --rm --entrypoint cat scanner-appliance:ci /etc/appliance/openvas-version /etc/appliance/openvas-settings.txt /var/lib/openvas/feed-info /etc/appliance/nmap-version | sed -n '1,8p;$p'\\necho \\\"== engine records hold versions and settings\\\"\\ndocker run --rm --entrypoint sh scanner-appliance:ci -c '\\n  grep -q \\\"^OpenVAS [0-9]\\\" /etc/appliance/openvas-version &&\\n  grep -q \\\"^gvm-libs [0-9]\\\" /etc/appliance/openvas-version &&\\n  grep -q \\\"^ospd-openvas [0-9]\\\" /etc/appliance/openvas-version &&\\n  grep -q \\\"^Redis server v=\\\" /etc/appliance/openvas-version &&\\n  grep -q \\\"^plugins_folder = /var/lib/openvas/plugins\\\" /etc/appliance/openvas-settings.txt &&\\n  grep -q \\\"^db_address = /run/redis-openvas/redis.sock\\\" /etc/appliance/openvas-settings.txt &&\\n  grep -q \\\"^nasl_no_signature_check = yes\\\" /etc/appliance/openvas-settings.txt'\\necho \\\"all step commands exit 0\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:28:11.033Z",
+      "lastAccessed": "2026-10-08T02:28:11.033Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:28:11.033Z"
+    },
+    "cmd-1791426506588": {
+      "key": "cmd-1791426506588",
+      "value": "{\"command\":\"for c in \\\"--entrypoint /usr/local/sbin/openvas scanner-appliance:ci --version\\\" \\\"--entrypoint /opt/ospd/bin/ospd-openvas scanner-appliance:ci --help\\\" \\\"--entrypoint /opt/engine/httpx scanner-appliance:ci -version\\\" \\\"--entrypoint /opt/engine/nuclei scanner-appliance:ci -version\\\" \\\"--entrypoint cat scanner-appliance:ci /etc/appliance/openvas-version /etc/appliance/openvas-settings.txt /var/lib/openvas/feed-info /etc/appliance/nmap-version\\\"; do docker run --rm ${=c} >/dev/null 2>&1; echo \\\"exit $? : docker run --rm $c\\\" | cut -c1-120; done; docker run --rm --entrypoint cat scanner-appliance:ci /var/lib/openvas/feed-info /etc/openvas/openvas.conf | sed -n '1,16p'; sed -n 1,40p ci/smoke/run-container.sh\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:28:26.588Z",
+      "lastAccessed": "2026-10-08T02:28:26.588Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:28:26.588Z"
+    },
+    "cmd-1791426570753": {
+      "key": "cmd-1791426570753",
+      "value": "{\"command\":\"docker run -d --name ci-image-check scanner-appliance:ci >/dev/null && sleep 45 && docker logs ci-image-check 2>&1 | grep -v '^$' | cut -c1-210 | tail -14; echo \\\"--- status\\\"; docker exec ci-image-check applianced status 2>&1 | head -30 | cut -c1-200; echo \\\"--- processes\\\"; docker exec ci-image-check sh -c 'ls -la /run/ospd/ /run/redis-openvas/ 2>&1 | head -8; cat /etc/appliance/image-version'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:29:30.753Z",
+      "lastAccessed": "2026-10-08T02:29:30.753Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:29:30.753Z"
+    },
+    "cmd-1791426592828": {
+      "key": "cmd-1791426592828",
+      "value": "{\"command\":\"docker rm -f -v ci-image-check >/dev/null && docker rmi scanner-appliance:ci >/dev/null 2>&1; docker ps -a --format '{{.Names}}' | grep -c 'ci-image-check'; docker images --format '{{.Repository}}:{{.Tag}}' | grep -c '^scanner-appliance:ci$'; python3 - <<'EOF'\\nimport sys\\nsys.path.insert(0, '/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad')\\nfrom edit import edit\\nedit('README.md', [\\n(\\\"\\\"\\\"- The container smoke test on arm64, without a VT feed.\\n\\\"\\\"\\\", \\\"\\\"\\\"- The container smoke test on arm64, without a VT feed.\\n- The container image as CI's docker job builds it, without a feed and with nmap, and that job's checks against it, by hand on arm64.\\n\\\"\\\"\\\"),\\n])\\nEOF\\ngit status --short | grep -v claude-flow; git diff --stat -- . ':!.claude-flow' | tail -1; wc -c daemon/internal/pki/roots.pem daemon/internal/pki/release-pub.pem | head -2; docker ps --format '{{.Names}}\\\\t{{.Status}}' | grep 'scanner-appliance'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:29:52.828Z",
+      "lastAccessed": "2026-10-08T02:29:52.828Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:29:52.828Z"
+    },
+    "cmd-1791426612950": {
+      "key": "cmd-1791426612950",
+      "value": "{\"command\":\"cd /Users/richardtang/.claude/projects/-Users-richardtang-Desktop-repos-scanner-appliance/memory/ && python3 - <<'EOF'\\ns=open('local-dev-environment.md').read()\\na=\\\"- Daemon self-update can be run natively on the Mac\\\"\\nassert s.count(a)==1\\nb='''- `ospd-openvas --version` connects to redis before it prints anything and exits 1 after about 30 s without one. In a bare container or an image build, read the version with `/opt/ospd/bin/python -c 'from importlib.metadata import version; print(version(\\\"ospd-openvas\\\"))'`. GitHub CI's docker job failed on that call from the first commit until the fix of 2026-10-08, so \\\"CI is written\\\" never meant that job had passed.\\n- To rerun CI's docker job locally: copy the tree into the scratchpad with `git ls-files -co --exclude-standard -z | rsync -a --from0 --files-from=- . DIR/`, run `cp-api ca init` and copy the CA into `daemon/internal/pki/` there, then `docker buildx build -f docker/Dockerfile --load -t scanner-appliance:ci --build-arg WITH_NMAP=1 .` and the step's `docker run` lines. About a minute on arm64 with warm layers. By my reading, `ci/smoke/run-container.sh` uses the lab's compose project and rewrites `docker/.env`, so I did not run it while the lab was up.\\n'''\\ns=s.replace(a,b+a)\\nopen('local-dev-environment.md','w').write(s)\\nprint('memory updated')\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:30:12.950Z",
+      "lastAccessed": "2026-10-08T02:30:12.950Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:30:12.950Z"
     }
   },
   "version": "3.0.0"
