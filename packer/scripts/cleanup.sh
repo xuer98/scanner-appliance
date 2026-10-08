@@ -33,7 +33,9 @@ if [[ -s "$BUILD_DEPS_MARKER" ]]; then
   mapfile -t build_deps < <(grep -v '^#' "$BUILD_DEPS_MARKER" | sed '/^[[:space:]]*$/d')
   if ! apt-get purge -y -q "${build_deps[@]}" >/dev/null 2>&1; then
     for p in "${build_deps[@]}"; do
-      dpkg -s "$p" >/dev/null 2>&1 && apt-get purge -y -q "$p" >/dev/null 2>&1 || true
+      if dpkg -s "$p" >/dev/null 2>&1; then
+        apt-get purge -y -q "$p" >/dev/null 2>&1 || true
+      fi
     done
   fi
   rm -f "$BUILD_DEPS_MARKER"

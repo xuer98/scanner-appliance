@@ -1,0 +1,14 @@
+{
+  "entries": {
+    "cmd-1791426838711": {
+      "key": "cmd-1791426838711",
+      "value": "{\"command\":\"cd /Users/richardtang/Desktop/repos/scanner-appliance/packer && Z=sha256:0000000000000000000000000000000000000000000000000000000000000000 && echo \\\"== init\\\" && packer init base.pkr.hcl; echo \\\"exit $?\\\"; echo \\\"== fmt\\\" && packer fmt -check -diff base.pkr.hcl; echo \\\"exit $?\\\"; echo \\\"== validate\\\" && packer validate -syntax-only base.pkr.hcl; echo \\\"exit $?\\\"; packer validate -var version=ci -var iso_checksum=$Z base.pkr.hcl; echo \\\"exit $?\\\"; packer validate -var version=ci -var iso_checksum=$Z -var feed_tarball=/tmp/vt-feed.tar.gz -var openvas_require_checksums=true -var gvm_libs_tag=v23.11.0 -var openvas_scanner_tag=v23.50.24 -var ospd_openvas_tag=v22.10.5 base.pkr.hcl; echo \\\"exit $?\\\"; echo \\\"== with_nmap\\\" && packer validate -var version=ci -var with_nmap=true -var iso_checksum=$Z base.pkr.hcl; echo \\\"exit $?\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T02:33:58.711Z",
+      "lastAccessed": "2026-10-08T02:33:58.711Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T02:33:58.711Z"
+    }
+  },
+  "version": "3.0.0"
+}

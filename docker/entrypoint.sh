@@ -17,7 +17,9 @@ install -d -m 0755 /run/ospd /var/log/gvm /run/appliance
 install -d -m 0700 /var/lib/appliance
 # A bind-mounted volume may not carry the image's ownership; fix the small
 # bits (the plugin tree is left alone).
-[[ -d /var/lib/openvas ]] && chown openvas:openvas /var/lib/openvas 2>/dev/null || true
+if [[ -d /var/lib/openvas ]]; then
+  chown openvas:openvas /var/lib/openvas 2>/dev/null || true
+fi
 
 export APPLIANCE_SUPERVISE_ENGINE="${APPLIANCE_SUPERVISE_ENGINE:-1}"
 exec /usr/local/bin/applianced run "$@"
