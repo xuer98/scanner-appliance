@@ -4,9 +4,13 @@
 #
 #   docker build -f docker/Dockerfile.cp-api -t cp-api:dev .
 
+# Both carry their tag here. hadolint cannot see through a build argument and
+# reports every FROM that uses one as untagged (DL3006), hence the ignore
+# lines below.
 ARG GO_IMAGE=golang:1.26
 ARG BASE_IMAGE=debian:12-slim
 
+# hadolint ignore=DL3006
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG VERSION=dev
 ARG TARGETARCH
@@ -23,6 +27,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
       -o bin/cp-api ./controlplane/cmd/cp-api
 
+# hadolint ignore=DL3006
 FROM ${BASE_IMAGE}
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="cp-api" \

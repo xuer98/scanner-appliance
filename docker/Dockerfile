@@ -18,6 +18,9 @@
 # --network host, 8 GB memory limit, volumes for /var/lib/appliance (identity)
 # and /var/lib/openvas (feed + redis dump).
 
+# Both carry their tag here. hadolint cannot see through a build argument and
+# reports every FROM that uses one as untagged (DL3006), hence the ignore
+# lines below.
 ARG GO_IMAGE=golang:1.26
 ARG BASE_IMAGE=debian:12-slim
 
@@ -56,6 +59,7 @@ ARG FEED_SHA256=
 # ---------------------------------------------------------------------------
 # build: static applianced, cross-compiled on the build platform.
 # ---------------------------------------------------------------------------
+# hadolint ignore=DL3006
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG VERSION=dev
 ARG TARGETARCH
@@ -80,6 +84,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # naabu links libpcap (CGO). Slow under emulation for arm64 but simple.
 # naabu plus httpx/nuclei (WITH_WEB_ADDON=1, the default since Phase 3).
 # ---------------------------------------------------------------------------
+# hadolint ignore=DL3006
 FROM ${GO_IMAGE} AS engine
 ARG NAABU_VERSION
 ARG WITH_WEB_ADDON
@@ -106,6 +111,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # /opt/ospd; the final stage copies those and re-runs the script in
 # configure-only mode for users, directories and config files.
 # ---------------------------------------------------------------------------
+# hadolint ignore=DL3006
 FROM ${BASE_IMAGE} AS openvas
 ARG GVM_LIBS_TAG
 ARG OPENVAS_SCANNER_TAG
@@ -140,7 +146,7 @@ FROM openvas AS feed
 ARG FEED_SHA256
 COPY docker/feed/ /feed-src/
 COPY packer/scripts/seed-feed.sh /usr/local/sbin/seed-feed.sh
-RUN FEED_TARBALL="$(find /feed-src -maxdepth 1 -type f \( -name '*.tar' -o -name '*.tar.*' -o -name '*.tgz' \) | head -n1)" \
+RUN FEED_TARBALL="$(find /feed-src -maxdepth 1 -type f \( -name '*.tar' -o -name '*.tar.*' -o -name '*.tgz' \) -print -quit)" \
     FEED_SHA256=${FEED_SHA256} IN_CONTAINER=1 \
     bash /usr/local/sbin/seed-feed.sh \
     && rm -rf /feed-src /var/log/gvm/*
@@ -148,6 +154,7 @@ RUN FEED_TARBALL="$(find /feed-src -maxdepth 1 -type f \( -name '*.tar' -o -name
 # ---------------------------------------------------------------------------
 # final
 # ---------------------------------------------------------------------------
+# hadolint ignore=DL3006
 FROM ${BASE_IMAGE}
 ARG VERSION=dev
 ARG TARGETARCH
@@ -190,7 +197,8 @@ COPY --from=feed --chown=redis:redis /var/lib/openvas/redis/ /var/lib/openvas/re
 # daemon finds it on $PATH (/usr/bin/nmap) and reports it in engine.tools.
 RUN if [ "${WITH_NMAP}" = "1" ]; then \
       apt-get update && apt-get install -y --no-install-recommends nmap && rm -rf /var/lib/apt/lists/* \
-      && nmap --version | head -n1 > /etc/appliance/nmap-version; \
+      && nmap --version > /tmp/nmap-version \
+      && sed -n 1p /tmp/nmap-version > /etc/appliance/nmap-version && rm -f /tmp/nmap-version; \
     fi
 
 COPY --from=build /src/bin/applianced-linux-${TARGETARCH} /usr/local/bin/applianced

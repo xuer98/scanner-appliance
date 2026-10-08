@@ -146,20 +146,36 @@ func TestManifestDownloadIsCompressed(t *testing.T) {
 	for i := 0; i < 5000; i++ {
 		m.Files = append(m.Files, bundle.File{Path: fmt.Sprintf("nasl/2026/gb_some_product_detect_%05d.nasl", i), SHA256: sha, Size: int64(len(blob))})
 	}
-	mb, _ := bundle.EncodeManifest(m)
-	sig, _ := bundle.Sign(mb, key)
-	req, _ := json.Marshal(v1.AdminPublishBundleRequest{Manifest: mb, Sig: sig})
-	if st, body, _ := h.rawAdmin(t, "POST", "/admin/bundles", req, map[string]string{"Content-Type": "application/json"}); st != 201 {
-		t.Fatalf("publish: %d %s", st, body)
+	// publish signs and publishes m as it stands and returns the signed bytes.
+	publish := func() ([]byte, string) {
+		t.Helper()
+		mb, _ := bundle.EncodeManifest(m)
+		sig, _ := bundle.Sign(mb, key)
+		req, _ := json.Marshal(v1.AdminPublishBundleRequest{Manifest: mb, Sig: sig})
+		if st, body, _ := h.rawAdmin(t, "POST", "/admin/bundles", req, map[string]string{"Content-Type": "application/json"}); st != 201 {
+			t.Fatalf("publish %s: %d %s", m.Version, st, body)
+		}
+		return mb, sig
 	}
+	// A second bundle stands for one published before the compressed copy
+	// existed: its copy is taken away before anybody has opened it, which
+	// Windows would refuse for a file a download still holds.
+	m.Version = "20261006T110000Z"
+	oldMB, oldSig := publish()
+	if err := os.Remove(filepath.Join(objects, filepath.FromSlash(bundleManifestKey(m.Version)+gzSuffix))); err != nil {
+		t.Fatalf("the compressed copy was not stored: %v", err)
+	}
+	m.Version, m.Files = "20261007T110000Z", m.Files[:len(m.Files)-1]
+	mb, sig := publish()
 
-	// get asks with exactly this Accept-Encoding and returns the body as it
-	// came over the wire.
+	// get asks for a bundle's manifest with exactly this Accept-Encoding and
+	// returns the body as it came over the wire.
+	version, wantSHA, wantSig := m.Version, bundle.SHA256Hex(mb), sig
 	get := func(acceptEncoding string) (*http.Response, []byte) {
 		t.Helper()
 		cl := &http.Client{Transport: &http.Transport{DisableCompression: true,
 			TLSClientConfig: &tls.Config{RootCAs: h.rootPool, Certificates: []tls.Certificate{h.applCert}}}}
-		rq, _ := http.NewRequest("GET", h.mtls.URL+"/v1/bundles/"+m.Version+"/manifest", nil)
+		rq, _ := http.NewRequest("GET", h.mtls.URL+"/v1/bundles/"+version+"/manifest", nil)
 		if acceptEncoding != "" {
 			rq.Header.Set("Accept-Encoding", acceptEncoding)
 		}
@@ -172,7 +188,7 @@ func TestManifestDownloadIsCompressed(t *testing.T) {
 		if err != nil || resp.StatusCode != 200 {
 			t.Fatalf("manifest with Accept-Encoding %q: %d %v", acceptEncoding, resp.StatusCode, err)
 		}
-		if resp.Header.Get(HeaderBundleSHA256) != bundle.SHA256Hex(mb) || resp.Header.Get(HeaderBundleSig) != sig {
+		if resp.Header.Get(HeaderBundleSHA256) != wantSHA || resp.Header.Get(HeaderBundleSig) != wantSig {
 			t.Fatalf("manifest headers with Accept-Encoding %q: %v", acceptEncoding, resp.Header)
 		}
 		if n, _ := strconv.Atoi(resp.Header.Get("Content-Length")); n != len(body) {
@@ -209,11 +225,10 @@ func TestManifestDownloadIsCompressed(t *testing.T) {
 	if !resp.Uncompressed || !bytes.Equal(body, mb) {
 		t.Fatalf("default client: uncompressed=%v, %d bytes", resp.Uncompressed, len(body))
 	}
-	// A bundle published before the compressed copy existed goes out plain.
-	if err := os.Remove(filepath.Join(objects, filepath.FromSlash(bundleManifestKey(m.Version)+gzSuffix))); err != nil {
-		t.Fatalf("the compressed copy was not stored: %v", err)
-	}
-	if resp, body := get("gzip"); resp.Header.Get("Content-Encoding") != "" || !bytes.Equal(body, mb) {
+	// The bundle without a compressed copy goes out plain to a client that
+	// would take gzip.
+	version, wantSHA, wantSig = "20261006T110000Z", bundle.SHA256Hex(oldMB), oldSig
+	if resp, body := get("gzip"); resp.Header.Get("Content-Encoding") != "" || !bytes.Equal(body, oldMB) {
 		t.Fatalf("bundle without a compressed copy: Content-Encoding %q, %d bytes", resp.Header.Get("Content-Encoding"), len(body))
 	}
 }
