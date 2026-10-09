@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -265,12 +266,37 @@ func TestPhase3(t *testing.T) {
 	}
 }
 
+// logTimes notes when a log message was first written, and passes every
+// record on.
+type logTimes struct {
+	slog.Handler
+	seen *sync.Map // message -> time.Time
+}
+
+func (h logTimes) Handle(ctx context.Context, r slog.Record) error {
+	h.seen.LoadOrStore(r.Message, time.Now())
+	return h.Handler.Handle(ctx, r)
+}
+
+func (h logTimes) WithAttrs(a []slog.Attr) slog.Handler {
+	return logTimes{Handler: h.Handler.WithAttrs(a), seen: h.seen}
+}
+
+func (h logTimes) WithGroup(name string) slog.Handler {
+	return logTimes{Handler: h.Handler.WithGroup(name), seen: h.seen}
+}
+
 // TestFinishedUpdateIsReportedAtOnce: a finished update is not left for the
-// next regular heartbeat. The appliance here beats every five seconds and
-// applies a bundle in a fraction of one. The control plane must learn of it
-// right then, from a heartbeat that calls the appliance idle, and not one
-// interval later from a heartbeat that still says "updating": until then it
-// starts no job either.
+// next regular heartbeat. The heartbeat that brings the bundle here also
+// stretches the appliance's interval to twenty seconds. The control plane
+// must learn of the new bundle right when it is applied, from a heartbeat
+// that calls the appliance idle, and not an interval later from one that
+// still says "updating": until then the appliance starts no job either.
+//
+// What is measured is the time from "bundle applied" to that heartbeat, not
+// how long the update takes: on a busy Windows runner the few file
+// operations of an update have stalled for many seconds. For the same
+// reason there is no engine here, whose fake needs Unix sockets.
 func TestFinishedUpdateIsReportedAtOnce(t *testing.T) {
 	c := newCP(t)
 	admin := c.adminFn
@@ -278,21 +304,16 @@ func TestFinishedUpdateIsReportedAtOnce(t *testing.T) {
 	if st := admin("POST", "/admin/appliances", v1.AdminCreateApplianceRequest{Vendor: "Acme", Site: "Reno", AllowedCIDRs: []string{"10.30.0.0/16"}}, &created); st != 201 {
 		t.Fatalf("create %d", st)
 	}
-	plugins := t.TempDir()
-	_ = os.WriteFile(filepath.Join(plugins, "plugin_feed_info.inc"), []byte("PLUGIN_SET = \"202609010000\";\n"), 0o644)
-	fake := osptest.Start(t, &osptest.Fake{PluginsDir: plugins})
-
-	const interval = 5 * time.Second
 	st := state.New(t.TempDir(), t.TempDir())
 	s, _ := st.Load()
 	s.EnrollURL = c.enroll.URL
 	s.PendingCode = created.Code
-	s.IntervalOverrideS = int(interval / time.Second)
+	s.IntervalOverrideS = 1
 	_ = st.Save(s)
-	upd := &update.Manager{StateDir: st.Dir, PluginsDir: plugins, Keys: []*ecdsa.PublicKey{&c.releaseKey.PublicKey}, OSP: osp.New(fake.Socket), Log: slog.Default(),
-		Version: "e2e", ReloadTimeout: 5 * time.Second, ReloadPoll: 50 * time.Millisecond}
-	loop := &heartbeat.Loop{Store: st, Roots: c.roots, Version: "e2e", Log: slog.Default(), PowerOff: func() error { return nil }, Reboot: func() error { return nil },
-		OSPSocket: fake.Socket, Update: upd}
+	seen := &sync.Map{}
+	upd := &update.Manager{StateDir: st.Dir, Keys: []*ecdsa.PublicKey{&c.releaseKey.PublicKey}, Version: "e2e",
+		Log: slog.New(logTimes{Handler: slog.Default().Handler(), seen: seen})}
+	loop := &heartbeat.Loop{Store: st, Roots: c.roots, Version: "e2e", Log: slog.Default(), PowerOff: func() error { return nil }, Reboot: func() error { return nil }, Update: upd}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go loop.Run(ctx)
@@ -302,40 +323,46 @@ func TestFinishedUpdateIsReportedAtOnce(t *testing.T) {
 		admin("GET", "/admin/appliances/"+created.ApplianceID, nil, &v)
 		return v
 	}
-	waitFor(t, 20*time.Second, func() bool { return getView().Online }, "appliance online")
+	waitFor(t, 30*time.Second, func() bool { return getView().Online }, "appliance online")
 	canary := true
 	if stc := admin("PATCH", "/admin/appliances/"+created.ApplianceID, v1.AdminApplianceUpdate{Canary: &canary}, nil); stc != 200 {
 		t.Fatalf("canary: %d", stc)
 	}
-	ver := c.publishBundle(t, map[string]string{"nasl/plugin_feed_info.inc": "PLUGIN_SET = \"202609260530\";\n", "nasl/a.nasl": "a1"}, "20260926T000000Z")
+	// Queued first, so that it never arrives after the bundle: from the
+	// heartbeat that brings the bundle on, the next regular one is twenty
+	// seconds away.
+	const interval = 20 * time.Second
+	if stc := admin("POST", "/admin/appliances/"+created.ApplianceID+"/directives", v1.AdminDirectiveRequest{Type: v1.DirectiveSetInterval, Payload: map[string]any{"s": interval.Seconds()}}, nil); stc != 201 {
+		t.Fatalf("set_interval: %d", stc)
+	}
+	ver := c.publishBundle(t, map[string]string{"configs/inventory.json": `{"name":"inventory","families":["Web Servers"]}`, "fragile-ports.json": "[9100]\n"}, "20260926T000000Z")
 
 	// The first heartbeat that carries the new bundle version.
 	var view v1.AdminApplianceView
-	deadline := time.Now().Add(4 * interval)
+	deadline := time.Now().Add(90 * time.Second)
 	for view = getView(); view.BundleVersion != ver; view = getView() {
 		if time.Now().After(deadline) {
+			buf := make([]byte, 1<<20)
+			t.Logf("goroutines:\n%s", buf[:runtime.Stack(buf, true)])
 			t.Fatalf("bundle not reported: bundle=%q error=%q", view.BundleVersion, view.UpdateError)
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
-	if view.LastHeartbeat == nil || view.LastHeartbeat.State != heartbeat.StateIdle || view.FeedVersion != "202609260530" {
-		t.Fatalf("the heartbeat that reports the new bundle: state=%q feed=%q, want an idle appliance on the new feed", view.LastHeartbeat.State, view.FeedVersion)
+	if view.LastHeartbeat == nil || view.LastHeartbeatAt == nil {
+		t.Fatalf("no heartbeat in the view that shows the bundle: %+v", view)
 	}
-	// That heartbeat also acks the directive. It followed the one that
-	// delivered the directive by the time the update took, not by an interval.
-	var dirs []v1.AdminDirectiveView
-	admin("GET", "/admin/appliances/"+created.ApplianceID+"/directives", nil, &dirs)
-	var d *v1.AdminDirectiveView
-	for i := range dirs {
-		if dirs[i].Type == v1.DirectiveUpdateBundle {
-			d = &dirs[i]
-		}
+	if got := view.LastHeartbeat.State; got != heartbeat.StateIdle {
+		t.Fatalf("the heartbeat that reports the new bundle says %q, want an idle appliance", got)
 	}
-	if d == nil || d.DeliveredAt == nil || d.AckedAt == nil {
-		t.Fatalf("update_bundle directive not delivered and acked: %+v", dirs)
+	applied, ok := seen.Load("bundle applied")
+	if !ok {
+		t.Fatal("the update manager never logged that the bundle was applied")
 	}
-	if took := d.AckedAt.Sub(*d.DeliveredAt); took > interval/2 {
-		t.Fatalf("the update was reported %s after its directive was delivered; the heartbeat interval is %s", took.Round(10*time.Millisecond), interval)
+	if took := view.LastHeartbeatAt.Sub(applied.(time.Time)); took > interval/2 {
+		t.Fatalf("the update was reported %s after it was applied; the heartbeat interval is %s", took.Round(10*time.Millisecond), interval)
+	}
+	if local, _ := st.Load(); local.IntervalOverrideS != int(interval/time.Second) {
+		t.Fatalf("interval on the appliance: %d s, want %s", local.IntervalOverrideS, interval)
 	}
 	if live, _ := st.ReadStatus(); live == nil || live.State != heartbeat.StateIdle || live.Updating != "" {
 		t.Fatalf("status.json after the update: %+v", live)

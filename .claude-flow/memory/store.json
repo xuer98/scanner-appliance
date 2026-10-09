@@ -8306,6 +8306,249 @@
       "lastAccessed": "2026-10-08T06:33:04.715Z",
       "accessCount": 0,
       "expiresAt": "2026-11-07T06:33:04.715Z"
+    },
+    "cmd-1791490423818": {
+      "key": "cmd-1791490423818",
+      "value": "{\"command\":\"git log --oneline | head -4 && git status --short | grep -v claude-flow | head -5; grep -n 'func (c \\\\*Client) Health' -A60 daemon/internal/osp/osp.go | head -110\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:13:43.818Z",
+      "lastAccessed": "2026-10-08T20:13:43.818Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:13:43.818Z"
+    },
+    "cmd-1791490510794": {
+      "key": "cmd-1791490510794",
+      "value": "{\"command\":\"sed -n 60,131p daemon/internal/osp/osp.go && sed -n 161,260p daemon/internal/osp/osp.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:15:10.794Z",
+      "lastAccessed": "2026-10-08T20:15:10.794Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:15:10.794Z"
+    },
+    "cmd-1791490553669": {
+      "key": "cmd-1791490553669",
+      "value": "{\"command\":\"sed -n 81,200p daemon/internal/osp/osptest/fake.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:15:53.669Z",
+      "lastAccessed": "2026-10-08T20:15:53.669Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:15:53.669Z"
+    },
+    "cmd-1791490559246": {
+      "key": "cmd-1791490559246",
+      "value": "{\"command\":\"sed -n 318,366p daemon/internal/osp/osptest/fake.go && cat daemon/internal/osp/redis.go | sed -n 1,80p\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:15:59.246Z",
+      "lastAccessed": "2026-10-08T20:15:59.246Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:15:59.246Z"
+    },
+    "cmd-1791490607693": {
+      "key": "cmd-1791490607693",
+      "value": "{\"command\":\"R=$(go env GOROOT) && sed -n '/^func stat(/,/^}/p' $R/src/os/stat_windows.go && grep -n 'AF_UNIX\\\\|ModeSocket' $R/src/os/types_windows.go $R/src/os/stat_windows.go | head\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:16:47.693Z",
+      "lastAccessed": "2026-10-08T20:16:47.693Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:16:47.693Z"
+    },
+    "cmd-1791490684660": {
+      "key": "cmd-1791490684660",
+      "value": "{\"command\":\"curl -s -m 20 -o /private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/gh-repo.json -w '%{http_code}\\\\n' https://api.github.com/repos/xuer98/scanner-appliance; head -c 300 /private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad/gh-repo.json\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:18:04.660Z",
+      "lastAccessed": "2026-10-08T20:18:04.660Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:18:04.660Z"
+    },
+    "cmd-1791490693488": {
+      "key": "cmd-1791490693488",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && curl -s -m 30 \\\"https://api.github.com/repos/xuer98/scanner-appliance/actions/runs?per_page=8\\\" -o $S/gh-runs.json && python3 - <<'EOF'\\nimport json\\nS='/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad'\\nd=json.load(open(S+'/gh-runs.json'))\\nfor r in d.get('workflow_runs',[]):\\n    print(r['id'], r['name'], r['event'], r['head_sha'][:7], r['status'], r['conclusion'], r['created_at'], '|', r['head_commit']['message'][:40])\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:18:13.488Z",
+      "lastAccessed": "2026-10-08T20:18:13.488Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:18:13.488Z"
+    },
+    "cmd-1791490710343": {
+      "key": "cmd-1791490710343",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && for run in 37836866714 37723918586 37718283374 37695471238 37682847976; do curl -s -m 30 \\\"https://api.github.com/repos/xuer98/scanner-appliance/actions/runs/$run/jobs?per_page=30\\\" -o $S/gh-jobs-$run.json; python3 - \\\"$run\\\" <<'EOF'\\nimport json,sys\\nS='/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad'\\nd=json.load(open(S+'/gh-jobs-%s.json'%sys.argv[1]))\\nprint('== run', sys.argv[1])\\nfor j in d.get('jobs',[]):\\n    failed=[s['name'] for s in j.get('steps',[]) if s.get('conclusion')=='failure']\\n    print('  %-32s %-11s %-9s %s %s' % (j['name'][:32], j['status'], j['conclusion'], (j.get('started_at') or '')[11:19], ('failed step: '+'; '.join(failed)) if failed else ''))\\nEOF\\ndone\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:18:30.343Z",
+      "lastAccessed": "2026-10-08T20:18:30.343Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:18:30.343Z"
+    },
+    "cmd-1791490762622": {
+      "key": "cmd-1791490762622",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && python3 - <<'EOF'\\nimport json\\nS='/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad'\\nfor run in ('37836866714','37718283374','37682847976','37723918586','37695471238'):\\n    d=json.load(open(S+'/gh-jobs-%s.json'%run))\\n    for j in d['jobs']:\\n        if 'windows' in j['name']:\\n            st=[(s['name'], s['conclusion'], s.get('started_at','')[11:19], s.get('completed_at','')[11:19]) for s in j['steps'] if s['name'] in ('go test','go vet')]\\n            print(run, j['id'], j['conclusion'], st)\\nEOF\\ncurl -s -m 30 -o $S/win-log.txt -w '%{http_code}\\\\n' -L \\\"https://api.github.com/repos/xuer98/scanner-appliance/actions/jobs/$(python3 -c \\\"\\nimport json; d=json.load(open('$S/gh-jobs-37836866714.json')); print([j['id'] for j in d['jobs'] if 'windows' in j['name']][0])\\\")/logs\\\"; head -c 300 $S/win-log.txt\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:19:22.622Z",
+      "lastAccessed": "2026-10-08T20:19:22.622Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:19:22.622Z"
+    },
+    "cmd-1791490828480": {
+      "key": "cmd-1791490828480",
+      "value": "{\"command\":\"R=$(go env GOROOT) && sed -n '/^func (fd \\\\*netFD) connect(/,/^}/p' $R/src/net/fd_windows.go | head -90\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:20:28.480Z",
+      "lastAccessed": "2026-10-08T20:20:28.480Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:20:28.480Z"
+    },
+    "cmd-1791490881262": {
+      "key": "cmd-1791490881262",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && curl -s -m 30 \\\"https://api.github.com/repos/xuer98/scanner-appliance/actions/workflows\\\" -o $S/gh-wf.json && python3 -c \\\"\\nimport json; d=json.load(open('$S/gh-wf.json'))\\nfor w in d['workflows']: print(w['id'], w['name'], w['path'], w['state'])\\\" && curl -s -m 30 \\\"https://api.github.com/repos/xuer98/scanner-appliance/actions/runs?per_page=40&event=push\\\" -o $S/gh-runs2.json && python3 - <<'EOF'\\nimport json, subprocess, time\\nS='/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad'\\nd=json.load(open(S+'/gh-runs2.json'))\\nruns=[r for r in d.get('workflow_runs',[]) if r['name']=='ci']\\nprint(len(runs), 'ci runs')\\nfor r in runs[:14]:\\n    p=S+'/gh-jobs-%s.json'%r['id']\\n    try: j=json.load(open(p))\\n    except Exception:\\n        subprocess.run(['curl','-s','-m','30','https://api.github.com/repos/xuer98/scanner-appliance/actions/runs/%s/jobs?per_page=30'%r['id'],'-o',p]); time.sleep(0.5)\\n        j=json.load(open(p))\\n    w=[x for x in j.get('jobs',[]) if 'windows' in x['name']]\\n    g=[x for x in j.get('jobs',[]) if x['name'].startswith('go vet')]\\n    def dur(x):\\n        for s in x.get('steps',[]):\\n            if s['name']=='go test' and s.get('started_at') and s.get('completed_at'):\\n                from datetime import datetime as D\\n                f='%Y-%m-%dT%H:%M:%SZ'\\n                return int((D.strptime(s['completed_at'][:19]+'Z',f)-D.strptime(s['started_at'][:19]+'Z',f)).total_seconds())\\n        return None\\n    print(r['created_at'][5:16], r['head_sha'][:7], '%-34s'%r['head_commit']['message'][:34], '| linux go:', g[0]['conclusion'] if g else '-', '| windows:', (w[0]['conclusion'], dur(w[0])) if w else '-')\\nEOF\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:21:21.262Z",
+      "lastAccessed": "2026-10-08T20:21:21.262Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:21:21.262Z"
+    },
+    "cmd-1791490909209": {
+      "key": "cmd-1791490909209",
+      "value": "{\"command\":\"grep -n 'Online' controlplane/pkg/server/*.go | grep -v _test | head -8 && grep -n 'func New' -A12 daemon/internal/osp/osp.go | head -24 && grep -n 'rebootRequired\\\\|func setClock' -A8 daemon/internal/heartbeat/sys_windows.go | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:21:49.209Z",
+      "lastAccessed": "2026-10-08T20:21:49.209Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:21:49.209Z"
+    },
+    "cmd-1791490939225": {
+      "key": "cmd-1791490939225",
+      "value": "{\"command\":\"git show --stat --format='%h %s' dbd871e -- '*.go' | tail -30 && git show dbd871e -- daemon/internal/cpclient/client_test.go | grep '^+func Test\\\\|^+.*time\\\\.\\\\(Second\\\\|Millisecond\\\\)' | head -20\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:22:19.225Z",
+      "lastAccessed": "2026-10-08T20:22:19.225Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:22:19.225Z"
+    },
+    "cmd-1791490964799": {
+      "key": "cmd-1791490964799",
+      "value": "{\"command\":\"sed -n 22,50p controlplane/pkg/server/coverage.go && grep -n 'Online:' controlplane/pkg/server/*.go | head -5\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:22:44.799Z",
+      "lastAccessed": "2026-10-08T20:22:44.799Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:22:44.799Z"
+    },
+    "cmd-1791491025358": {
+      "key": "cmd-1791491025358",
+      "value": "{\"command\":\"sed -n 290,352p daemon/internal/update/update_test.go && sed -n 404,445p daemon/internal/update/update_test.go\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:23:45.358Z",
+      "lastAccessed": "2026-10-08T20:23:45.358Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:23:45.358Z"
+    },
+    "cmd-1791491100111": {
+      "key": "cmd-1791491100111",
+      "value": "{\"command\":\"git diff --stat 6c1dfe8 HEAD -- '*_test.go' | tail -32 && grep -n 'time.Since\\\\|Duration(' $(git diff --name-only 6c1dfe8 HEAD -- '*_test.go') | grep -v 'h.now\\\\|Truncate' | cut -c1-170 | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:25:00.111Z",
+      "lastAccessed": "2026-10-08T20:25:00.111Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:25:00.111Z"
+    },
+    "cmd-1791491202700": {
+      "key": "cmd-1791491202700",
+      "value": "{\"command\":\"grep -n '^func TestFinishedUpdateIsReportedAtOnce' daemon/internal/e2e/phase3_test.go && sed -n 1,27p daemon/internal/e2e/phase3_test.go && grep -n 'IntervalOverrideS\\\\|\\\"set_interval\\\"' daemon/internal/e2e/*.go | head -8\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:26:42.700Z",
+      "lastAccessed": "2026-10-08T20:26:42.700Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:26:42.700Z"
+    },
+    "cmd-1791491232029": {
+      "key": "cmd-1791491232029",
+      "value": "{\"command\":\"python3 - <<'EOF'\\np='daemon/internal/e2e/phase3_test.go'\\ns=open(p).read()\\nstart=s.index(\\\"// TestFinishedUpdateIsReportedAtOnce: a finished update is not left for the\\\")\\nhead=s[:start]\\nnew='''// logTimes notes when a log message was first written, and passes every\\n// record on.\\ntype logTimes struct {\\n\\tslog.Handler\\n\\tseen *sync.Map // message -> time.Time\\n}\\n\\nfunc (h logTimes) Handle(ctx context.Context, r slog.Record) error {\\n\\th.seen.LoadOrStore(r.Message, time.Now())\\n\\treturn h.Handler.Handle(ctx, r)\\n}\\n\\nfunc (h logTimes) WithAttrs(a []slog.Attr) slog.Handler {\\n\\treturn logTimes{Handler: h.Handler.WithAttrs(a), seen: h.seen}\\n}\\n\\nfunc (h logTimes) WithGroup(name string) slog.Handler {\\n\\treturn logTimes{Handler: h.Handler.WithGroup(name), seen: h.seen}\\n}\\n\\n// TestFinishedUpdateIsReportedAtOnce: a finished update is not left for the\\n// next regular heartbeat. The heartbeat that brings the bundle here also\\n// stretches the appliance's interval to twenty seconds. The control plane\\n// must learn of the new bundle right when it is applied, from a heartbeat\\n// that calls the appliance idle, and not an interval later from one that\\n// still says \\\"updating\\\": until then the appliance starts no job either.\\n//\\n// What is measured is the time from \\\"bundle applied\\\" to that heartbeat, not\\n// how long the update takes: on a busy Windows runner the few file\\n// operations of an update have stalled for many seconds. For the same\\n// reason there is no engine here, whose fake needs Unix sockets.\\nfunc TestFinishedUpdateIsReportedAtOnce(t *testing.T) {\\n\\tc := newCP(t)\\n\\tadmin := c.adminFn\\n\\tvar created v1.AdminCreateApplianceResponse\\n\\tif st := admin(\\\"POST\\\", \\\"/admin/appliances\\\", v1.AdminCreateApplianceRequest{Vendor: \\\"Acme\\\", Site: \\\"Reno\\\", AllowedCIDRs: []string{\\\"10.30.0.0/16\\\"}}, &created); st != 201 {\\n\\t\\tt.Fatalf(\\\"create %d\\\", st)\\n\\t}\\n\\tst := state.New(t.TempDir(), t.TempDir())\\n\\ts, _ := st.Load()\\n\\ts.EnrollURL = c.enroll.URL\\n\\ts.PendingCode = created.Code\\n\\ts.IntervalOverrideS = 1\\n\\t_ = st.Save(s)\\n\\tseen := &sync.Map{}\\n\\tupd := &update.Manager{StateDir: st.Dir, Keys: []*ecdsa.PublicKey{&c.releaseKey.PublicKey}, Version: \\\"e2e\\\",\\n\\t\\tLog: slog.New(logTimes{Handler: slog.Default().Handler(), seen: seen})}\\n\\tloop := &heartbeat.Loop{Store: st, Roots: c.roots, Version: \\\"e2e\\\", Log: slog.Default(), PowerOff: func() error { return nil }, Reboot: func() error { return nil }, Update: upd}\\n\\tctx, cancel := context.WithCancel(context.Background())\\n\\tdefer cancel()\\n\\tgo loop.Run(ctx)\\n\\n\\tgetView := func() v1.AdminApplianceView {\\n\\t\\tvar v v1.AdminApplianceView\\n\\t\\tadmin(\\\"GET\\\", \\\"/admin/appliances/\\\"+created.ApplianceID, nil, &v)\\n\\t\\treturn v\\n\\t}\\n\\twaitFor(t, 30*time.Second, func() bool { return getView().Online }, \\\"appliance online\\\")\\n\\tcanary := true\\n\\tif stc := admin(\\\"PATCH\\\", \\\"/admin/appliances/\\\"+created.ApplianceID, v1.AdminApplianceUpdate{Canary: &canary}, nil); stc != 200 {\\n\\t\\tt.Fatalf(\\\"canary: %d\\\", stc)\\n\\t}\\n\\t// Queued first, so that it never arrives after the bundle: from the\\n\\t// heartbeat that brings the bundle on, the next regular one is twenty\\n\\t// seconds away.\\n\\tconst interval = 20 * time.Second\\n\\tif stc := admin(\\\"POST\\\", \\\"/admin/appliances/\\\"+created.ApplianceID+\\\"/directives\\\", v1.AdminDirectiveRequest{Type: v1.DirectiveSetInterval, Payload: map[string]any{\\\"s\\\": interval.Seconds()}}, nil); stc != 201 {\\n\\t\\tt.Fatalf(\\\"set_interval: %d\\\", stc)\\n\\t}\\n\\tver := c.publishBundle(t, map[string]string{\\\"configs/inventory.json\\\": `{\\\"name\\\":\\\"inventory\\\",\\\"families\\\":[\\\"Web Servers\\\"]}`, \\\"fragile-ports.json\\\": \\\"[9100]\\\\\\\\n\\\"}, \\\"20260926T000000Z\\\")\\n\\n\\t// The first heartbeat that carries the new bundle version.\\n\\tvar view v1.AdminApplianceView\\n\\tdeadline := time.Now().Add(90 * time.Second)\\n\\tfor view = getView(); view.BundleVersion != ver; view = getView() {\\n\\t\\tif time.Now().After(deadline) {\\n\\t\\t\\tbuf := make([]byte, 1<<20)\\n\\t\\t\\tt.Logf(\\\"goroutines:\\\\\\\\n%s\\\", buf[:runtime.Stack(buf, true)])\\n\\t\\t\\tt.Fatalf(\\\"bundle not reported: bundle=%q error=%q\\\", view.BundleVersion, view.UpdateError)\\n\\t\\t}\\n\\t\\ttime.Sleep(50 * time.Millisecond)\\n\\t}\\n\\tif view.LastHeartbeat == nil || view.LastHeartbeatAt == nil || view.LastHeartbeat.State != heartbeat.StateIdle {\\n\\t\\tt.Fatalf(\\\"the heartbeat that reports the new bundle: %+v, want an idle appliance\\\", view.LastHeartbeat)\\n\\t}\\n\\tapplied, ok := seen.Load(\\\"bundle applied\\\")\\n\\tif !ok {\\n\\t\\tt.Fatal(\\\"the update manager never logged that the bundle was applied\\\")\\n\\t}\\n\\tif took := view.LastHeartbeatAt.Sub(applied.(time.Time)); took > interval/2 {\\n\\t\\tt.Fatalf(\\\"the update was reported %s after it was applied; the heartbeat interval is %s\\\", took.Round(10*time.Millisecond), interval)\\n\\t}\\n\\tif local, _ := st.Load(); local.IntervalOverrideS != int(interval/time.Second) {\\n\\t\\tt.Fatalf(\\\"interval on the appliance: %d s, want %s\\\", local.IntervalOverrideS, interval)\\n\\t}\\n\\tif live, _ := st.ReadStatus(); live == nil || live.State != heartbeat.StateIdle || live.Updating != \\\"\\\" {\\n\\t\\tt.Fatalf(\\\"status.json after the update: %+v\\\", live)\\n\\t}\\n}\\n'''\\nopen(p,'w').write(head+new)\\ns=open(p).read()\\na='''\\t\\\"strings\\\"\\n\\t\\\"testing\\\"\\n\\t\\\"time\\\"\\n'''\\nassert s.count(a)==1\\ns=s.replace(a,'''\\t\\\"strings\\\"\\n\\t\\\"sync\\\"\\n\\t\\\"testing\\\"\\n\\t\\\"time\\\"\\n''')\\nopen(p,'w').write(s)\\nEOF\\ngofmt -l daemon/; go vet ./daemon/internal/e2e/ && go test -count=1 -run 'TestFinishedUpdateIsReportedAtOnce' ./daemon/internal/e2e/ 2>&1 | grep -v '^time=\\\\|^{\\\"time\\\\|^20[0-9][0-9]/' | tail -6\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:27:12.029Z",
+      "lastAccessed": "2026-10-08T20:27:12.029Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:27:12.029Z"
+    },
+    "cmd-1791491284323": {
+      "key": "cmd-1791491284323",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && python3 $S/mutate.py daemon/internal/heartbeat/updates.go '\\tcase <-l.wake:\\n\\t\\treturn true\\n' '' -- go test -count=1 -run 'TestFinishedUpdateIsReportedAtOnce' ./daemon/internal/e2e/ ; python3 $S/mutate.py daemon/internal/heartbeat/heartbeat.go '\\t// An update that just finished is over: this beat must not call the\\n\\t// appliance \\\"updating\\\" while it carries the new bundle version.\\n\\tl.stateName = l.runState()\\n' '' -- go test -count=1 -run 'TestFinishedUpdateIsReportedAtOnce' ./daemon/internal/e2e/ ; for i in 1 2 3 4 5 6; do go test -count=1 -race -run 'TestFinishedUpdateIsReportedAtOnce' ./daemon/internal/e2e/ 2>&1 | grep -E '^(ok|FAIL|---)' ; done\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:28:04.323Z",
+      "lastAccessed": "2026-10-08T20:28:04.323Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:28:04.323Z"
+    },
+    "cmd-1791491301339": {
+      "key": "cmd-1791491301339",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport sys\\nsys.path.insert(0, '/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad')\\nfrom edit import edit\\nedit('daemon/internal/e2e/phase3_test.go', [\\n(\\\"\\\"\\\"\\tif view.LastHeartbeat == nil || view.LastHeartbeatAt == nil || view.LastHeartbeat.State != heartbeat.StateIdle {\\n\\t\\tt.Fatalf(\\\"the heartbeat that reports the new bundle: %+v, want an idle appliance\\\", view.LastHeartbeat)\\n\\t}\\n\\\"\\\"\\\", \\\"\\\"\\\"\\tif view.LastHeartbeat == nil || view.LastHeartbeatAt == nil {\\n\\t\\tt.Fatalf(\\\"no heartbeat in the view that shows the bundle: %+v\\\", view)\\n\\t}\\n\\tif got := view.LastHeartbeat.State; got != heartbeat.StateIdle {\\n\\t\\tt.Fatalf(\\\"the heartbeat that reports the new bundle says %q, want an idle appliance\\\", got)\\n\\t}\\n\\\"\\\"\\\"),\\n])\\nedit('daemon/internal/update/update_test.go', [\\n(\\\"\\\"\\\"\\tstart := time.Now()\\n\\tif err := m.restore(prev, next); err != nil {\\n\\t\\tt.Fatal(err)\\n\\t}\\n\\td := time.Since(start)\\n\\tt.Logf(\\\"restore of %d unchanged files: %s\\\", files, d)\\n\\tif d > 1500*time.Millisecond {\\n\\t\\tt.Fatalf(\\\"restoring %d unchanged files took %s\\\", files, d)\\n\\t}\\n\\\"\\\"\\\", \\\"\\\"\\\"\\t// What the file system alone costs: restore looks at every file once.\\n\\tstart := time.Now()\\n\\tfor _, f := range prev.Files {\\n\\t\\tif _, err := os.Stat(m.Target(f.Path)); err != nil {\\n\\t\\t\\tt.Fatal(err)\\n\\t\\t}\\n\\t}\\n\\tlook := time.Since(start)\\n\\n\\tstart = time.Now()\\n\\tif err := m.restore(prev, next); err != nil {\\n\\t\\tt.Fatal(err)\\n\\t}\\n\\td := time.Since(start)\\n\\tt.Logf(\\\"restore of %d unchanged files: %s (looking at each once: %s)\\\", files, d, look)\\n\\t// The bound is for the work restore adds, which was seconds when it\\n\\t// rebuilt the index per file. Where looking at the files is itself\\n\\t// slow, as on a Windows CI runner, a bound in wall time says nothing.\\n\\tif look > 250*time.Millisecond {\\n\\t\\tt.Logf(\\\"slow file system: the time bound is not checked\\\")\\n\\t} else if d > 1500*time.Millisecond {\\n\\t\\tt.Fatalf(\\\"restoring %d unchanged files took %s\\\", files, d)\\n\\t}\\n\\\"\\\"\\\"),\\n])\\nEOF\\ngofmt -l daemon/; go vet ./daemon/internal/update/ ./daemon/internal/e2e/ && go test -count=1 -v -run 'TestRollbackScalesWithTheFeed' ./daemon/internal/update/ 2>&1 | grep -E 'restore of|slow file|^(ok|FAIL|---|PASS)' | head -5\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:28:21.339Z",
+      "lastAccessed": "2026-10-08T20:28:21.339Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:28:21.339Z"
+    },
+    "cmd-1791491317224": {
+      "key": "cmd-1791491317224",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && python3 $S/mutate.py daemon/internal/update/update.go '\\tfor _, f := range prev.Files {\\n\\t\\ttarget := m.Target(f.Path)\\n\\t\\tif fi, err := os.Stat(target); err == nil && fi.Size() == f.Size {\\n\\t\\t\\tif cur, ok := want[f.Path]; ok && cur.SHA256 == f.SHA256 {' '\\tfor _, f := range prev.Files {\\n\\t\\ttarget := m.Target(f.Path)\\n\\t\\twant = next.Index()\\n\\t\\tif fi, err := os.Stat(target); err == nil && fi.Size() == f.Size {\\n\\t\\t\\tif cur, ok := want[f.Path]; ok && cur.SHA256 == f.SHA256 {' -- go test -count=1 -run 'TestRollbackScalesWithTheFeed' ./daemon/internal/update/\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:28:37.224Z",
+      "lastAccessed": "2026-10-08T20:28:37.224Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:28:37.224Z"
+    },
+    "cmd-1791491335834": {
+      "key": "cmd-1791491335834",
+      "value": "{\"command\":\"sed -n 352,403p daemon/internal/update/update_test.go && sed -n 20,60p daemon/internal/nvt/nvt_test.go | head -5 && grep -n 'func TestCacheKeepsOneFeedVersion' -A34 daemon/internal/nvt/nvt_test.go | head -50\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:28:55.834Z",
+      "lastAccessed": "2026-10-08T20:28:55.834Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:28:55.834Z"
+    },
+    "cmd-1791491400569": {
+      "key": "cmd-1791491400569",
+      "value": "{\"command\":\"python3 - <<'EOF'\\nimport sys\\nsys.path.insert(0, '/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad')\\nfrom edit import edit\\nedit('daemon/internal/update/update_test.go', [\\n# (iii) the wall-clock bound in the refusal test\\n(\\\"\\\"\\\"\\tolder := cp.publish(t, key, map[string]string{\\\"nasl/plugin_feed_info.inc\\\": \\\"PLUGIN_SET = \\\\\\\\\\\"202609010000\\\\\\\\\\\";\\\\\\\\n\\\", \\\"nasl/old.nasl\\\": \\\"old\\\"}, \\\"20260901T000000Z\\\")\\n\\tstart := time.Now()\\n\\t_, err := m.ApplyBundle(t.Context(), older)\\n\\tif err == nil || !strings.Contains(err.Error(), \\\"bundle 20260901T000000Z: carries feed 202609010000, older than the installed feed 202609260530\\\") {\\n\\t\\tt.Fatalf(\\\"older feed: %v\\\", err)\\n\\t}\\n\\tif time.Since(start) > m.ReloadTimeout/2 {\\n\\t\\tt.Fatalf(\\\"the refusal took %s; it must not wait for a reload\\\", time.Since(start))\\n\\t}\\n\\tif cp.reqs() != 0 {\\n\\t\\tt.Fatalf(\\\"%d files fetched for a bundle that cannot be applied\\\", cp.reqs())\\n\\t}\\n\\\"\\\"\\\", \\\"\\\"\\\"\\tolder := cp.publish(t, key, map[string]string{\\\"nasl/plugin_feed_info.inc\\\": \\\"PLUGIN_SET = \\\\\\\\\\\"202609010000\\\\\\\\\\\";\\\\\\\\n\\\", \\\"nasl/old.nasl\\\": \\\"old\\\"}, \\\"20260901T000000Z\\\")\\n\\t_, err := m.ApplyBundle(t.Context(), older)\\n\\tif err == nil || !strings.Contains(err.Error(), \\\"bundle 20260901T000000Z: carries feed 202609010000, older than the installed feed 202609260530\\\") {\\n\\t\\tt.Fatalf(\\\"older feed: %v\\\", err)\\n\\t}\\n\\t// Refused before any file was fetched, so before anything was placed and\\n\\t// before any wait for a reload. (A bound in wall time said the same less\\n\\t// reliably: on a busy Windows runner a few file operations take seconds.)\\n\\tif cp.reqs() != 0 {\\n\\t\\tt.Fatalf(\\\"%d files fetched for a bundle that cannot be applied\\\", cp.reqs())\\n\\t}\\n\\\"\\\"\\\"),\\n# (ii) the 12,000-file test\\n(\\\"\\\"\\\"func TestRollbackScalesWithTheFeed(t *testing.T) {\\n\\tconst files = 12000\\n\\\"\\\"\\\", \\\"\\\"\\\"func TestRollbackScalesWithTheFeed(t *testing.T) {\\n\\tif runtime.GOOS == \\\"windows\\\" {\\n\\t\\t// Creating and removing 12,000 files keeps a Windows runner's file\\n\\t\\t// system busy for tens of seconds, in which tests of other packages\\n\\t\\t// stall. What is checked here is restore's own work, which does not\\n\\t\\t// depend on the platform.\\n\\t\\tt.Skip(\\\"file-system heavy; the check is the same on every platform\\\")\\n\\t}\\n\\tconst files = 12000\\n\\\"\\\"\\\"),\\n])\\nedit('controlplane/pkg/server/stream_test.go', [\\n(\\\"\\\"\\\"\\th.srv.cfg.Objects = DirObjects{Root: t.TempDir()}\\n\\tconst stall = 500 * time.Millisecond\\n\\th.srv.cfg.StreamStall = stall\\n\\\"\\\"\\\", \\\"\\\"\\\"\\th.srv.cfg.Objects = DirObjects{Root: t.TempDir()}\\n\\t// A second: short enough to try, long enough that a busy CI runner\\n\\t// pausing either side does not look like a stalled reader.\\n\\tconst stall = time.Second\\n\\th.srv.cfg.StreamStall = stall\\n\\\"\\\"\\\"),\\n(\\\"\\\"\\\"\\t\\t// A megabyte every 20 ms: over a second for the whole of it, more\\n\\t\\t// than twice the stall time, and never a pause near it.\\n\\\"\\\"\\\", \\\"\\\"\\\"\\t\\t// A megabyte every 35 ms: over two seconds for the whole of it,\\n\\t\\t// more than twice the stall time, and never a pause near it.\\n\\\"\\\"\\\"),\\n(\\\"\\\"\\\"\\t\\t\\tif err != nil {\\n\\t\\t\\t\\tbreak\\n\\t\\t\\t}\\n\\t\\t\\ttime.Sleep(20 * time.Millisecond)\\n\\t\\t}\\n\\\"\\\"\\\", \\\"\\\"\\\"\\t\\t\\tif err != nil {\\n\\t\\t\\t\\tbreak\\n\\t\\t\\t}\\n\\t\\t\\ttime.Sleep(35 * time.Millisecond)\\n\\t\\t}\\n\\\"\\\"\\\"),\\n(\\\"\\\"\\\"\\t\\t// The reader goes away for three times the stall time.\\n\\\"\\\"\\\", \\\"\\\"\\\"\\t\\t// The reader goes away for twice the stall time.\\n\\\"\\\"\\\"),\\n(\\\"\\\"\\\"\\t\\ttime.Sleep(3 * stall)\\n\\t\\trest, err := io.Copy(io.Discard, resp.Body)\\n\\t\\t_ = resp.Body.Close()\\n\\t\\tif err == nil && rest+1<<20 == int64(len(blob)) {\\n\\t\\t\\tt.Fatalf(\\\"%s: a download that stood still for %s was kept open\\\", proto, 3*stall)\\n\\t\\t}\\n\\\"\\\"\\\", \\\"\\\"\\\"\\t\\ttime.Sleep(2 * stall)\\n\\t\\trest, err := io.Copy(io.Discard, resp.Body)\\n\\t\\t_ = resp.Body.Close()\\n\\t\\tif err == nil && rest+1<<20 == int64(len(blob)) {\\n\\t\\t\\tt.Fatalf(\\\"%s: a download that stood still for %s was kept open\\\", proto, 2*stall)\\n\\t\\t}\\n\\\"\\\"\\\"),\\n])\\nEOF\\ngofmt -l daemon/ controlplane/; go vet ./daemon/internal/update/ ./controlplane/pkg/server/ && go test -count=1 ./daemon/internal/update/ 2>&1 | grep -E '^(ok|FAIL|---)' ; go test -count=1 -race -run 'TestDownloadLastsWhileItMoves' ./controlplane/pkg/server/ 2>&1 | grep -E '^(ok|FAIL|---)|_test.go'\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:30:00.569Z",
+      "lastAccessed": "2026-10-08T20:30:00.569Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:30:00.569Z"
+    },
+    "cmd-1791491432165": {
+      "key": "cmd-1791491432165",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && m() { f=\\\"$1\\\"; o=\\\"$2\\\"; n=\\\"$3\\\"; shift 3; python3 $S/mutate.py \\\"$f\\\" \\\"$o\\\" \\\"$n\\\" -- \\\"$@\\\"; } && m controlplane/pkg/server/server.go 'func (s *statusWriter) Write(b []byte) (int, error) {\\n\\ts.moving()' 'func (s *statusWriter) Write(b []byte) (int, error) {' go test -count=1 -run 'TestDownloadLastsWhileItMoves' ./controlplane/pkg/server/ ; m controlplane/pkg/server/server.go '\\t_ = s.ctl.SetWriteDeadline(time.Now().Add(s.stall))' '\\t_ = s.ctl.SetWriteDeadline(time.Time{})' go test -count=1 -run 'TestDownloadLastsWhileItMoves' ./controlplane/pkg/server/ ; m daemon/internal/update/update.go '\\tif feedOlder(next.FeedVersion, installed.FeedVersion) {' '\\tif false && feedOlder(next.FeedVersion, installed.FeedVersion) {' go test -count=1 -run 'TestBundleRefusesOlderFeed' ./daemon/internal/update/\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:30:32.165Z",
+      "lastAccessed": "2026-10-08T20:30:32.165Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:30:32.165Z"
+    },
+    "cmd-1791491609638": {
+      "key": "cmd-1791491609638",
+      "value": "{\"command\":\"grep -n '\\\\*\\\\*Windows\\\\.\\\\*\\\\*' README.md | cut -c1-220 && python3 - <<'EOF'\\nimport sys\\nsys.path.insert(0, '/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad')\\nfrom edit import edit\\nedit('README.md', [\\n(\\\"- **Windows.** The native Windows test job is advisory until it has been seen green on Windows hardware.\\\",\\n \\\"- **Windows.** The native Windows test job runs on GitHub's Windows runners and stays advisory. It was green on every run up to 2026-10-06 and red on four of the six after, without a change that touches Windows: tests with bounds in wall time fail when the runner's file system stalls. Those bounds were removed or loosened on 2026-10-08; whether that settles it will show over the next runs.\\\"),\\n])\\nEOF\\nS=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad; gofmt -l $(git ls-files '*.go'); go vet ./... && echo \\\"vet host ok\\\"; for t in windows/amd64 windows/arm64 linux/amd64 freebsd/amd64; do GOOS=\\\"${t%/*}\\\" GOARCH=\\\"${t#*/}\\\" go vet ./... >/dev/null 2>$S/vet.log && echo \\\"vet $t ok\\\" || { echo \\\"vet $t FAILED\\\"; head -5 $S/vet.log; }; done; (go test -race -count=1 ./... > $S/fulltest-u3.log 2>&1; echo \\\"exit $?\\\" >> $S/fulltest-u3.log); grep -E '^(ok|FAIL|---|exit|panic)' $S/fulltest-u3.log | awk '{print $1}' | sort | uniq -c; grep -E '^(FAIL|--- FAIL|panic)' $S/fulltest-u3.log | head -5; grep -E 'e2e|pkg/server|internal/update' $S/fulltest-u3.log | grep '^ok' | cut -c1-110\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:33:29.638Z",
+      "lastAccessed": "2026-10-08T20:33:29.638Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:33:29.638Z"
+    },
+    "cmd-1791491627103": {
+      "key": "cmd-1791491627103",
+      "value": "{\"command\":\"S=/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad && for run in 37836866714 37820075925; do curl -s -m 30 \\\"https://api.github.com/repos/xuer98/scanner-appliance/actions/runs/$run/jobs?per_page=30\\\" -o $S/gh-jobs-$run.json; python3 - \\\"$run\\\" <<'EOF'\\nimport json,sys\\nS='/private/tmp/claude-501/-Users-richardtang-Desktop-repos-scanner-appliance/48ed5f5f-aef5-4939-aa3c-637f4744926f/scratchpad'\\nd=json.load(open(S+'/gh-jobs-%s.json'%sys.argv[1]))\\nprint('== run', sys.argv[1])\\nfor j in d.get('jobs',[]):\\n    failed=[s['name'] for s in j.get('steps',[]) if s.get('conclusion')=='failure']\\n    print('  %-32s %-11s %-9s %s' % (j['name'][:32], j['status'], j['conclusion'], ('failed step: '+'; '.join(failed)) if failed else ''))\\nEOF\\ndone; curl -s -m 30 \\\"https://api.github.com/repos/xuer98/scanner-appliance/actions/runs?per_page=3\\\" | python3 -c \\\"\\nimport json,sys\\nfor r in json.load(sys.stdin)['workflow_runs']: print(r['name'], r['event'], r['head_sha'][:7], r['status'], r['conclusion'], r['created_at'])\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:33:47.103Z",
+      "lastAccessed": "2026-10-08T20:33:47.103Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:33:47.103Z"
+    },
+    "cmd-1791491649668": {
+      "key": "cmd-1791491649668",
+      "value": "{\"command\":\"cd /Users/richardtang/.claude/projects/-Users-richardtang-Desktop-repos-scanner-appliance/memory/ && python3 - <<'EOF'\\ns=open('verify-ci-with-ci-tool-versions.md').read()\\na=\\\"**How to apply:** when CI comes up,\\\"\\nassert s.count(a)==1\\nb='''**Reading CI without `gh`:** the repository is public at `github.com/xuer98/scanner-appliance`, so job results need no sign-in: `curl -s \\\"https://api.github.com/repos/xuer98/scanner-appliance/actions/runs?per_page=8\\\"` lists runs, and `.../actions/runs/RUN_ID/jobs` gives each job's conclusion and failed step. Logs do need sign-in (the logs endpoint answers 403), so test names and messages come only from what the user pastes. Check the job list before theorizing: on 2026-10-08 it showed in one call that the Windows job had been green until 2026-10-06 and red on four of six runs since, twice before the test in the user's paste existed.\\n\\n**Windows runner:** its file system can stall for many seconds while another test package creates thousands of files. A fourth failure, on 2026-10-08, was my own new end-to-end test timing out there. Tests that run on Windows must not put a bound in wall time around file operations, and must not need the fake engine, whose Unix sockets and file reads are one more place to stall. Measure the thing itself (for example the time from a log line to the heartbeat that reports it) with generous outer deadlines, and dump goroutines on timeout. I could not run Windows and did not see the logs of the earlier red runs, so the cause of those is inferred, not confirmed.\\n\\n'''\\ns=s.replace(a,b+a)\\nopen('verify-ci-with-ci-tool-versions.md','w').write(s)\\ns=open('MEMORY.md').read()\\na=\\\"- [Verify CI with CI's tool versions](verify-ci-with-ci-tool-versions.md) — reproduce each CI job with the versions CI installs before saying it passes; the user wants advisory jobs green too\\\"\\nassert s.count(a)==1\\ns=s.replace(a,\\\"- [Verify CI with CI's tool versions](verify-ci-with-ci-tool-versions.md) — reproduce each CI job with CI's versions before saying it passes; job results are readable from the public GitHub API; no wall-clock bounds in tests that run on Windows\\\")\\nopen('MEMORY.md','w').write(s)\\nprint('memory updated')\\nEOF\\ncd /Users/richardtang/Desktop/repos/scanner-appliance && git status --short | grep -v claude-flow && git diff --stat -- . ':!.claude-flow' | tail -1\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-10-08T20:34:09.668Z",
+      "lastAccessed": "2026-10-08T20:34:09.668Z",
+      "accessCount": 0,
+      "expiresAt": "2026-11-07T20:34:09.668Z"
     }
   },
   "version": "3.0.0"

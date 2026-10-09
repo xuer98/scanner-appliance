@@ -78,7 +78,7 @@ Not verified in this repository:
 
 - **The VM image.** It has not been built. The Packer build, the QEMU smoke test and the UEFI boot need a runner with KVM.
 - **Hyper-V.** Generation 2 with Secure Boot has not been booted on a real host.
-- **Windows.** The native Windows test job is advisory until it has been seen green on Windows hardware.
+- **Windows.** The native Windows test job runs on GitHub's Windows runners and stays advisory. It was green on every run up to 2026-10-06 and red on four of the six after, without a change that touches Windows: tests with bounds in wall time fail when the runner's file system stalls. Those bounds were removed or loosened on 2026-10-08; whether that settles it will show over the next runs.
 - **A real feed in CI.** The automated tests drive scripted fakes and the container smoke runs without a VT feed. The lab runs above were done by hand.
 - **Daemon self-update under systemd.** It has run with real binaries on a Mac, where a shell loop and the image's start guard stood in for systemd: a release that confirmed itself, one that could not start and one that could not reach the control plane. The unit that restarts the daemon on the VM image has not run. Containers ignore `update_daemon`.
 - **The apt mirror.** Its content is populated out of band.

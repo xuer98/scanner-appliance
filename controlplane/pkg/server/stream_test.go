@@ -221,7 +221,9 @@ func TestSlowRequestIsAnswered(t *testing.T) {
 func TestDownloadLastsWhileItMoves(t *testing.T) {
 	h := newHarness(t)
 	h.srv.cfg.Objects = DirObjects{Root: t.TempDir()}
-	const stall = 500 * time.Millisecond
+	// A second: short enough to try, long enough that a busy CI runner
+	// pausing either side does not look like a stalled reader.
+	const stall = time.Second
 	h.srv.cfg.StreamStall = stall
 	h.enrolled(t)
 	// Far larger than the socket buffers and the HTTP/2 flow-control
@@ -252,8 +254,8 @@ func TestDownloadLastsWhileItMoves(t *testing.T) {
 		}}
 		url := ts.URL + "/v1/bundles/20261006T000000Z/files/" + sha
 
-		// A megabyte every 20 ms: over a second for the whole of it, more
-		// than twice the stall time, and never a pause near it.
+		// A megabyte every 35 ms: over two seconds for the whole of it,
+		// more than twice the stall time, and never a pause near it.
 		resp, err := cl.Get(url)
 		if err != nil {
 			t.Fatalf("%s: %v", proto, err)
@@ -267,7 +269,7 @@ func TestDownloadLastsWhileItMoves(t *testing.T) {
 			if err != nil {
 				break
 			}
-			time.Sleep(20 * time.Millisecond)
+			time.Sleep(35 * time.Millisecond)
 		}
 		_ = resp.Body.Close()
 		if n != int64(len(blob)) || hex.EncodeToString(got.Sum(nil)) != sha {
@@ -277,7 +279,7 @@ func TestDownloadLastsWhileItMoves(t *testing.T) {
 			t.Fatalf("%s: the download took %s, not long enough to outlast the stall time of %s", proto, took.Round(time.Millisecond), stall)
 		}
 
-		// The reader goes away for three times the stall time.
+		// The reader goes away for twice the stall time.
 		resp, err = cl.Get(url)
 		if err != nil {
 			t.Fatalf("%s: %v", proto, err)
@@ -285,11 +287,11 @@ func TestDownloadLastsWhileItMoves(t *testing.T) {
 		if _, err := io.CopyN(io.Discard, resp.Body, 1<<20); err != nil {
 			t.Fatalf("%s: first megabyte: %v", proto, err)
 		}
-		time.Sleep(3 * stall)
+		time.Sleep(2 * stall)
 		rest, err := io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 		if err == nil && rest+1<<20 == int64(len(blob)) {
-			t.Fatalf("%s: a download that stood still for %s was kept open", proto, 3*stall)
+			t.Fatalf("%s: a download that stood still for %s was kept open", proto, 2*stall)
 		}
 		ts.Close()
 	}
