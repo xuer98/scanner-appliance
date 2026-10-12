@@ -148,8 +148,15 @@ redis_cli() { redis-cli -s "$REDIS_SOCK" "$@"; }
 start_redis() {
   if [[ "$IN_CONTAINER" == "1" ]]; then
     install -d -o redis -g redis -m 0750 /run/redis-openvas
+    # Build-time only. Snapshots are off so the VT load never forks a BGSAVE:
+    # the cache is written by the synchronous SAVE below, and SHUTDOWN then has
+    # nothing to save. On arm64, redis probes the kernel for a copy-on-write
+    # bug at startup; under QEMU user emulation (the multi-arch image build
+    # on an x86 runner) the probe misfires and redis exits. Without forks the
+    # bug cannot touch this run, so the probe is ignored here. The runtime
+    # config file is untouched: on arm64 hardware the probe still applies.
     runuser -u redis -- redis-server "$REDIS_CONF" --daemonize yes --supervised no \
-      --logfile /var/tmp/seed-feed-redis.log
+      --logfile /var/tmp/seed-feed-redis.log --save "" --ignore-warnings ARM64-COW-BUG
   else
     systemctl start redis-openvas.service
   fi
@@ -164,7 +171,7 @@ start_redis() {
 
 stop_redis() {
   if [[ "$IN_CONTAINER" == "1" ]]; then
-    # SHUTDOWN performs a final save when save points are configured.
+    # No save points in this mode: the snapshot comes from the explicit SAVE.
     redis_cli shutdown >/dev/null 2>&1 || true
     local _i
     for _i in $(seq 1 60); do
