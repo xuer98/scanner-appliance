@@ -192,8 +192,14 @@ fi
 log "VT load finished in $((SECONDS - start_ts))s"
 
 # The nvticache lives in the first KB database (index 1); the 'nvticache' key
-# carries the feed version openvas loaded. Informational only.
-cached_version="$(redis_cli -n 1 get nvticache 2>/dev/null | tr -d '"' || true)"
+# carries the feed version openvas loaded. gvm-libs stores KB items as redis
+# lists (RPUSH), so the value is the first list element; a plain GET answers
+# WRONGTYPE. Informational only.
+case "$(redis_cli -n 1 type nvticache 2>/dev/null || true)" in
+  list) cached_version="$(redis_cli -n 1 lindex nvticache 0 2>/dev/null | tr -d '"' || true)" ;;
+  string) cached_version="$(redis_cli -n 1 get nvticache 2>/dev/null | tr -d '"' || true)" ;;
+  *) cached_version="" ;;
+esac
 cached_keys="$(redis_cli -n 1 dbsize 2>/dev/null | tr -dc '0-9' || true)"
 log "redis db1: nvticache=${cached_version:-?} keys=${cached_keys:-?}"
 if [[ -n "$cached_version" && "$feed_version" != "unknown" && "$cached_version" != "$feed_version" ]]; then

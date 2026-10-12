@@ -19,11 +19,33 @@ fi
 # ---------------------------------------------------------------------------
 # Packages
 # ---------------------------------------------------------------------------
+# systemd-resolved's postinst turns /etc/resolv.conf into a symlink to the
+# resolved stub. In the build VM the lease came from the installer's dhclient,
+# not from systemd-networkd, so resolved would know no upstream server and
+# every later download (grub-efi below, the Greenbone sources, pip) would
+# fail with "Temporary failure resolving". Give resolved the build network's
+# nameservers through a drop-in that cleanup.sh removes again; the shipped
+# image gets its DNS from wan0's lease through networkd.
+BUILD_DNS_DROPIN=/etc/systemd/resolved.conf.d/90-build-network.conf
+build_dns="$(awk '/^nameserver/ && $2 != "127.0.0.53" {print $2}' /etc/resolv.conf 2>/dev/null | xargs || true)"
+if [[ -n "$build_dns" && ! -s "$BUILD_DNS_DROPIN" ]]; then
+  install -d -m 0755 /etc/systemd/resolved.conf.d
+  printf '# Build-time only: the build network'"'"'s nameservers (removed by cleanup.sh).\n[Resolve]\nDNS=%s\n' "$build_dns" >"$BUILD_DNS_DROPIN"
+  log "build network DNS for systemd-resolved: $build_dns"
+fi
+
 log "installing packages"
 apt-get update -q
 apt-get install -y -q --no-install-recommends \
   nftables systemd-resolved htpdate util-linux ca-certificates open-vm-tools \
   unattended-upgrades
+if [[ -s "$BUILD_DNS_DROPIN" ]]; then
+  systemctl restart systemd-resolved.service
+  if ! getent hosts deb.debian.org >/dev/null; then
+    echo "name resolution through systemd-resolved failed (DNS=$build_dns)" >&2
+    exit 1
+  fi
+fi
 
 # ifupdown / NetworkManager / chrony: not wanted; networkd + htpdate instead.
 for pkg in ifupdown network-manager chrony isc-dhcp-client; do

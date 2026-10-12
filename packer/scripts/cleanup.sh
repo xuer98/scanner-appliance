@@ -77,6 +77,14 @@ awk -F: '$2 != "*" && $2 != "!" && $2 != "!*" {print $1}' /etc/shadow | while re
 done
 
 # ---------------------------------------------------------------------------
+# Build network: harden.sh gave systemd-resolved the build network's
+# nameservers so the provisioners could download; the appliance gets its
+# DNS from wan0's lease.
+# ---------------------------------------------------------------------------
+log "removing the build-time DNS drop-in"
+rm -f /etc/systemd/resolved.conf.d/90-build-network.conf
+
+# ---------------------------------------------------------------------------
 # Identity: every deployed appliance must get its own machine-id, DHCP
 # client ID, and journal.
 # ---------------------------------------------------------------------------

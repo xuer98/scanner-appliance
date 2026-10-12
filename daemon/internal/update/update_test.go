@@ -228,6 +228,82 @@ func TestBundleFirstInstallDeltaAndRemoval(t *testing.T) {
 	}
 }
 
+// A bundle without a feed (the dev and smoke bundles: configs and fragile
+// ports only) keeps the installed feed, whether seeded by the image or
+// brought by an earlier bundle, and the recorded manifest still lists it.
+func TestBundleWithoutFeedKeepsInstalledFeed(t *testing.T) {
+	cp := newCPFake(t)
+	key := newSigner(t)
+	plugins := t.TempDir()
+	_ = os.WriteFile(filepath.Join(plugins, "plugin_feed_info.inc"), []byte("PLUGIN_SET = \"202609010000\";\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(plugins, "seeded.nasl"), []byte("seeded"), 0o644)
+	fake := osptest.Start(t, &osptest.Fake{PluginsDir: plugins})
+	m := newManager(t, cp, key, plugins, fake)
+
+	cfg := map[string]string{
+		"configs/inventory.json": `{"name":"inventory","families":["Web Servers"],"udp_ports":[161],"params":{}}`,
+		"fragile-ports.json":     "[9100]",
+	}
+	p1 := cp.publish(t, key, cfg, "cfg-1")
+	mf, err := m.ApplyBundle(t.Context(), p1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mf.Version != "cfg-1" || cp.reqs() != 2 {
+		t.Fatalf("configs-only bundle: %+v reqs=%d", mf, cp.reqs())
+	}
+	if read(t, filepath.Join(plugins, "seeded.nasl")) != "seeded" || read(t, filepath.Join(plugins, "plugin_feed_info.inc")) == "<missing>" {
+		t.Fatal("a bundle without a feed removed the seeded feed")
+	}
+	if read(t, filepath.Join(m.ConfigsDir(), "inventory.json")) == "<missing>" || read(t, m.Target("fragile-ports.json")) != "[9100]" {
+		t.Fatal("configs not installed")
+	}
+	inst := mustInstalled(t, m)
+	if inst.Version != "cfg-1" || inst.FeedVersion != "202609010000" {
+		t.Fatalf("installed manifest: version=%s feed=%s", inst.Version, inst.FeedVersion)
+	}
+	if _, ok := inst.Index()["nasl/seeded.nasl"]; !ok {
+		t.Fatal("installed manifest does not list the kept feed")
+	}
+	if h := m.OSP.Health(t.Context()); h.FeedVersion != "202609010000" || !h.VTCacheLoaded {
+		t.Fatalf("engine health: %+v", h)
+	}
+
+	// A feed bundle afterwards is a delta against the kept feed.
+	feed := map[string]string{
+		"nasl/plugin_feed_info.inc": "PLUGIN_SET = \"202609260530\";\n",
+		"nasl/a.nasl":               "a1",
+		"configs/inventory.json":    cfg["configs/inventory.json"],
+		"fragile-ports.json":        "[9100]",
+	}
+	p2 := cp.publish(t, key, feed, "feed-1")
+	if _, err := m.ApplyBundle(t.Context(), p2); err != nil {
+		t.Fatal(err)
+	}
+	if got := cp.reqs(); got != 2+2 {
+		t.Fatalf("feed bundle fetched %d files, want 2", got-2)
+	}
+	if read(t, filepath.Join(plugins, "a.nasl")) != "a1" || read(t, filepath.Join(plugins, "seeded.nasl")) != "<missing>" {
+		t.Fatal("feed bundle not applied as a delta")
+	}
+	if h := m.OSP.Health(t.Context()); h.FeedVersion != "202609260530" {
+		t.Fatalf("engine did not load the feed bundle: %+v", h)
+	}
+
+	// And a configs-only bundle after that keeps the bundled feed.
+	cfg2 := map[string]string{"configs/inventory.json": cfg["configs/inventory.json"], "fragile-ports.json": "[9100,161]"}
+	p3 := cp.publish(t, key, cfg2, "cfg-2")
+	if _, err := m.ApplyBundle(t.Context(), p3); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(plugins, "a.nasl")) != "a1" || read(t, m.Target("fragile-ports.json")) != "[9100,161]" {
+		t.Fatal("second configs-only bundle")
+	}
+	if inst := mustInstalled(t, m); inst.Version != "cfg-2" || inst.FeedVersion != "202609260530" {
+		t.Fatalf("installed manifest after cfg-2: version=%s feed=%s", inst.Version, inst.FeedVersion)
+	}
+}
+
 func mustInstalled(t *testing.T, m *Manager) *bundle.Manifest {
 	t.Helper()
 	mf, err := m.Installed()

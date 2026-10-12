@@ -67,10 +67,13 @@ dev-tty: dev-ca   ## the console against the local daemon state
 	APPLIANCE_ROOT_CA=dev/pki/root.pem APPLIANCE_STATE_DIR=dev/state APPLIANCE_RUN_DIR=dev/run \
 	go run ./daemon/cmd/applianced tty
 
+# The qcow2 lands in packer/output-$(VERSION)/ (base.pkr.hcl: output_dir).
+# FEED=path/to/vt-feed.tar.gz ships the VT feed in the image; without it the
+# image has no VTs and the smoke test needs SMOKE_SKIP_ENGINE=1.
 ova: build-linux  ## qcow2 via packer, then OVA + VHDX (needs packer, qemu, kvm; run build-engine first for naabu); WITH_NMAP=1 after the sign-off
-	cd packer && packer init base.pkr.hcl && packer build -var version=$(VERSION) -var with_nmap=$(if $(filter 1,$(WITH_NMAP)),true,false) base.pkr.hcl
-	./packer/build-ova.sh packer/output-appliance/appliance-$(VERSION).qcow2 $(VERSION)
-	./packer/build-vhdx.sh packer/output-appliance/appliance-$(VERSION).qcow2 $(VERSION)
+	cd packer && packer init base.pkr.hcl && packer build -var version=$(VERSION) -var with_nmap=$(if $(filter 1,$(WITH_NMAP)),true,false) $(if $(FEED),-var feed_tarball=$(abspath $(FEED))) base.pkr.hcl
+	./packer/build-ova.sh packer/output-$(VERSION)/appliance-$(VERSION).qcow2 $(VERSION)
+	./packer/build-vhdx.sh packer/output-$(VERSION)/appliance-$(VERSION).qcow2 $(VERSION)
 
 # WITH_NMAP=1 adds nmap for the Phase 5 fingerprint pass (NPSL): only for
 # builds made after `cp-api admin signoff nmap --reference ...` (PLAN §21).

@@ -11,6 +11,12 @@ name: release
 #   STAGING_CP_ADMIN_TOKEN     bearer token for it
 #   STAGING_CP_URL_FOR_GUEST   enrollment URL (:8443) reachable from the smoke VM
 #   STAGING_CP_CA_PEM          (optional) CA to verify the staging TLS cert
+#   STAGING_RELEASE_KEY_PEM    the key behind APPLIANCE_RELEASE_PUB_PEM: the
+#                              smoke job builds and signs two bundles on the
+#                              runner (ci/smoke/lib.sh), and the staging
+#                              control plane and the appliance accept only
+#                              that signature. Without it the smoke skips
+#                              the bundle test (SMOKE_SKIP_BUNDLE=1).
 #   FEED_TARBALL_URL           URL of the VT feed snapshot tarball on the
 #                              control-plane feed mirror (packer/scripts/
 #                              seed-feed.sh). Without it the images ship
@@ -34,6 +40,10 @@ permissions:
 env:
   IMAGE: ghcr.io/tprm/scanner-appliance
   PACKER_VERSION: "1.14.0"
+  # Debian point release the image is installed from. The preseed is written
+  # for bookworm, and cdimage's release/current has served Debian 13 since
+  # 2025-08; every 12.x point release stays under cdimage/archive/.
+  DEBIAN_RELEASE: "12.15.0"
 
 jobs:
   # -------------------------------------------------------------------------
@@ -132,10 +142,12 @@ jobs:
       - name: Pin the Debian ISO checksum
         id: iso
         run: |
-          base=https://cdimage.debian.org/cdimage/release/current/amd64/iso-cd
-          line="$(curl -fsSL "$base/SHA256SUMS" | grep 'netinst.iso' | head -n1)"
+          base="https://cdimage.debian.org/cdimage/archive/${DEBIAN_RELEASE}/amd64/iso-cd"
+          iso="debian-${DEBIAN_RELEASE}-amd64-netinst.iso"
+          line="$(curl -fsSL "$base/SHA256SUMS" | grep " ${iso}\$" | head -n1)"
+          test -n "$line" || { echo "::error::$iso not in $base/SHA256SUMS"; exit 1; }
           echo "checksum=sha256:${line%% *}" >> "$GITHUB_OUTPUT"
-          echo "url=$base/${line##* }" >> "$GITHUB_OUTPUT"
+          echo "url=$base/${iso}" >> "$GITHUB_OUTPUT"
       - name: packer build
         working-directory: packer
         env:
@@ -255,15 +267,29 @@ jobs:
       SMOKE_SKIP_ENGINE: ${{ secrets.FEED_TARBALL_URL == '' && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
+      # The bundle test runs `go run ./controlplane/cmd/cp-api bundle build`
+      # and `admin publish-bundle` on the runner.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
       - uses: actions/download-artifact@v4
         with:
           name: dist-image
           path: dist-image
-      - name: Staging CA
+      - name: Staging CA and bundle signing key
         run: |
           if [ -n "${{ secrets.STAGING_CP_CA_PEM }}" ]; then
             printf '%s\n' "${{ secrets.STAGING_CP_CA_PEM }}" > "$RUNNER_TEMP/staging-ca.pem"
             echo "CP_CA_FILE=$RUNNER_TEMP/staging-ca.pem" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.STAGING_RELEASE_KEY_PEM }}" ]; then
+            printf '%s\n' "${{ secrets.STAGING_RELEASE_KEY_PEM }}" > "$RUNNER_TEMP/release-key.pem"
+            chmod 0600 "$RUNNER_TEMP/release-key.pem"
+            echo "SMOKE_RELEASE_KEY=$RUNNER_TEMP/release-key.pem" >> "$GITHUB_ENV"
+          else
+            echo "::warning::STAGING_RELEASE_KEY_PEM is not set; the smoke test skips the bundle canary and delta"
+            echo "SMOKE_SKIP_BUNDLE=1" >> "$GITHUB_ENV"
           fi
       - name: run-qemu.sh
         run: SMOKE_KEEP=1 ci/smoke/run-qemu.sh "dist-image/appliance-${VERSION}.qcow2"
