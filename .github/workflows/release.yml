@@ -165,9 +165,12 @@ jobs:
             -var "output_dir=${GITHUB_WORKSPACE}/dist-image" \
             base.pkr.hcl
       - name: OVA + VHDX
+        # The VHDX travels zipped (build-vhdx.sh): the raw file is over 3 GB,
+        # GitHub release assets are limited to 2 GiB.
         run: |
           packer/build-ova.sh "dist-image/appliance-${VERSION}.qcow2" "$VERSION" dist-image
           packer/build-vhdx.sh "dist-image/appliance-${VERSION}.qcow2" "$VERSION" dist-image
+          rm -f "dist-image/appliance-${VERSION}.vhdx"
           ls -l dist-image
       - name: Hyper-V / KVM helpers (Phase 5 variants)
         # New-ApplianceVM.ps1 (Generation 2, Secure Boot, WAN/LAN order) and
@@ -182,7 +185,7 @@ jobs:
           path: |
             dist-image/*.qcow2
             dist-image/*.ova
-            dist-image/*.vhdx
+            dist-image/*.vhdx.zip
             dist-image/*-hypervisor-helpers.zip
           if-no-files-found: error
           compression-level: 0
@@ -385,6 +388,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
+          # v1.2.3-rc1 and the like are prereleases; they never become "Latest".
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           fail_on_unmatched_files: false
           files: |
@@ -394,7 +399,7 @@ jobs:
             dist/cp-api-windows-*
             dist/*.qcow2
             dist/*.ova
-            dist/*.vhdx
+            dist/*.vhdx.zip
             dist/*-hypervisor-helpers.zip
             dist/*.sig
             dist/*.pem

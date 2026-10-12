@@ -158,7 +158,9 @@ SeaBIOS or OVMF and on Hyper-V Generation 2.
    host; creates a **Generation 2** VM with Secure Boot on the *Microsoft
    UEFI Certificate Authority* template, static memory, time synchronisation
    and automatic checkpoints off, WAN and LAN adapters with static MACs so
-   the guest names them deterministically):
+   the guest names them deterministically). The download is
+   `appliance-<version>.vhdx.zip`; extract it first (Explorer or
+   `Expand-Archive`), the VHDX inside is a dynamic disk of about 3 GB:
 
    ```powershell
    .\New-ApplianceVM.ps1 -Name appliance-reno -VhdxPath C:\VMs\appliance-1.2.3.vhdx `
