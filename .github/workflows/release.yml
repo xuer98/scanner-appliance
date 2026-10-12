@@ -38,7 +38,10 @@ permissions:
   id-token: write
 
 env:
-  IMAGE: ghcr.io/tprm/scanner-appliance
+  # The job's GITHUB_TOKEN can only push packages under the repository's own
+  # owner, so the image follows the repository (owner/name, lowercase on
+  # GitHub's side already). A transfer to an organization moves it along.
+  IMAGE: ghcr.io/${{ github.repository }}
   PACKER_VERSION: "1.14.0"
   # Debian point release the image is installed from. The preseed is written
   # for bookworm, and cdimage's release/current has served Debian 13 since
