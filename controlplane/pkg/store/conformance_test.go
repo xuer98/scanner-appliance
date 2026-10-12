@@ -697,19 +697,28 @@ func pilotScenario(t *testing.T, ctx context.Context, st Store, site *Site, apl 
 	}
 	_ = st.DeleteSchedule(ctx, fp.ID)
 
-	// Engine-down tracking across heartbeats.
-	down := &v1.Heartbeat{Version: "1.3.0", Engine: v1.EngineHealth{OSPDUp: true, VTCacheLoaded: false}}
-	if err := st.RecordHeartbeat(ctx, apl.ID, now, down); err != nil {
+	// Engine-down tracking across heartbeats. The store keeps the first
+	// moment it saw the engine down, and opsScenario left it down at its
+	// own clock, which is only this scenario's clock when both fell in the
+	// same second (a CI run on 2026-10-12 straddled one). A healthy beat
+	// first, so the window measured here starts in this scenario.
+	up := &v1.Heartbeat{Version: "1.3.0", Engine: v1.EngineHealth{OSPDUp: true, VTCacheLoaded: true}}
+	if err := st.RecordHeartbeat(ctx, apl.ID, now, up); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RecordHeartbeat(ctx, apl.ID, now.Add(time.Minute), down); err != nil {
+	downAt := now.Add(time.Minute)
+	down := &v1.Heartbeat{Version: "1.3.0", Engine: v1.EngineHealth{OSPDUp: true, VTCacheLoaded: false}}
+	if err := st.RecordHeartbeat(ctx, apl.ID, downAt, down); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordHeartbeat(ctx, apl.ID, now.Add(2*time.Minute), down); err != nil {
 		t.Fatal(err)
 	}
 	ga, _ := st.GetAppliance(ctx, apl.ID)
-	if ga.EngineDownSince == nil || !ga.EngineDownSince.Equal(now) {
-		t.Fatalf("engine down since: %v", ga.EngineDownSince)
+	if ga.EngineDownSince == nil || !ga.EngineDownSince.Equal(downAt) {
+		t.Fatalf("engine down since: %v, want %v", ga.EngineDownSince, downAt)
 	}
-	if err := st.RecordHeartbeat(ctx, apl.ID, now.Add(2*time.Minute), &v1.Heartbeat{Version: "1.3.0", Engine: v1.EngineHealth{OSPDUp: true, VTCacheLoaded: true}}); err != nil {
+	if err := st.RecordHeartbeat(ctx, apl.ID, now.Add(3*time.Minute), up); err != nil {
 		t.Fatal(err)
 	}
 	if ga, _ = st.GetAppliance(ctx, apl.ID); ga.EngineDownSince != nil {
