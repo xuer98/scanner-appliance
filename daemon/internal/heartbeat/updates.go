@@ -50,6 +50,14 @@ func (l *Loop) startupUpdate() {
 	if await {
 		l.awaitConfirm = true
 		l.confirmDeadline = l.Now().Add(update.ConfirmWindow)
+		// The last update is now this one and its outcome is open. An error
+		// left by an earlier attempt would otherwise ride along in every
+		// heartbeat of the daemon that did update; a rollback writes its
+		// own report through Startup on the next start.
+		if st, err := l.Store.Load(); err == nil && st.LastUpdateError != "" {
+			st.LastUpdateError = ""
+			_ = l.Store.Save(st)
+		}
 	}
 }
 
