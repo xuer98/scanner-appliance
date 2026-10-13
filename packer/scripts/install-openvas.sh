@@ -187,6 +187,13 @@ if [[ "$OPENVAS_SKIP_BUILD" != "1" ]]; then
   : >"${SRC_DIR}/build-info.txt"
   multiarch="$(gcc -print-multiarch 2>/dev/null || echo x86_64-linux-gnu)"
   export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/lib/${multiarch}/pkgconfig:${PKG_CONFIG_PATH:-}"
+  # find_library() hints. CMake takes the multiarch library directory from
+  # the compiler's implicit link directories; under QEMU user emulation
+  # (docker buildx building linux/arm64 on an amd64 runner) that detection
+  # comes up empty and libnet, libpcap, paho-mqtt and libcrypt are reported
+  # NOTFOUND although their -dev packages are installed, while pkg-config
+  # lookups still work. Seen in the first release run, 2026-10-12.
+  cmake_paths=(-DCMAKE_LIBRARY_PATH="/usr/lib/${multiarch}" -DCMAKE_INCLUDE_PATH="/usr/include/${multiarch}")
 
   # -- gvm-libs -------------------------------------------------------------
   tarball="$(fetch gvm-libs gvm-libs "$GVM_LIBS_TAG" "$GVM_LIBS_SHA256")"
@@ -202,6 +209,7 @@ if [[ "$OPENVAS_SKIP_BUILD" != "1" ]]; then
   cmake -S "$srcdir" -B "${srcdir}/build" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+    "${cmake_paths[@]}" \
     -DSYSCONFDIR=/etc \
     -DLOCALSTATEDIR=/var \
     -DBUILD_WITH_LDAP=OFF \
@@ -226,7 +234,7 @@ if [[ "$OPENVAS_SKIP_BUILD" != "1" ]]; then
     tar -C "$SRC_DIR" -xzf "$tarball"
     srcdir="${SRC_DIR}/openvas-smb-$(tag_to_version "$OPENVAS_SMB_TAG")"
     log "building openvas-smb $OPENVAS_SMB_TAG"
-    cmake -S "$srcdir" -B "${srcdir}/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+    cmake -S "$srcdir" -B "${srcdir}/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" "${cmake_paths[@]}" \
       >"${SRC_DIR}/openvas-smb.cmake.log" 2>&1 || { cat "${SRC_DIR}/openvas-smb.cmake.log" >&2; die "openvas-smb cmake failed"; }
     make -C "${srcdir}/build" -j"$JOBS" >"${SRC_DIR}/openvas-smb.make.log" 2>&1 || { tail -n 80 "${SRC_DIR}/openvas-smb.make.log" >&2; die "openvas-smb build failed"; }
     make -C "${srcdir}/build" install >/dev/null
@@ -246,6 +254,7 @@ if [[ "$OPENVAS_SKIP_BUILD" != "1" ]]; then
   cmake -S "$srcdir" -B "${srcdir}/build" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+    "${cmake_paths[@]}" \
     -DSYSCONFDIR=/etc \
     -DLOCALSTATEDIR=/var \
     -DOPENVAS_RUN_DIR=/run/ospd \

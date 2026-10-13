@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -227,6 +228,16 @@ func (m *Manager) ApplyBundle(ctx context.Context, p Payload) (*bundle.Manifest,
 			return nil, bundleErr(p.Version, fmt.Errorf("adopt seeded feed: %w", err))
 		}
 	}
+	// A bundle that carries no feed, neither a feed version nor a file under
+	// nasl/, leaves the installed feed in place. The dev and smoke bundles
+	// are configs only (cp-api bundle build without --feed); read as a
+	// complete file set they removed every seeded script and then waited
+	// for ospd to load an empty feed version, which it never reports. The
+	// recorded manifest keeps the feed files, so the next feed bundle is
+	// still a delta. Seen on the first KVM smoke run, 2026-10-09.
+	if !carriesFeed(next) {
+		next = withFeedOf(next, installed)
+	}
 	// ospd only loads a feed that is newer than the one it has, so an older
 	// feed would sit on disk unloaded until the reload wait ran out, with
 	// the appliance unable to scan all that time. Refuse it up front.
@@ -279,6 +290,35 @@ func (m *Manager) ApplyBundle(ctx context.Context, p Payload) (*bundle.Manifest,
 	m.gc(installed, next)
 	log.Info("bundle applied", "feed", next.FeedVersion, "files", len(next.Files))
 	return next, nil
+}
+
+// carriesFeed reports whether a manifest brings a feed: a feed version or
+// any file under nasl/.
+func carriesFeed(mf *bundle.Manifest) bool {
+	if mf.FeedVersion != "" {
+		return true
+	}
+	for _, f := range mf.Files {
+		if strings.HasPrefix(f.Path, feedPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// withFeedOf returns next with installed's feed files and feed version
+// added: the manifest the daemon records for a bundle without a feed.
+func withFeedOf(next, installed *bundle.Manifest) *bundle.Manifest {
+	out := *next
+	out.Files = append([]bundle.File(nil), next.Files...)
+	for _, f := range installed.Files {
+		if strings.HasPrefix(f.Path, feedPrefix) {
+			out.Files = append(out.Files, f)
+		}
+	}
+	sort.Slice(out.Files, func(i, j int) bool { return out.Files[i].Path < out.Files[j].Path })
+	out.FeedVersion = installed.FeedVersion
+	return &out
 }
 
 // feedOlder reports whether feed version a is older than b. Versions are

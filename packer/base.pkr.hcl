@@ -37,23 +37,23 @@ variable "version" {
 
 variable "iso_url" {
   type = string
-  # Debian keeps only the *latest* 12.x point release under release/current/
-  # while 12 is stable; when 12 becomes oldstable the images move to
-  # https://cdimage.debian.org/cdimage/archive/12.<x>.0/amd64/iso-cd/ . Adjust
-  # the file name to the point release listed in that directory.
-  default     = "https://cdimage.debian.org/cdimage/release/current/amd64/iso-cd/debian-12.12.0-amd64-netinst.iso"
+  # Debian 12 is oldstable since 2025-08: release/current/ serves Debian 13,
+  # which this preseed is not written for. Every 12.x point release stays
+  # under cdimage/archive/; bump the point release here and in
+  # .github/workflows/release.yml (DEBIAN_RELEASE) together.
+  default     = "https://cdimage.debian.org/cdimage/archive/12.15.0/amd64/iso-cd/debian-12.15.0-amd64-netinst.iso"
   description = "Debian 12 netinst ISO URL."
 }
 
 variable "iso_checksum" {
   type = string
   # Fetch the pinned value with:
-  #   curl -fsSL https://cdimage.debian.org/cdimage/release/current/amd64/iso-cd/SHA256SUMS \
-  #     | grep netinst.iso | awk '{print "sha256:"$1}'
+  #   curl -fsSL https://cdimage.debian.org/cdimage/archive/12.15.0/amd64/iso-cd/SHA256SUMS \
+  #     | grep 'debian-12.15.0-amd64-netinst.iso' | awk '{print "sha256:"$1}'
   # and pass it as -var iso_checksum=sha256:<hash>. The default below asks
   # Packer to resolve the checksum from the published SHA256SUMS file; pin it
   # explicitly for release builds so the build is reproducible.
-  default     = "file:https://cdimage.debian.org/cdimage/release/current/amd64/iso-cd/SHA256SUMS"
+  default     = "file:https://cdimage.debian.org/cdimage/archive/12.15.0/amd64/iso-cd/SHA256SUMS"
   description = "Checksum of the ISO (sha256:<hex>, or file:<url> to look it up)."
 }
 

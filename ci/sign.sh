@@ -64,11 +64,17 @@ for f in "$DIST"/*; do
     cosign sign-blob "${cosign_args[@]}" "${sig_args[@]}" "$f"
   fi
 
+  # Disk images (qcow2/ova/vhdx, zipped or not) are opaque to syft, which
+  # would only unpack gigabytes to find nothing; the SBOM for the OS inside
+  # them is produced from the container image, which shares the daemon and
+  # engine binaries.
+  case "$name" in
+    *.qcow2|*.ova|*.vhdx|*.vhdx.zip) continue ;;
+  esac
+
   if [[ $have_syft -eq 1 ]]; then
     log "syft $name"
-    # Disk images (qcow2/ova/vhdx) are opaque to syft; the SBOM for the OS
-    # inside them is produced from the container image, which shares the
-    # daemon and engine binaries. Do not fail the release on them.
+    # Do not fail the release on an SBOM.
     if ! syft scan "file:${f}" -q -o "spdx-json=${f}.sbom.spdx.json"; then
       warn "syft failed on $name; writing no SBOM"
       rm -f "${f}.sbom.spdx.json"

@@ -430,7 +430,12 @@ cp_pilot_roundtrip() {
   smoke_log "coverage score $score; alerts: $(cp_api GET /admin/alerts | jq -c '[.[].kind]')"
   cp_api GET "/admin/sites/${site}/tuning" | jq -e '.findings >= 0' >/dev/null || smoke_die "tuning report"
   if [[ -n "${CP_ENROLL_URL:-}" ]]; then
-    curl -fsSk "${CP_ENROLL_URL}/transparency" | grep -q 'what this appliance does' || smoke_die "transparency page"
+    # Read the whole page before grepping: with pipefail, "curl | grep -q"
+    # fails when grep exits on the first 4 KB record and curl's next write
+    # hits the closed pipe (curl: (23)), which happens on a loaded host.
+    local page
+    page="$(curl -fsSk "${CP_ENROLL_URL}/transparency")" || smoke_die "transparency page"
+    grep -q 'what this appliance does' <<<"$page" || smoke_die "transparency page"
     smoke_log "transparency page served on ${CP_ENROLL_URL}"
   fi
 }
@@ -532,6 +537,8 @@ cp_replace_roundtrip() {
   cp_api DELETE "/admin/webhooks/${hook}" >/dev/null || smoke_die "webhook delete"
   resp="$(cp_api POST "/admin/retention/run?dry_run=1")" || smoke_die "retention"
   jq -e '.dry_run == true' <<<"$resp" >/dev/null || smoke_die "retention: $resp"
-  curl "${args[@]}" "${CP_ADMIN_URL}/admin/metrics" | grep -q '^cp_findings_open{severity="critical"}' || smoke_die "metrics"
+  local metrics
+  metrics="$(curl "${args[@]}" "${CP_ADMIN_URL}/admin/metrics")" || smoke_die "metrics"
+  grep -q '^cp_findings_open{severity="critical"}' <<<"$metrics" || smoke_die "metrics"
   smoke_log "replacement path OK: import, parity, summary, trend, exports, webhook, retention (dry run: $(jq -c '{raw_result_batches, support_bundles}' <<<"$resp")), metrics"
 }

@@ -4,9 +4,17 @@
 #   expect -f ci/smoke/tty.expect <host> <port>
 #
 # Connects to the TCP socket QEMU exposes for the serial console, waits for
-# the Status screen, opens Network (2) and Proxy (3), returning with 0 each
-# time, and asserts that every screen renders. Menu numbering:
-#   1 Status  2 Network  3 Proxy  4 Enroll  5 Support bundle  6 Wipe  0 Back
+# the Status screen, opens Network (2) and Proxy (3), returns from each, sends
+# an invalid choice and asserts that every screen renders. Menu numbering:
+#   1 Status  2 Network  3 Proxy  4 Enroll  5 Support bundle  6 Wipe
+# Network has "0) Back"; Proxy is a prompt that an empty line leaves.
+#
+# Every screen is matched on its header ("=== Scanner Appliance <version>
+# — <Title> ===") and then read up to its prompt, so a pattern can never
+# match text left over from the previous screen (the Status screen lists
+# every menu title and "Proxy:" in its body). Patterns are case-exact:
+# Expect 5.45 pre-filters -re patterns with a case-sensitive literal "gate"
+# that ignores an inline (?i), so "(?i)proxy" never matched "Proxy".
 #
 # Exit status 0 on success, 1 on a timeout or an unexpected screen.
 
@@ -35,6 +43,12 @@ proc await {pattern what} {
     }
 }
 
+# The Status screen, read up to its menu prompt.
+proc await_status {what} {
+    await {Status ===} "$what (header)"
+    await {Select \[1-6\]: } "$what (menu prompt)"
+}
+
 if {[catch {set sock [socket $host $port]} err]} {
     fail "cannot connect to $host:$port: $err"
 }
@@ -44,32 +58,39 @@ spawn -open $sock
 # Nudge the console: the menu redraws on input.
 send "\r"
 puts "\n\[tty.expect\] waiting for the Status screen"
-await {Status} "Status screen"
+await_status "Status screen"
 
 # 2 -> Network, 0 -> back
 puts "\n\[tty.expect\] opening Network"
 send "2\r"
-await {(?i)network} "Network screen"
-await {(?i)(wan0|lan0|dhcp|static|0\)?\s*Back)} "Network screen contents"
+await {Network ===} "Network screen"
+await {(wan0|lan0): (dhcp|static)} "Network screen contents"
+await {0\) Back} "Network screen menu"
+await {Select: } "Network screen prompt"
 send "0\r"
-await {Status} "Status screen after Network"
+await_status "Status screen after Network"
 
-# 3 -> Proxy, 0 -> back
+# 3 -> Proxy, an empty line -> back
 puts "\n\[tty.expect\] opening Proxy"
 send "3\r"
-await {(?i)proxy} "Proxy screen"
-await {(?i)(host:port|none|test|0\)?\s*Back)} "Proxy screen contents"
-send "0\r"
-await {Status} "Status screen after Proxy"
+await {Proxy ===} "Proxy screen"
+await {Current: } "Proxy screen contents"
+await {host:port} "Proxy screen help"
+await {Proxy: } "Proxy screen prompt"
+send "\r"
+await_status "Status screen after Proxy"
 
 # An invalid choice must be rejected, not crash the menu.
 puts "\n\[tty.expect\] sending an invalid choice"
 send "9\r"
-await {(?i)(invalid|unknown|not a valid|choose|Status)} "input validation"
+await {Unknown option} "input validation"
+await {Press Enter to continue\.} "input validation pause"
+send "\r"
+await_status "Status screen after an invalid choice"
 
 # Back on Status with the menu intact.
 send "1\r"
-await {Status} "Status screen"
+await_status "Status screen"
 
 puts "\n\[tty.expect\] PASS"
 exit 0

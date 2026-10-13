@@ -243,7 +243,17 @@ func TestPhase3(t *testing.T) {
 		t.Fatalf("pending record: %+v", pend)
 	}
 	// The "new binary" starts, confirms itself with a heartbeat, and the
-	// release leaves canary once the canary reports the version.
+	// release leaves canary once the canary reports the version. An error
+	// left by an earlier attempt must not ride along: the daemon that did
+	// update reports none.
+	stale, err := st.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale.LastUpdateError = "daemon e2e-bad: rolled back after 3 failed starts (running e2e)"
+	if err := st.Save(stale); err != nil {
+		t.Fatal(err)
+	}
 	upd2 := *upd
 	upd2.Version = "e2e-next"
 	loop2 := &heartbeat.Loop{Store: st, Roots: c.roots, Version: "e2e-next", Log: slog.Default(), PowerOff: func() error { return nil }, Reboot: func() error { return nil },
