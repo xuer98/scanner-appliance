@@ -94,6 +94,8 @@ func usage() {
   admin publish-bundle --dir DIR [--canary-hours H] | bundles | rollout bundle VERSION canary|released|held|retired [--reason R]
   admin publish-release --file BIN --component applianced-linux-amd64 --version V --key release-key.pem [--canary-hours H]
   admin releases | rollout release COMPONENT VERSION STATUS | set-canary ID true|false
+  admin publish-images --manifest dist/manifest.json --base-url https://…/releases/download/v1.2.3/ [--signature-identity ID] [--feed-version V]
+                   (the vendor download page: HTML at GET /download on both listeners, JSON at /download.json) | admin images
   ca release-key --dir DIR                                                 (create the release signing key pair if missing)
   Phase 4 (pilot):  admin scope-request SITE --cidrs .. --reason R | scope-requests SITE | approve|reject SITE RID --owner-token T | attest SITE --owner-token T
                     admin changes SITE | fragile SITE | fragile-set SITE --ip IP --action clear|unclear|mark|unmark --reason R
@@ -449,6 +451,10 @@ func adminCmd(args []string) error {
 	component := fs.String("component", "", "release component, e.g. applianced-linux-amd64 (publish-release)")
 	relVersion := fs.String("version", "", "release version (publish-release)")
 	keyPath := fs.String("key", envOr("CP_RELEASE_KEY", "dev/pki/release-key.pem"), "release signing key PEM (publish-release)")
+	manifestPath := fs.String("manifest", "", "release manifest.json (publish-images)")
+	baseURL := fs.String("base-url", "", "URL the release files are served under (publish-images)")
+	sigIdentity := fs.String("signature-identity", "", "Sigstore certificate identity the files were signed with (publish-images)")
+	feedVersion := fs.String("feed-version", "", "vulnerability-test feed snapshot in the images (publish-images)")
 	canaryHrs := fs.Float64("canary-hours", 0, "canary period override in hours (publish-*)")
 	reason := fs.String("reason", "", "reason recorded with a rollout, policy or review change")
 	ownerTok := fs.String("owner-token", os.Getenv("CP_OWNER_TOKEN"), "act as the vendor owner (approve/reject/attest, direct scope edits)")
@@ -666,6 +672,21 @@ func adminCmd(args []string) error {
 			return errors.New("--file, --component and --version required")
 		}
 		status, out, err = publishRelease(callRaw, *file, *component, *relVersion, *keyPath, *canaryHrs)
+	case "publish-images":
+		if *manifestPath == "" || *baseURL == "" {
+			return errors.New("--manifest and --base-url required")
+		}
+		raw, rerr := os.ReadFile(*manifestPath)
+		if rerr != nil {
+			return rerr
+		}
+		var m v1.ReleaseManifest
+		if jerr := json.Unmarshal(raw, &m); jerr != nil {
+			return fmt.Errorf("%s: %w", *manifestPath, jerr)
+		}
+		status, out, err = call("PUT", "/admin/images", v1.AdminImagesPublish{BaseURL: *baseURL, SignatureIdentity: *sigIdentity, FeedVersion: *feedVersion, Manifest: m})
+	case "images":
+		status, out, err = call("GET", "/admin/images", nil)
 	case "bundles":
 		status, out, err = call("GET", "/admin/bundles", nil)
 	case "releases":

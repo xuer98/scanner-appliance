@@ -1501,3 +1501,74 @@ type AdminRetentionResult struct {
 	SupportBundles int       `json:"support_bundles"`
 	Errors         int       `json:"errors"`
 }
+
+// ---- Appliance images: the download page (PLAN §18.1) ----
+
+// AdminImagesPublish records the images of a release for the vendor
+// download page: the release manifest (ci/manifest.sh) and where its files
+// are served from. The binaries in the manifest are not shown to vendors.
+type AdminImagesPublish struct {
+	// BaseURL is where the artifacts are fetched from, each as BaseURL + name,
+	// e.g. https://github.com/org/repo/releases/download/v1.2.3/ .
+	BaseURL string `json:"base_url"`
+	// SignatureIdentity is the Sigstore certificate identity the files were
+	// signed with (the release workflow at the tag); with OIDCIssuer it
+	// completes the cosign verify-blob command on the page.
+	SignatureIdentity string `json:"signature_identity,omitempty"`
+	OIDCIssuer        string `json:"oidc_issuer,omitempty"`
+	// FeedVersion is the vulnerability-test feed snapshot built into the
+	// images, when known.
+	FeedVersion string          `json:"feed_version,omitempty"`
+	Manifest    ReleaseManifest `json:"manifest"`
+}
+
+// ReleaseManifest is dist/manifest.json as ci/manifest.sh writes it.
+type ReleaseManifest struct {
+	Version   string            `json:"version"`
+	BuiltAt   time.Time         `json:"built_at"`
+	Artifacts []ReleaseArtifact `json:"artifacts"`
+	Container *ReleaseContainer `json:"container,omitempty"`
+}
+
+// ReleaseArtifact is one file of a release; Sig and SBOM name the files
+// next to it, when they exist.
+type ReleaseArtifact struct {
+	Name   string `json:"name"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+	Sig    string `json:"sig,omitempty"`
+	SBOM   string `json:"sbom,omitempty"`
+}
+
+// ReleaseContainer is the multi-arch container image of a release.
+type ReleaseContainer struct {
+	Image  string `json:"image"`
+	Digest string `json:"digest"`
+}
+
+// ImagesView is the published image set: GET /admin/images for the portal
+// and GET /download.json for vendors.
+type ImagesView struct {
+	Version           string            `json:"version"`
+	BuiltAt           time.Time         `json:"built_at"`
+	PublishedAt       time.Time         `json:"published_at"`
+	FeedVersion       string            `json:"feed_version,omitempty"`
+	BaseURL           string            `json:"base_url"`
+	SignatureIdentity string            `json:"signature_identity,omitempty"`
+	OIDCIssuer        string            `json:"oidc_issuer,omitempty"`
+	Images            []ImageDownload   `json:"images"`
+	Container         *ReleaseContainer `json:"container,omitempty"`
+}
+
+// ImageDownload is one downloadable image with its checksum and signature.
+type ImageDownload struct {
+	Name    string `json:"name"`
+	Kind    string `json:"kind"` // ova | vhdx | qcow2 | helpers
+	For     string `json:"for"`  // the hypervisor it is for
+	Note    string `json:"note,omitempty"`
+	Size    int64  `json:"size"`
+	SHA256  string `json:"sha256"`
+	URL     string `json:"url"`
+	SigURL  string `json:"sig_url,omitempty"`
+	CertURL string `json:"cert_url,omitempty"`
+}

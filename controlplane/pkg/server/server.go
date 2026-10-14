@@ -139,6 +139,8 @@ func (s *Server) EnrollHandler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 	mux.HandleFunc("GET /transparency", s.handleTransparency)
 	mux.HandleFunc("GET /transparency.json", s.handleTransparencyJSON)
+	mux.HandleFunc("GET /download", s.handleDownload)
+	mux.HandleFunc("GET /download.json", s.adminGetImages)
 	return logging(s.log, s.stall(), mux)
 }
 
@@ -159,6 +161,8 @@ func (s *Server) MTLSHandler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 	mux.HandleFunc("GET /transparency", s.handleTransparency)
 	mux.HandleFunc("GET /transparency.json", s.handleTransparencyJSON)
+	mux.HandleFunc("GET /download", s.handleDownload)
+	mux.HandleFunc("GET /download.json", s.adminGetImages)
 
 	mux.HandleFunc("POST /admin/appliances", s.withAdmin(s.adminCreateAppliance))
 	mux.HandleFunc("GET /admin/appliances", s.withAdmin(s.adminListAppliances))
@@ -178,6 +182,8 @@ func (s *Server) MTLSHandler() http.Handler {
 	mux.HandleFunc("PUT /admin/releases/{component}/{version}", s.withAdmin(s.adminPutRelease))
 	mux.HandleFunc("GET /admin/releases", s.withAdmin(s.adminListReleases))
 	mux.HandleFunc("POST /admin/releases/{component}/{version}/rollout", s.withAdmin(s.adminReleaseRollout))
+	mux.HandleFunc("PUT /admin/images", s.withAdmin(s.adminPublishImages))
+	mux.HandleFunc("GET /admin/images", s.withAdmin(s.adminGetImages))
 
 	mux.HandleFunc("POST /admin/jobs", s.withAdmin(s.adminCreateJob))
 	mux.HandleFunc("GET /admin/jobs", s.withAdmin(s.adminListJobs))

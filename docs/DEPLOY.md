@@ -15,9 +15,10 @@ the engine is healthy (*engine ready*) and which job, if any, is running.
 
 Three things are needed before you start:
 
-1. **An image** from the download page: OVA (VMware), VHDX (Hyper-V), qcow2
-   (KVM) or the container image. Each release ships `manifest.json` with a
-   SHA-256 and a signature for every file.
+1. **An image** from the download page, `/download` on the control plane
+   (the portal links it): OVA (VMware), VHDX (Hyper-V), qcow2 (KVM) or the
+   container image, each with its SHA-256 and signature and the command to
+   check them.
 2. **An enrollment code** issued in the portal for this appliance. It looks
    like `ABCD-EFGH-IJKL-MNOP-QRST`, works once, and expires after 14 days.
 3. **Network placement** per the prerequisites below.

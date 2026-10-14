@@ -411,3 +411,42 @@ jobs:
           fi
           gh release upload "$TAG" --clobber "${files[@]}"
           gh release edit "$TAG" --draft=false
+
+  # -------------------------------------------------------------------------
+  # The vendor download page: the control plane is told where this
+  # release's images are (PUT /admin/images; GET /download). Runs where the
+  # control plane is reachable from, like the daily bundle (BUNDLE_RUNNER),
+  # against the staging control plane unless the production secrets are set.
+  images:
+    name: publish the image set to the download page
+    needs: [build, publish]
+    runs-on: ${{ vars.BUNDLE_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: cp-api admin publish-images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CP_TARGET: ${{ secrets.CP_ADMIN_URL && 'the control plane (CP_ADMIN_URL)' || 'the staging control plane (STAGING_CP_ADMIN_URL)' }}
+          CP_URL: ${{ secrets.CP_ADMIN_URL || secrets.STAGING_CP_ADMIN_URL }}
+          CP_ADMIN_TOKEN: ${{ secrets.CP_ADMIN_TOKEN || secrets.STAGING_CP_ADMIN_TOKEN }}
+          CP_ROOT_CA_PEM: ${{ secrets.CP_ROOT_CA_PEM || secrets.STAGING_CP_CA_PEM }}
+          TAG: ${{ github.ref_name }}
+          BASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/
+          SIGNATURE_IDENTITY: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
+        run: |
+          if [ -z "$CP_URL" ]; then
+            echo "no control plane configured; the download page is not updated"
+            exit 0
+          fi
+          echo "publishing the image set to $CP_TARGET"
+          if [ -n "$CP_ROOT_CA_PEM" ]; then
+            printf '%s\n' "$CP_ROOT_CA_PEM" > "$RUNNER_TEMP/cp-root.pem"
+            export CP_ROOT_CA="$RUNNER_TEMP/cp-root.pem"
+          fi
+          gh release download "$TAG" -p manifest.json -D "$RUNNER_TEMP/release"
+          go run ./controlplane/cmd/cp-api admin publish-images --manifest "$RUNNER_TEMP/release/manifest.json" \
+            --base-url "$BASE_URL" --signature-identity "$SIGNATURE_IDENTITY"

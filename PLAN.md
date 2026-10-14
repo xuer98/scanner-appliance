@@ -750,7 +750,7 @@ A control-plane job syncs the Greenbone Community Feed over rsync daily, verifie
 3. Packer qemu build (includes feed snapshot + VT cache pre-warm) → qcow2 → OVA / VHDX conversions.
 4. Docker buildx multi-arch → registry.
 5. Sign: cosign for the container; cosign blob for OVA/VHDX/qcow2. `syft` SBOM per artifact.
-6. Publish `manifest.json` `{version, feed_version, artifacts: [{name, sha256, sig_url, sbom_url}]}` — the portal download page reads this.
+6. Publish `manifest.json` `{version, feed_version, artifacts: [{name, sha256, sig_url, sbom_url}]}` — the portal download page reads this. The control plane serves that page itself: the release hands it the manifest and the files' location (`PUT /admin/images`), vendors get `GET /download` (HTML) and `/download.json` on both listeners, the portal `GET /admin/images`.
 7. Smoke test (below). Failure blocks publish.
 
 ### 18.2 Smoke test
