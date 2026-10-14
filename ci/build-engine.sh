@@ -55,6 +55,21 @@ log() { printf '[build-engine] %s\n' "$*"; }
 # want NAME: is this tool part of the run?
 want() { [[ -z "$ONLY" || "$ONLY" == "$1" ]]; }
 
+# retry CMD...: up to four attempts with growing pauses. Module fetches go
+# through proxy.golang.org and sum.golang.org, and those reads fail now and
+# then on GitHub's runners (HTTP/2 stream errors three times on 2026-10-14).
+retry() {
+  local n=0
+  until "$@"; do
+    n=$((n + 1))
+    if (( n >= 4 )); then
+      return 1
+    fi
+    echo "retry $n/3 in $((n * 20))s: $*" >&2
+    sleep $((n * 20))
+  done
+}
+
 if want naabu; then
   if [[ "$(go env GOOS)" != "linux" ]]; then
     echo "naabu needs a native Linux build (cgo + libpcap); run this on Linux or use the container image" >&2
@@ -73,7 +88,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 if want naabu; then
   log "building naabu ${NAABU_VERSION} for linux/${ARCH}"
-  GOBIN="$tmp" GOFLAGS=-trimpath CGO_ENABLED=1 GOOS=linux GOARCH="$ARCH" \
+  retry env GOBIN="$tmp" GOFLAGS=-trimpath CGO_ENABLED=1 GOOS=linux GOARCH="$ARCH" \
     go install -ldflags="-s -w" "github.com/projectdiscovery/naabu/v2/cmd/naabu@${NAABU_VERSION}"
   bin="$tmp/naabu"
   [[ -x "$bin" ]] || bin="$(find "$tmp" -type f -name naabu -perm -u+x | head -n1)"
@@ -92,7 +107,7 @@ if [[ "$WITH_WEB_ADDON" == "1" || "$ONLY" == "httpx" || "$ONLY" == "nuclei" ]]; 
     want "$name" || continue
     log "building $name (${pkg##*@}) for linux/${ARCH}"
     rm -rf "${tmp:?}"/*
-    GOBIN="$tmp" GOTOOLCHAIN="$ENGINE_GOTOOLCHAIN" GOFLAGS=-trimpath CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go install -ldflags="-s -w" "$pkg"
+    retry env GOBIN="$tmp" GOTOOLCHAIN="$ENGINE_GOTOOLCHAIN" GOFLAGS=-trimpath CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go install -ldflags="-s -w" "$pkg"
     bin="$(find "$tmp" -type f -name "$name" -perm -u+x | head -n1)"
     [[ -n "$bin" ]] || { echo "$name binary not produced" >&2; exit 1; }
     install -m 0755 "$bin" "$OUT/$name"

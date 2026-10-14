@@ -95,13 +95,18 @@ ENV GOBIN=/out GOFLAGS=-trimpath
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpcap-dev build-essential \
     && rm -rf /var/lib/apt/lists/*
+# retry: up to four attempts with growing pauses. The module fetches go
+# through proxy.golang.org and sum.golang.org, and those reads fail now and
+# then on GitHub's runners (HTTP/2 stream errors three times on 2026-10-14,
+# each one costing a release run).
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     mkdir -p /out \
-    && CGO_ENABLED=1 go install -ldflags="-s -w" github.com/projectdiscovery/naabu/v2/cmd/naabu@${NAABU_VERSION} \
+    && retry() { n=0; until "$@"; do n=$((n + 1)); if [ "$n" -ge 4 ]; then return 1; fi; echo "retry $n/3 in $((n * 20))s: $*" >&2; sleep $((n * 20)); done; } \
+    && retry env CGO_ENABLED=1 go install -ldflags="-s -w" github.com/projectdiscovery/naabu/v2/cmd/naabu@${NAABU_VERSION} \
     && if [ "${WITH_WEB_ADDON}" = "1" ]; then \
-         GOTOOLCHAIN=${ENGINE_GOTOOLCHAIN} CGO_ENABLED=0 go install -ldflags="-s -w" github.com/projectdiscovery/httpx/cmd/httpx@${HTTPX_VERSION} \
-      && GOTOOLCHAIN=${ENGINE_GOTOOLCHAIN} CGO_ENABLED=0 go install -ldflags="-s -w" github.com/projectdiscovery/nuclei/v3/cmd/nuclei@${NUCLEI_VERSION}; \
+         retry env GOTOOLCHAIN=${ENGINE_GOTOOLCHAIN} CGO_ENABLED=0 go install -ldflags="-s -w" github.com/projectdiscovery/httpx/cmd/httpx@${HTTPX_VERSION} \
+      && retry env GOTOOLCHAIN=${ENGINE_GOTOOLCHAIN} CGO_ENABLED=0 go install -ldflags="-s -w" github.com/projectdiscovery/nuclei/v3/cmd/nuclei@${NUCLEI_VERSION}; \
        fi
 
 # ---------------------------------------------------------------------------
