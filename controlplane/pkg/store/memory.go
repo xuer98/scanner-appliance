@@ -12,12 +12,16 @@ import (
 
 // Memory is the in-memory Store used by --dev and tests.
 type Memory struct {
-	mu          sync.Mutex
-	vendors     map[string]*Vendor
-	sites       map[string]*Site
-	appliances  map[string]*Appliance
-	codes       map[string]*EnrollmentCode // by hash
-	directives  map[string]*Directive
+	mu         sync.Mutex
+	vendors    map[string]*Vendor
+	sites      map[string]*Site
+	appliances map[string]*Appliance
+	codes      map[string]*EnrollmentCode // by hash
+	directives map[string]*Directive
+	// dirSeq orders directives created within one clock tick (Windows
+	// ticks every few milliseconds): lists come back in creation order.
+	dirSeq      map[string]uint64
+	seq         uint64
 	revoked     map[string]string
 	attempts    []EnrollAttempt
 	heartbeats  map[string][]v1.Heartbeat
@@ -50,7 +54,7 @@ type Memory struct {
 func NewMemory() *Memory {
 	return &Memory{
 		vendors: map[string]*Vendor{}, sites: map[string]*Site{}, appliances: map[string]*Appliance{},
-		codes: map[string]*EnrollmentCode{}, directives: map[string]*Directive{}, revoked: map[string]string{},
+		codes: map[string]*EnrollmentCode{}, directives: map[string]*Directive{}, dirSeq: map[string]uint64{}, revoked: map[string]string{},
 		heartbeats: map[string][]v1.Heartbeat{},
 	}
 }
@@ -299,6 +303,8 @@ func (m *Memory) CreateDirective(_ context.Context, applianceID, typ string, pay
 	}
 	d := &Directive{ID: NewID("dir"), ApplianceID: applianceID, Type: typ, Payload: payload, CreatedAt: time.Now()}
 	m.directives[d.ID] = d
+	m.seq++
+	m.dirSeq[d.ID] = m.seq
 	c := *d
 	return &c, nil
 }
@@ -317,7 +323,7 @@ func (m *Memory) PendingDirectives(_ context.Context, applianceID string, markDe
 			out = append(out, *d)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	sort.Slice(out, func(i, j int) bool { return m.directiveBefore(out[i], out[j]) })
 	return out, nil
 }
 
@@ -342,7 +348,7 @@ func (m *Memory) ListDirectives(_ context.Context, applianceID string) ([]Direct
 			out = append(out, *d)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	sort.Slice(out, func(i, j int) bool { return m.directiveBefore(out[i], out[j]) })
 	return out, nil
 }
 
@@ -739,4 +745,13 @@ func (m *Memory) NVT(oid string) *NVT {
 	defer m.mu.Unlock()
 	m.ensurePhase2()
 	return m.nvts[oid]
+}
+
+// directiveBefore orders by creation time, then by creation sequence for
+// directives created within the same clock tick.
+func (m *Memory) directiveBefore(a, b Directive) bool {
+	if !a.CreatedAt.Equal(b.CreatedAt) {
+		return a.CreatedAt.Before(b.CreatedAt)
+	}
+	return m.dirSeq[a.ID] < m.dirSeq[b.ID]
 }
