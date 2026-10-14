@@ -387,24 +387,27 @@ jobs:
           jq --arg img "${IMAGE}:${VERSION}" --arg digest "${{ needs.container.outputs.digest }}" \
             '. + {container: {image: $img, digest: $digest}}' dist/manifest.json > dist/manifest.json.tmp
           mv dist/manifest.json.tmp dist/manifest.json
+      # gh uploads each asset in one request and nothing else; the release
+      # action also patched every asset's metadata afterwards, and that
+      # call 404ed past its retries on the v0.1.0 run (a GitHub flake, 37
+      # of 39 assets up), leaving a draft. A rerun finds the draft by its
+      # tag and uploads over it, then publishes it.
       - name: GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ github.ref_name }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          shopt -s nullglob
+          files=(dist/applianced-linux-* dist/applianced-windows-* dist/cp-api-linux-* dist/cp-api-windows-*
+                 dist/*.qcow2 dist/*.ova dist/*.vhdx.zip dist/*-hypervisor-helpers.zip
+                 dist/*.sig dist/*.pem dist/*.sbom.spdx.json dist/manifest.json)
+          mapfile -t files < <(printf '%s\n' "${files[@]}" | sort -u)
+          echo "${#files[@]} assets"
+          prerelease=()
           # v1.2.3-rc1 and the like are prereleases; they never become "Latest".
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          fail_on_unmatched_files: false
-          files: |
-            dist/applianced-linux-*
-            dist/applianced-windows-*
-            dist/cp-api-linux-*
-            dist/cp-api-windows-*
-            dist/*.qcow2
-            dist/*.ova
-            dist/*.vhdx.zip
-            dist/*-hypervisor-helpers.zip
-            dist/*.sig
-            dist/*.pem
-            dist/*.sbom.spdx.json
-            dist/manifest.json
+          [[ "$TAG" == *-* ]] && prerelease=(--prerelease)
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --title "$TAG" --generate-notes "${prerelease[@]}"
+          fi
+          gh release upload "$TAG" --clobber "${files[@]}"
+          gh release edit "$TAG" --draft=false
