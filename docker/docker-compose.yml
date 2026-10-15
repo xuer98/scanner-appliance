@@ -79,7 +79,7 @@ services:
         # 1 installs nmap for the Phase 5 fingerprint pass (NPSL; only after
         # the legal sign-off, cp-api admin signoff nmap).
         WITH_NMAP: ${WITH_NMAP:-0}
-    image: ghcr.io/tprm/scanner-appliance:${VERSION:-dev}
+    image: ghcr.io/xuer98/scanner-appliance:${VERSION:-dev}
     depends_on:
       cp-api:
         condition: service_healthy

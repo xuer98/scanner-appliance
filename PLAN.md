@@ -745,11 +745,11 @@ A control-plane job syncs the Greenbone Community Feed over rsync daily, verifie
 
 ### 18.1 Pipeline (on tag)
 
-1. `goreleaser` → static `applianced`, amd64 + arm64.
+1. `ci/build.sh` → static `applianced` and `cp-api`: linux amd64 + arm64, windows amd64.
 2. Build `openvas-scanner` / `ospd-openvas` from pinned tags; unit-test the OSP client against them in a container.
 3. Packer qemu build (includes feed snapshot + VT cache pre-warm) → qcow2 → OVA / VHDX conversions.
 4. Docker buildx multi-arch → registry.
-5. Sign: cosign for the container; cosign blob for OVA/VHDX/qcow2. `syft` SBOM per artifact.
+5. Sign: cosign for the container; cosign blob for OVA/VHDX/qcow2 and the binaries, keyless by default. `syft` SBOM per binary; buildx attaches the container's SBOM and provenance.
 6. Publish `manifest.json` `{version, feed_version, artifacts: [{name, sha256, sig_url, sbom_url}]}` — the portal download page reads this. The control plane serves that page itself: the release hands it the manifest and the files' location (`PUT /admin/images`), vendors get `GET /download` (HTML) and `/download.json` on both listeners, the portal `GET /admin/images`.
 7. Smoke test (below). Failure blocks publish.
 
