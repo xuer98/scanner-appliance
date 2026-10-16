@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -391,5 +392,103 @@ func TestPublishOfUnchangedBundleSucceeds(t *testing.T) {
 	var res v1.AdminPublishBundleResponse
 	if json.Unmarshal(body, &res) != nil || !res.Unchanged || res.Version != "20261007T110000Z" {
 		t.Fatalf("response: %s", body)
+	}
+}
+
+// Our own templates (--nuclei-extra) ship under custom/ by the rules of
+// the pinned set, but where the filter drops one of upstream's the build
+// stops on one of ours and says why: a drop would be a mistake nobody
+// sees. Ids must not repeat, a helper must not sit where the pinned set
+// has a file, and each one must load with the appliance's nuclei.
+func TestOurTemplatesAreStrict(t *testing.T) {
+	nuclei := fakeNuclei(t, t.TempDir(), "")
+	work := t.TempDir()
+	key, err := bundle.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyFile := filepath.Join(work, "release-key.pem")
+	if err := bundle.SavePrivate(keyFile, key); err != nil {
+		t.Fatal(err)
+	}
+	// The pinned set: one template that does not load, which the build
+	// tolerates (TestTemplatesAreValidated), and plain ones.
+	upstream := filepath.Join(work, "nuclei-templates")
+	files := map[string]string{
+		"http/cves/2021/grafana.yaml":           tpl("CVE-2021-43798", "cve", "      slug: helpers/wordlists/grafana-plugins.txt\n"),
+		"helpers/wordlists/grafana-plugins.txt": "alertlist\n",
+		"http/cves/2019/old.yaml":               tpl("old", "cve", "") + "# BROKEN\n",
+		// A helper at the root of the pinned set, shipped because a template names it.
+		"http/misc/uses-shared.yaml": tpl("uses-shared", "tech", "      p: shared.txt\n"),
+		"shared.txt":                 "a list at the root of the pinned set\n",
+	}
+	for i := 0; i < 40; i++ {
+		files[fmt.Sprintf("http/misc/t%02d.yaml", i)] = tpl(fmt.Sprintf("t%02d", i), "tech", "")
+	}
+	writeFiles(t, upstream, files)
+
+	build := func(extra map[string]string, withNuclei bool) (map[string]any, string, error) {
+		t.Helper()
+		dir, out := t.TempDir(), t.TempDir()
+		writeFiles(t, dir, extra)
+		args := []string{"--out", out, "--nuclei-templates", upstream, "--nuclei-extra", dir, "--key", keyFile}
+		if withNuclei {
+			args = append(args, "--nuclei", nuclei)
+		}
+		summary, err := runBundleBuild(t, args...)
+		return summary, filepath.Join(out, "root", bundle.TemplatesDir), err
+	}
+
+	summary, dst, err := build(map[string]string{
+		// A helper named from the root of our directory, and one next to
+		// its template; a README is not a template.
+		"acme/cve-2026-0001.yaml": tpl("acme-cve-2026-0001", "cve,acme", "      p: helpers/acme-paths.txt\n"),
+		"helpers/acme-paths.txt":  "admin\nsetup\n",
+		"acme/panel.yaml":         tpl("acme-panel", "panel", "      p: panel-paths.txt\n"),
+		"acme/panel-paths.txt":    "login\n",
+		"README.md":               "the rules",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := listFiles(t, dst)
+	for _, want := range []string{"custom/acme/cve-2026-0001.yaml", "custom/acme/panel.yaml", "custom/acme/panel-paths.txt", "custom/helpers/acme-paths.txt", "http/cves/2021/grafana.yaml"} {
+		if !strings.Contains(got+" ", want+" ") {
+			t.Fatalf("%s not shipped: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "old.yaml") || strings.Contains(got, "README") {
+		t.Fatalf("shipped too much: %s", got)
+	}
+	by, _ := summary["templates_dropped_by"].(map[string]any)
+	if summary["templates_custom"] != 2.0 || summary["templates"] != 44.0 || by["does_not_load"] != 1.0 {
+		t.Fatalf("summary: %v", summary)
+	}
+
+	// Each of these stops the build, naming the template and the rule.
+	for _, c := range []struct {
+		name, want string
+		files      map[string]string
+	}{
+		{"other protocol", "a section other than http", map[string]string{"x.yaml": tpl("x", "cve", "") + "tcp:\n  - host:\n      - \"{{Hostname}}\"\n"}},
+		{"excluded tag", "intrusive", map[string]string{"x.yaml": tpl("x", "cve,Intrusive", "")}},
+		{"self-contained", "third party", map[string]string{"x.yaml": "self-contained: true\n" + tpl("x", "cve", "")}},
+		{"missing helper", "helpers/none.txt", map[string]string{"x.yaml": tpl("x", "cve", "      p: helpers/none.txt\n")}},
+		{"helper outside", "../secret.txt", map[string]string{"x.yaml": tpl("x", "cve", "      p: ../secret.txt\n")}},
+		{"same id twice", "id \"same\"", map[string]string{"a.yaml": tpl("same", "cve", ""), "b.yaml": tpl("same", "cve", "")}},
+		{"an upstream id", "CVE-2021-43798", map[string]string{"x.yaml": tpl("CVE-2021-43798", "cve", "")}},
+		{"shadowed helper", "pinned set also has", map[string]string{"x.yaml": tpl("x", "cve", "      p: helpers/wordlists/grafana-plugins.txt\n"), "helpers/wordlists/grafana-plugins.txt": "ours\n"}},
+		// Named next to the template, but nuclei tries the root first, where the pinned set has a file of that name.
+		{"shadowed by a root file", "nuclei-templates/shared.txt", map[string]string{"acme/x.yaml": tpl("x", "cve", "      p: shared.txt\n"), "acme/shared.txt": "ours\n"}},
+		{"does not load", "does not load", map[string]string{"x.yaml": tpl("x", "cve", "") + "# BROKEN\n"}},
+		{"nothing there", "no templates", map[string]string{"README.md": "the rules"}},
+	} {
+		if _, _, err := build(c.files, true); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+	}
+	// Without the appliance's nuclei our templates cannot be checked.
+	if _, _, err := build(map[string]string{"x.yaml": tpl("x", "cve", "")}, false); err == nil || !strings.Contains(err.Error(), "--nuclei") {
+		t.Fatalf("without --nuclei: %v", err)
 	}
 }

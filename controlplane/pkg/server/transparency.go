@@ -29,7 +29,7 @@ var engineVersions = []struct{ Name, Version, License, Role string }{
 	{"Greenbone Community Feed", "daily signed bundle", "ODbL 1.0", "the vulnerability tests themselves"},
 	{"naabu", "v2.3.6", "MIT", "host discovery and port scan"},
 	{"httpx", "v1.7.1", "MIT", "HTTP service fingerprint (web add-on)"},
-	{"nuclei", "v3.4.10", "MIT", "HTTP template checks, dos/fuzz/intrusive templates removed (web add-on)"},
+	{"nuclei", "v3.4.10", "MIT", "HTTP template checks from the public nuclei-templates set and our own, dos/fuzz/intrusive templates removed (web add-on)"},
 }
 
 // nmapVersion is the Debian 12 package the image and container install
