@@ -21,13 +21,126 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// templateSet is what filterTemplates put into a bundle.
+// templateSet is what filterTemplates and addExtraTemplates put into a bundle.
 type templateSet struct {
 	Kept    int
 	Dropped map[string]int // templates left out, by reason
 
-	uses  map[string][]string // template → the helper files it names (slash paths below the root)
-	users map[string]int      // helper file → shipped templates that name it
+	uses   map[string][]string // template → the helper files it names (slash paths below the root)
+	users  map[string]int      // helper file → shipped templates that name it
+	ids    map[string]string   // template id → the first shipped template that carries it
+	strict map[string]bool     // our own templates: one that does not load stops the build
+}
+
+func newTemplateSet() *templateSet {
+	return &templateSet{Dropped: map[string]int{}, uses: map[string][]string{}, users: map[string]int{}, ids: map[string]string{}, strict: map[string]bool{}}
+}
+
+// extraTemplatesDir is where our own templates sit inside the bundle's
+// template tree. nuclei finds a helper file named from the root of our
+// directory through this parent of the template (checked with v3.4.10).
+const extraTemplatesDir = "custom"
+
+// dropReasons says, for the author of one of our templates, what the
+// reasons of templateCheck mean.
+var dropReasons = map[string]string{
+	"not_http":       "no id, or no http section",
+	"other_protocol": "a section other than http (tcp, dns, javascript, code, headless, ...): the web add-on speaks HTTP to the target only",
+	"self_contained": "self-contained: it would call a third party, not the target",
+	"fuzzing":        "a fuzzer",
+	"excluded_tag":   "an excluded tag",
+}
+
+// addExtraTemplates ships the templates below src under dst/custom/ by the
+// rules of filterTemplates, but where that filter drops a template this
+// stops the build and says why: these templates are ours, written for
+// this bundle, and a drop would be a mistake nobody sees. An id must not
+// repeat, nor be one of the pinned set's, since nuclei keeps one template
+// per id. A helper file must not sit where the pinned set has a file,
+// since nuclei looks below the root first. The count is the templates
+// shipped.
+func addExtraTemplates(src, dst string, set *templateSet, exclude []string) (int, error) {
+	ex := map[string]bool{}
+	for _, e := range exclude {
+		ex[strings.ToLower(strings.TrimSpace(e))] = true
+	}
+	if _, err := os.Lstat(filepath.Join(dst, extraTemplatesDir)); err == nil {
+		return 0, fmt.Errorf("the pinned set ships files under %s/, where ours go", extraTemplatesDir)
+	}
+	n := 0
+	err := filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") && p != src {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() || (!strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml")) {
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		rel = filepath.ToSlash(rel)
+		id, why := templateCheck(b, ex)
+		if why == "excluded_tag" {
+			return fmt.Errorf("%s: %s (%s)", rel, dropReasons[why], strings.Join(exclude, ", "))
+		}
+		if why != "" {
+			return fmt.Errorf("%s: %s", rel, dropReasons[why])
+		}
+		if prev, dup := set.ids[id]; dup {
+			return fmt.Errorf("%s: id %q is also the id of %s", rel, id, prev)
+		}
+		target := path.Join(extraTemplatesDir, rel)
+		var helpers []string
+		for _, ref := range templateHelpers(b) {
+			h, ok := resolveHelper(src, rel, ref)
+			if !ok {
+				return fmt.Errorf("%s: names %s, which is not a regular file below %s", rel, ref, src)
+			}
+			// nuclei tries the name below the root of the tree before the
+			// template's own directory and its parents.
+			if _, err := os.Lstat(filepath.Join(dst, filepath.FromSlash(ref))); err == nil {
+				return fmt.Errorf("%s: names %s, which the pinned set also has at %s/%s: nuclei would open that one", rel, ref, filepath.Base(dst), ref)
+			}
+			helpers = append(helpers, path.Join(extraTemplatesDir, h))
+		}
+		for _, h := range helpers {
+			if set.users[h] == 0 {
+				srcRel := strings.TrimPrefix(h, extraTemplatesDir+"/")
+				if err := copyInto(filepath.Join(src, filepath.FromSlash(srcRel)), filepath.Join(dst, filepath.FromSlash(h))); err != nil {
+					return err
+				}
+			}
+			set.users[h]++
+		}
+		full := filepath.Join(dst, filepath.FromSlash(target))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(full, b, 0o644); err != nil {
+			return err
+		}
+		set.uses[target] = helpers
+		set.ids[id] = target
+		set.strict[target] = true
+		set.Kept++
+		n++
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	if n == 0 {
+		return 0, fmt.Errorf("no templates (*.yaml) below %s", src)
+	}
+	return n, nil
 }
 
 // Helpers is the number of helper files shipped.
@@ -138,9 +251,14 @@ func validateTemplates(bin, dir string, set *templateSet) error {
 	if err != nil {
 		return err
 	}
-	broken, out, err := nucleiValidate(bin, dir)
+	broken, why, out, err := nucleiValidate(bin, dir)
 	if err != nil {
 		return err
+	}
+	for _, rel := range broken {
+		if set.strict[rel] {
+			return fmt.Errorf("our template %s does not load with %s: %s", rel, bin, why[rel])
+		}
 	}
 	if len(broken) == 0 {
 		if !strings.Contains(out, "validated successfully") {
@@ -172,7 +290,7 @@ func validateTemplates(bin, dir string, set *templateSet) error {
 		set.Dropped["does_not_load"]++
 	}
 	fmt.Fprintf(os.Stderr, "[bundle] %d templates do not load with %s and are left out, first: %s\n", len(broken), bin, broken[0])
-	again, out, err := nucleiValidate(bin, dir)
+	again, _, out, err := nucleiValidate(bin, dir)
 	if err != nil {
 		return err
 	}
@@ -183,11 +301,12 @@ func validateTemplates(bin, dir string, set *templateSet) error {
 }
 
 // nucleiValidate returns the templates below dir that nuclei could not
-// load, as slash paths below dir, and nuclei's diagnostics.
-func nucleiValidate(bin, dir string) ([]string, string, error) {
+// load, as slash paths below dir, what it said about each, and its whole
+// output.
+func nucleiValidate(bin, dir string) ([]string, map[string]string, string, error) {
 	home, err := os.MkdirTemp("", "nuclei-home-")
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	defer os.RemoveAll(home)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -206,25 +325,25 @@ func nucleiValidate(bin, dir string) ([]string, string, error) {
 	out := buf.String()
 	var exit *exec.ExitError
 	if runErr != nil && !errors.As(runErr, &exit) {
-		return nil, out, fmt.Errorf("%s -validate: %w", bin, runErr)
+		return nil, nil, out, fmt.Errorf("%s -validate: %w", bin, runErr)
 	}
-	seen := map[string]bool{}
+	why := map[string]string{}
 	var broken []string
 	for _, m := range templateErrRe.FindAllStringSubmatch(out, -1) {
 		rel, err := filepath.Rel(dir, strings.TrimSpace(m[1]))
 		if err != nil || strings.HasPrefix(rel, "..") {
-			return nil, out, fmt.Errorf("%s -validate names a template outside %s: %s", bin, dir, m[1])
+			return nil, nil, out, fmt.Errorf("%s -validate names a template outside %s: %s", bin, dir, m[1])
 		}
-		if rel = filepath.ToSlash(rel); !seen[rel] {
-			seen[rel] = true
+		if rel = filepath.ToSlash(rel); why[rel] == "" {
+			why[rel] = strings.TrimSpace(m[2])
 			broken = append(broken, rel)
 		}
 	}
 	sort.Strings(broken)
 	if runErr != nil && len(broken) == 0 {
-		return nil, out, fmt.Errorf("%s -validate failed without naming a template: %v: %s", bin, runErr, tail(out, 600))
+		return nil, nil, out, fmt.Errorf("%s -validate failed without naming a template: %v: %s", bin, runErr, tail(out, 600))
 	}
-	return broken, out, nil
+	return broken, why, out, nil
 }
 
 func tail(s string, n int) string {

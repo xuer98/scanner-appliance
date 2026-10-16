@@ -27,6 +27,12 @@ name: bundle
 #   NUCLEI_TEMPLATES_REF pinned nuclei-templates commit/tag (default: the tag the lab runs were made with)
 #   BUNDLE_RUNNER        a runner label, such as kvm, when the control plane is
 #                        reachable only from a self-hosted runner (default ubuntu-latest)
+# Our own nuclei templates: nuclei-extra/ in this repository, shipped under
+# nuclei-templates/custom/ by the rules of the pinned set (--nuclei-extra);
+# one that breaks a rule, repeats an id or does not load stops the build
+# (nuclei-extra/README.md). A workflow_dispatch with dry_run=true builds the
+# bundle against the day's feed and the pinned set and publishes nothing:
+# the check for a new template before it is merged.
 
 on:
   schedule:
@@ -37,6 +43,9 @@ on:
       canary_hours:
         description: "Canary period before general release (hours)"
         default: "48"
+      dry_run:
+        description: "Build only, publish nothing (true/false)"
+        default: "false"
 
 permissions:
   contents: read
@@ -134,11 +143,21 @@ jobs:
 
       - name: bundle build
         run: |
+          extra=()
+          if find nuclei-extra -type f \( -name '*.yaml' -o -name '*.yml' \) | grep -q .; then
+            extra=(--nuclei-extra nuclei-extra)
+          fi
           "$RUNNER_TEMP/cp-api" bundle build --out bundle-out --feed feed-mirror \
-            --nuclei-templates nuclei-templates --nuclei engine-bin/nuclei \
+            --nuclei-templates nuclei-templates --nuclei engine-bin/nuclei "${extra[@]}" \
             --key "$RUNNER_TEMP/release-key.pem" | tee bundle-summary.json
 
+      - name: dry run
+        if: github.event.inputs.dry_run == 'true'
+        run: |
+          echo "Dry run: built bundle $(jq -r .version bundle-summary.json) with feed $(jq -r .feed_version bundle-summary.json), $(jq -r .templates bundle-summary.json) templates ($(jq -r '.templates_custom // 0' bundle-summary.json) of them ours); nothing published." >> "$GITHUB_STEP_SUMMARY"
+
       - name: publish (canary first)
+        if: github.event.inputs.dry_run != 'true'
         env:
           CP_URL: ${{ secrets.CP_ADMIN_URL || secrets.STAGING_CP_ADMIN_URL }}
           CP_ADMIN_TOKEN: ${{ secrets.CP_ADMIN_TOKEN || secrets.STAGING_CP_ADMIN_TOKEN }}

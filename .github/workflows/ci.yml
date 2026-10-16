@@ -91,6 +91,15 @@ jobs:
           bin/engine/httpx -version
           bin/engine/nuclei -version
 
+      - name: Our nuclei templates (nuclei-extra/) pass the bundle rules and load with the image's nuclei
+        run: |
+          if ! find nuclei-extra -type f \( -name '*.yaml' -o -name '*.yml' \) | grep -q .; then
+            echo "nuclei-extra/ holds no templates"
+            exit 0
+          fi
+          go run ./controlplane/cmd/cp-api bundle build --out "$RUNNER_TEMP/extra-bundle" \
+            --nuclei-extra nuclei-extra --nuclei bin/engine/nuclei --key dev/pki/release-key.pem
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist

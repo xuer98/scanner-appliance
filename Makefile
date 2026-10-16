@@ -56,8 +56,8 @@ dev-job: dev-ca   ## create + run a job now: make dev-job APL=apl_… MODE=disco
 # Phase 3: a bundle from a feed mirror (FEED=path to the nasl tree; empty = configs + fragile ports only)
 FEED ?=
 TEMPLATES ?=
-dev-bundle: dev-ca  ## build a signed bundle into dev/bundle (FEED=… TEMPLATES=…)
-	go run ./controlplane/cmd/cp-api bundle build --out dev/bundle $(if $(FEED),--feed $(FEED)) $(if $(TEMPLATES),--nuclei-templates $(TEMPLATES)) --key dev/pki/release-key.pem
+dev-bundle: dev-ca  ## build a signed bundle into dev/bundle (FEED=… TEMPLATES=… EXTRA=nuclei-extra NUCLEI=bin/engine/nuclei)
+	go run ./controlplane/cmd/cp-api bundle build --out dev/bundle $(if $(FEED),--feed $(FEED)) $(if $(TEMPLATES),--nuclei-templates $(TEMPLATES)) $(if $(EXTRA),--nuclei-extra $(EXTRA)) $(if $(NUCLEI),--nuclei $(NUCLEI)) --key dev/pki/release-key.pem
 
 dev-publish-bundle: ## publish dev/bundle to the local cp-api (canary first: make the appliance a canary with `admin set-canary`)
 	CP_URL=https://localhost:9443 CP_ADMIN_TOKEN=dev CP_ROOT_CA=dev/pki/root.pem \

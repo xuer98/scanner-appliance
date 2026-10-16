@@ -6,6 +6,17 @@ until 2026-10-15. Earlier history is in git.
 
 ## Unreleased
 
+- 2026-10-16: our own nuclei templates as a bundle input. `cp-api bundle build
+  --nuclei-extra DIR` ships the templates of a directory under
+  `nuclei-templates/custom/` by the rules of the pinned set, and stops the
+  build where the filter would drop one of them, where an id repeats or is
+  the pinned set's, where a helper file sits at a path the pinned set uses,
+  or where one does not load with the image's nuclei. The daily workflow
+  ships `nuclei-extra/` from this repository, CI checks that directory on
+  every push, and a `workflow_dispatch` of the bundle workflow with
+  `dry_run=true` builds against the pinned set without publishing. Checked
+  with nuclei v3.4.10: a template under `custom/` finds a helper named
+  from the root of our directory through that parent.
 - 2026-10-15: the engine tools' module fetches, in the container build and in
   `ci/build-engine.sh`, get four attempts with growing pauses, after the
   v0.1.0 container job failed twice on HTTP/2 stream errors from Go's checksum

@@ -66,13 +66,14 @@ func ensureReleaseKeys(pkiDir string, create bool, log *slog.Logger) ([]*ecdsa.P
 
 func bundleCmd(args []string) error {
 	if len(args) < 1 || args[0] != "build" {
-		return errors.New("usage: cp-api bundle build --out DIR [--feed DIR] [--configs DIR] [--nuclei-templates DIR [--nuclei BIN]] [--fragile-ports 9100,...] [--version V] --key release-key.pem")
+		return errors.New("usage: cp-api bundle build --out DIR [--feed DIR] [--configs DIR] [--nuclei-templates DIR] [--nuclei-extra DIR] [--nuclei BIN] [--fragile-ports 9100,...] [--version V] --key release-key.pem")
 	}
 	fs := flag.NewFlagSet("bundle build", flag.ContinueOnError)
 	out := fs.String("out", "", "output directory (manifest.json, manifest.sig, root/)")
 	feed := fs.String("feed", "", "VT feed tree (directory holding plugin_feed_info.inc), e.g. the rsync mirror")
 	configs := fs.String("configs", "", "directory of scan config JSON files (default: the shipped inventory/full)")
 	templates := fs.String("nuclei-templates", "", "nuclei templates checkout to filter and ship (http templates without dos/fuzz/intrusive tags)")
+	extra := fs.String("nuclei-extra", "", "directory of our own nuclei templates, shipped under nuclei-templates/custom/ by the same rules; one that breaks a rule, repeats an id or does not load stops the build (needs --nuclei)")
 	nucleiBin := fs.String("nuclei", os.Getenv("CP_NUCLEI"), "nuclei binary of the version the appliance image carries: templates it cannot load are left out")
 	fragile := fs.String("fragile-ports", "", "comma-separated default fragile-device ports (default 9100,515,631,161,502,44818)")
 	ver := fs.String("version", "", "bundle version (default: UTC timestamp)")
@@ -127,11 +128,24 @@ func bundleCmd(args []string) error {
 		}
 		summary["configs"] = len(scanconfig.Defaults())
 	}
-	if *templates != "" {
+	if *extra != "" && *nucleiBin == "" {
+		return errors.New("--nuclei-extra needs --nuclei: our own templates are checked with the appliance's nuclei")
+	}
+	if *templates != "" || *extra != "" {
 		dst := filepath.Join(root, bundle.TemplatesDir)
-		set, err := filterTemplates(*templates, dst, splitCSV(*excl))
-		if err != nil {
-			return fmt.Errorf("nuclei templates: %w", err)
+		set := newTemplateSet()
+		if *templates != "" {
+			var err error
+			if set, err = filterTemplates(*templates, dst, splitCSV(*excl)); err != nil {
+				return fmt.Errorf("nuclei templates: %w", err)
+			}
+		}
+		if *extra != "" {
+			n, err := addExtraTemplates(*extra, dst, set, splitCSV(*excl))
+			if err != nil {
+				return fmt.Errorf("nuclei templates (%s): %w", *extra, err)
+			}
+			summary["templates_custom"] = n
 		}
 		if *nucleiBin != "" {
 			if err := validateTemplates(*nucleiBin, dst, set); err != nil {
@@ -285,37 +299,43 @@ var templateKeys = map[string]bool{
 // templateDrop names why a template is left out of the bundle, "" to keep
 // it. The web add-on promises HTTP checks against the target only.
 func templateDrop(b []byte, exclude map[string]bool) string {
+	_, why := templateCheck(b, exclude)
+	return why
+}
+
+// templateCheck is templateDrop with the template's id.
+func templateCheck(b []byte, exclude map[string]bool) (id, why string) {
 	var h templateHead
 	if err := yaml.Unmarshal(b, &h); err != nil || h.ID == "" || (h.HTTP == nil && h.Requests == nil) {
-		return "not_http"
+		return h.ID, "not_http"
 	}
 	var top map[string]any
 	if err := yaml.Unmarshal(b, &top); err != nil {
-		return "not_http"
+		return h.ID, "not_http"
 	}
 	for k := range top {
 		if !templateKeys[k] {
-			return "other_protocol"
+			return h.ID, "other_protocol"
 		}
 	}
 	if h.SelfContained {
 		// Self-contained templates call third-party services, not the target.
-		return "self_contained"
+		return h.ID, "self_contained"
 	}
 	for _, section := range []any{h.HTTP, h.Requests} {
 		reqs, _ := section.([]any)
 		for _, r := range reqs {
 			if m, ok := r.(map[string]any); ok && m["fuzzing"] != nil {
-				return "fuzzing"
+				return h.ID, "fuzzing"
 			}
 		}
 	}
 	for _, t := range templateTags(h.Info.Tags) {
 		if exclude[strings.ToLower(t)] {
-			return "excluded_tag"
+			return h.ID, "excluded_tag"
 		}
 	}
-	return ""
+	return h.ID, ""
 }
 
 func templateTags(v any) []string {
@@ -344,7 +364,7 @@ func filterTemplates(src, dst string, exclude []string) (*templateSet, error) {
 	for _, e := range exclude {
 		ex[strings.ToLower(strings.TrimSpace(e))] = true
 	}
-	set := &templateSet{Dropped: map[string]int{}, uses: map[string][]string{}, users: map[string]int{}}
+	set := newTemplateSet()
 	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -362,7 +382,8 @@ func filterTemplates(src, dst string, exclude []string) (*templateSet, error) {
 		if err != nil {
 			return err
 		}
-		if why := templateDrop(b, ex); why != "" {
+		id, why := templateCheck(b, ex)
+		if why != "" {
 			set.Dropped[why]++
 			return nil
 		}
@@ -393,6 +414,9 @@ func filterTemplates(src, dst string, exclude []string) (*templateSet, error) {
 			return err
 		}
 		set.uses[rel] = helpers
+		if _, dup := set.ids[id]; !dup {
+			set.ids[id] = rel
+		}
 		set.Kept++
 		return nil
 	})
