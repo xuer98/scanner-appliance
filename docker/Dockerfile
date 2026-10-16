@@ -2,7 +2,7 @@
 # Scanner appliance container (PLAN 4.7). Build from the repo root:
 #
 #   docker buildx build -f docker/Dockerfile --build-arg VERSION=1.2.3 \
-#       --platform linux/amd64,linux/arm64 -t ghcr.io/tprm/scanner-appliance:1.2.3 .
+#       --platform linux/amd64,linux/arm64 -t ghcr.io/xuer98/scanner-appliance:1.2.3 .
 #
 # daemon/internal/pki/roots.pem (the pinned root CA) must exist in the build
 # context; ci/build.sh puts it there (--dev generates a development CA).
@@ -166,7 +166,7 @@ ARG TARGETARCH
 ARG WITH_NMAP
 LABEL org.opencontainers.image.title="scanner-appliance" \
       org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.source="https://github.com/tprm/scanner-appliance" \
+      org.opencontainers.image.source="https://github.com/xuer98/scanner-appliance" \
       org.opencontainers.image.description="TPRM scanner appliance daemon and scan engine"
 
 ENV DEBIAN_FRONTEND=noninteractive

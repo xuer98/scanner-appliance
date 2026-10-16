@@ -16,7 +16,11 @@ name: release
 #                              runner (ci/smoke/lib.sh), and the staging
 #                              control plane and the appliance accept only
 #                              that signature. Without it the smoke skips
-#                              the bundle test (SMOKE_SKIP_BUNDLE=1).
+#                              the bundle test (SMOKE_SKIP_BUNDLE=1). It also
+#                              signs the daemon release published to the
+#                              staging control plane, unless RELEASE_KEY_PEM
+#                              is set (the v0.1.0 run skipped that step for
+#                              want of it).
 #   FEED_TARBALL_URL           URL of the VT feed snapshot tarball on the
 #                              control-plane feed mirror (packer/scripts/
 #                              seed-feed.sh). Without it the images ship
@@ -367,10 +371,10 @@ jobs:
         env:
           CP_URL: ${{ secrets.STAGING_CP_ADMIN_URL }}
           CP_ADMIN_TOKEN: ${{ secrets.STAGING_CP_ADMIN_TOKEN }}
-          RELEASE_KEY_PEM: ${{ secrets.RELEASE_KEY_PEM }}
+          RELEASE_KEY_PEM: ${{ secrets.RELEASE_KEY_PEM || secrets.STAGING_RELEASE_KEY_PEM }}
         run: |
           if [ -z "$CP_URL" ] || [ -z "$RELEASE_KEY_PEM" ]; then
-            echo "STAGING_CP_ADMIN_URL / RELEASE_KEY_PEM not set; skipping release publication"
+            echo "STAGING_CP_ADMIN_URL / RELEASE_KEY_PEM (or STAGING_RELEASE_KEY_PEM) not set; skipping release publication"
             exit 0
           fi
           printf '%s\n' "$RELEASE_KEY_PEM" > "$RUNNER_TEMP/release-key.pem"

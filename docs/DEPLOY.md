@@ -66,10 +66,14 @@ sha256sum appliance-1.2.3.ova            # compare with manifest.json
 cosign verify-blob \
   --signature appliance-1.2.3.ova.sig \
   --certificate appliance-1.2.3.ova.pem \
-  --certificate-identity-regexp 'github.com/tprm/scanner-appliance' \
+  --certificate-identity-regexp '^https://github\.com/xuer98/scanner-appliance/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   appliance-1.2.3.ova
 ```
+
+The download page prints this command for the release it shows, with the exact
+identity (`…/release.yml@refs/tags/v1.2.3`); the pattern above accepts any
+release that workflow built. Checked against v0.1.0 on 2026-10-15.
 
 ## Option A: VMware vSphere (OVA)
 
@@ -192,7 +196,7 @@ docker run -d --name scanner-appliance --restart unless-stopped \
   -v openvas-state:/var/lib/openvas \
   -e APPLIANCE_CODE=ABCD-EFGH-IJKL-MNOP-QRST \
   -e APPLIANCE_PROXY=user:pass@proxy.vendor.local:3128 \
-  ghcr.io/tprm/scanner-appliance:VERSION
+  ghcr.io/xuer98/scanner-appliance:VERSION
 ```
 
 - `appliance-state` holds the appliance's private key and certificate. It
@@ -209,7 +213,7 @@ docker run -d --name scanner-appliance --restart unless-stopped \
   `APPLIANCE_IP_MODE`, `APPLIANCE_IP_CIDR`, `APPLIANCE_GW`, `APPLIANCE_DNS`
   (not used with host networking) and `APPLIANCE_SPLIT`.
 - Images are multi-arch (amd64, arm64) and signed:
-  `cosign verify ghcr.io/tprm/scanner-appliance:VERSION --certificate-identity-regexp 'github.com/tprm/scanner-appliance' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+  `cosign verify ghcr.io/xuer98/scanner-appliance:VERSION --certificate-identity-regexp '^https://github\.com/xuer98/scanner-appliance/\.github/workflows/release\.yml@refs/tags/v' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 - Logs: `docker logs scanner-appliance`. Status: `docker exec scanner-appliance applianced status`.
 
 ## Option D: Windows host (daemon only)
